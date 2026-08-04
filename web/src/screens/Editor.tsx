@@ -6,6 +6,7 @@ import { PromptPanel } from '../panels/PromptPanel.js'
 import { ValidationPanel } from '../panels/ValidationPanel.js'
 import { ShotList } from '../panels/ShotList.js'
 import { Inspector } from '../panels/Inspector.js'
+import { AssetBin } from '../panels/AssetBin.js'
 
 interface Props {
   slug: string
@@ -46,7 +47,8 @@ export function Editor({ slug, onClose }: Props) {
           </button>
         </span>
       </div>
-      <div className="grid flex-1 grid-cols-[220px_1fr_1fr_280px] overflow-hidden divide-x divide-neutral-800">
+      <div className="grid flex-1 grid-cols-[200px_200px_1fr_1fr_280px] overflow-hidden divide-x divide-neutral-800">
+        <AssetBin slug={slug} />
         <ShotList />
         <PromptPanel />
         <ValidationPanel />
