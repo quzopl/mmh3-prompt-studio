@@ -1069,6 +1069,17 @@ describe('ShotTrack', () => {
     expect(first.style.width).toBe('300px')
   })
 
+  it('ujęcie z czasem cięcia poza długością wideo zostaje przypięte do krawędzi', () => {
+    useProject.getState().apply(p => ({
+      ...p,
+      shots: p.shots.map(s => s.id === 'b' ? { ...s, startMs: 12000 } : s),
+    }))
+    render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+    const second = screen.getByRole('button', { name: /ujęcie 2/i })
+    expect(Number.parseFloat(second.style.left)).toBeLessThanOrEqual(800)
+    expect(Number.parseFloat(second.style.width)).toBeGreaterThanOrEqual(8)
+  })
+
   it('kliknięcie zaznacza ujęcie', async () => {
     render(<ShotTrack scale={createScale(8000, 800, 1)} />)
     await userEvent.click(screen.getByRole('button', { name: /ujęcie 2/i }))
@@ -1101,7 +1112,22 @@ import { useProject } from '../store/projectStore.js'
 import { useSelection } from '../store/selectionStore.js'
 import { useT } from '../i18n/useT.js'
 import { msToPx, type Scale } from './scale.js'
-import { shotSpans } from './spans.js'
+import { shotSpans, type ShotSpan } from './spans.js'
+
+/** Najwęższy klip, jaki da się jeszcze chwycić myszą. */
+const MIN_CLIP_PX = 8
+
+/**
+ * Prostokąt klipu przycięty do widocznego obszaru. Ujęcie z czasem cięcia poza
+ * długością wideo jest błędem, który walidator zgłasza — ale narysowane poza
+ * ekranem byłoby nie do chwycenia, więc jedyny klip, który trzeba naprawić,
+ * byłby jedynym nieosiągalnym. Przypinamy je do krawędzi zamiast gubić.
+ */
+export function clipBox(scale: Scale, span: ShotSpan): { left: number; width: number } {
+  const left = Math.min(msToPx(scale, span.startMs), msToPx(scale, scale.durationMs) - MIN_CLIP_PX)
+  const right = Math.min(msToPx(scale, span.endMs), msToPx(scale, scale.durationMs))
+  return { left: Math.max(0, left), width: Math.max(MIN_CLIP_PX, right - left) }
+}
 
 export function ShotTrack({ scale }: { scale: Scale }) {
   const t = useT()
@@ -1135,10 +1161,7 @@ export function ShotTrack({ scale }: { scale: Scale }) {
                 ? 'border-sky-600 bg-sky-950 text-sky-100'
                 : 'border-neutral-700 bg-neutral-900 hover:border-neutral-500'
             }`}
-            style={{
-              left: msToPx(scale, span.startMs),
-              width: Math.max(2, msToPx(scale, span.endMs - span.startMs)),
-            }}
+            style={clipBox(scale, span)}
           >
             <span className="font-mono">{span.shot.index + 1}</span>
             {span.shot.composition && (
