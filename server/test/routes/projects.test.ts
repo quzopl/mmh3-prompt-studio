@@ -139,4 +139,12 @@ describe('DELETE /api/projects/:slug', () => {
     expect((await app.inject({ method: 'DELETE', url: '/api/projects/nie-ma' })).statusCode)
       .toBe(404)
   })
+
+  it('odrzuca slug próbujący wyjść poza katalog danych', async () => {
+    for (const slug of ['..', '%2e%2e', '../..', 'a/../..']) {
+      const res = await app.inject({ method: 'DELETE', url: `/api/projects/${slug}` })
+      expect(res.statusCode, slug).not.toBe(204)
+      expect(res.statusCode, slug).toBeLessThan(500)
+    }
+  })
 })

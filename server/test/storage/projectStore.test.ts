@@ -116,4 +116,9 @@ describe('deleteProject', () => {
   it('zgłasza błąd dla nieistniejącego projektu', async () => {
     await expect(deleteProject(root, 'nie-ma')).rejects.toThrow(/nie istnieje/i)
   })
+
+  it('magazyn odmawia pracy poza katalogiem danych', async () => {
+    await expect(deleteProject(root, '..')).rejects.toThrow(/poza katalogiem danych/i)
+    await expect(readProject(root, '../..')).rejects.toThrow(/poza katalogiem danych/i)
+  })
 })

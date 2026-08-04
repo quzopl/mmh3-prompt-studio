@@ -1,12 +1,16 @@
 import { readdir, rm, writeFile } from 'node:fs/promises'
-import { extname, join } from 'node:path'
+import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Asset } from '@mmh3/shared'
-import { assetsDir } from './paths.js'
+import { assertInsideRoot, assetsDir } from './paths.js'
 
 export type AssetKind = Asset['kind']
 
 const THUMBNAIL_WIDTH = 320
+
+const EXTENSION_BY_KIND: Record<AssetKind, string> = {
+  image: '.img', video: '.vid', audio: '.aud',
+}
 
 export function assetKindFromMime(mime: string): AssetKind | null {
   if (mime.startsWith('image/')) return 'image'
@@ -29,10 +33,11 @@ export async function saveAsset(
   const kind = assetKindFromMime(file.mime)
   if (!kind) throw new Error(`Niedozwolony typ pliku: ${file.mime || '(brak)'}`)
 
-  const id = `asset-${randomUUID()}`
-  const extension = extname(file.fileName) || ''
-  const stored = `${id}${extension}`
   const dir = assetsDir(root, slug)
+  assertInsideRoot(root, dir)
+
+  const id = `asset-${randomUUID()}`
+  const stored = `${id}${EXTENSION_BY_KIND[kind]}`
   await writeFile(join(dir, stored), file.data)
 
   if (kind === 'image') await writeThumbnail(dir, id, file.data)
@@ -56,6 +61,7 @@ async function writeThumbnail(dir: string, id: string, data: Buffer): Promise<vo
 
 export async function removeAsset(root: string, slug: string, assetId: string): Promise<void> {
   const dir = assetsDir(root, slug)
+  assertInsideRoot(root, dir)
   let entries: string[]
   try {
     entries = await readdir(dir)

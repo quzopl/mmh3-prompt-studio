@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseProject, type Mode, type Project } from '@mmh3/shared'
-import { assetsDir, exportsDir, projectDir, projectFile, slugify } from './paths.js'
+import { assertInsideRoot, assetsDir, exportsDir, projectDir, projectFile, slugify } from './paths.js'
 import { newProject } from './newProject.js'
 
 export interface ProjectSummary {
@@ -21,6 +21,7 @@ const exists = async (path: string): Promise<boolean> => {
 }
 
 export async function projectExists(root: string, slug: string): Promise<boolean> {
+  assertInsideRoot(root, projectDir(root, slug))
   return exists(projectFile(root, slug))
 }
 
@@ -45,11 +46,13 @@ export async function writeProject(
   slug: string,
   project: Project,
 ): Promise<void> {
+  assertInsideRoot(root, projectDir(root, slug))
   await mkdir(projectDir(root, slug), { recursive: true })
   await writeFile(projectFile(root, slug), `${JSON.stringify(project, null, 2)}\n`, 'utf8')
 }
 
 export async function readProject(root: string, slug: string): Promise<Project> {
+  assertInsideRoot(root, projectDir(root, slug))
   const path = projectFile(root, slug)
   if (!await exists(path)) throw new Error(`Projekt "${slug}" nie istnieje`)
   return parseProject(JSON.parse(await readFile(path, 'utf8')))
@@ -84,6 +87,7 @@ export async function listProjects(root: string): Promise<ProjectSummary[]> {
 
 export async function deleteProject(root: string, slug: string): Promise<void> {
   const dir = projectDir(root, slug)
+  assertInsideRoot(root, dir)
   if (!await exists(dir)) throw new Error(`Projekt "${slug}" nie istnieje`)
   await rm(dir, { recursive: true, force: true })
 }

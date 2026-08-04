@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply } from 'fastify'
 import { z } from 'zod'
 import { buildPrompt, ProjectSchema } from '@mmh3/shared'
 import {
@@ -11,7 +11,19 @@ const CreateBody = z.object({
 })
 
 const UpdateBody = z.object({ project: ProjectSchema })
-const SlugParams = z.object({ slug: z.string().min(1) })
+
+/** Wyłącznie kształt, jaki produkuje slugify — nic z separatorem ani kropką. */
+const SlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'Niepoprawny identyfikator projektu')
+const SlugParams = z.object({ slug: SlugSchema })
+
+function parseParamsOrReply<T>(
+  schema: z.ZodType<T>, value: unknown, reply: FastifyReply,
+): T | undefined {
+  const parsed = schema.safeParse(value)
+  if (parsed.success) return parsed.data
+  reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'Niepoprawne żądanie' })
+  return undefined
+}
 
 const isMissing = (err: unknown): boolean =>
   err instanceof Error && /nie istnieje/i.test(err.message)
@@ -40,7 +52,9 @@ export function registerProjectRoutes(app: FastifyInstance): void {
   })
 
   app.get('/api/projects/:slug', async (request, reply) => {
-    const { slug } = SlugParams.parse(request.params)
+    const params = parseParamsOrReply(SlugParams, request.params, reply)
+    if (!params) return
+    const { slug } = params
     try {
       const project = await readProject(app.dataRoot, slug)
       const result = buildPrompt(project)
@@ -56,7 +70,9 @@ export function registerProjectRoutes(app: FastifyInstance): void {
   })
 
   app.put('/api/projects/:slug', async (request, reply) => {
-    const { slug } = SlugParams.parse(request.params)
+    const params = parseParamsOrReply(SlugParams, request.params, reply)
+    if (!params) return
+    const { slug } = params
     const parsed = UpdateBody.safeParse(request.body)
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Projekt niezgodny ze schematem', details: parsed.error.issues })
@@ -73,7 +89,9 @@ export function registerProjectRoutes(app: FastifyInstance): void {
   })
 
   app.delete('/api/projects/:slug', async (request, reply) => {
-    const { slug } = SlugParams.parse(request.params)
+    const params = parseParamsOrReply(SlugParams, request.params, reply)
+    if (!params) return
+    const { slug } = params
     try {
       await deleteProject(app.dataRoot, slug)
       return reply.status(204).send()

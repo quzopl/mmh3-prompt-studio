@@ -1,22 +1,35 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply } from 'fastify'
 import multipart from '@fastify/multipart'
 import { z } from 'zod'
 import { projectDir } from '../storage/paths.js'
 import { readProject, writeProject } from '../storage/projectStore.js'
 import { removeAsset, saveAsset } from '../storage/assetStore.js'
 
-const Params = z.object({ slug: z.string().min(1) })
-const AssetParams = z.object({ slug: z.string().min(1), assetId: z.string().min(1) })
+/** Wyłącznie kształt, jaki produkuje slugify — nic z separatorem ani kropką. */
+const SlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'Niepoprawny identyfikator projektu')
+const Params = z.object({ slug: SlugSchema })
+const AssetParams = z.object({ slug: SlugSchema, assetId: z.string().min(1) })
 
 const MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+
+function parseParamsOrReply<T>(
+  schema: z.ZodType<T>, value: unknown, reply: FastifyReply,
+): T | undefined {
+  const parsed = schema.safeParse(value)
+  if (parsed.success) return parsed.data
+  reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'Niepoprawne żądanie' })
+  return undefined
+}
 
 export async function registerAssetRoutes(app: FastifyInstance): Promise<void> {
   await app.register(multipart, { limits: { fileSize: MAX_UPLOAD_BYTES } })
 
   app.post('/api/projects/:slug/assets', async (request, reply) => {
-    const { slug } = Params.parse(request.params)
+    const params = parseParamsOrReply(Params, request.params, reply)
+    if (!params) return
+    const { slug } = params
 
     let project
     try {
@@ -43,7 +56,9 @@ export async function registerAssetRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get('/api/projects/:slug/assets/:assetId/raw', async (request, reply) => {
-    const { slug, assetId } = AssetParams.parse(request.params)
+    const params = parseParamsOrReply(AssetParams, request.params, reply)
+    if (!params) return
+    const { slug, assetId } = params
     let project
     try {
       project = await readProject(app.dataRoot, slug)
@@ -60,7 +75,9 @@ export async function registerAssetRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.delete('/api/projects/:slug/assets/:assetId', async (request, reply) => {
-    const { slug, assetId } = AssetParams.parse(request.params)
+    const params = parseParamsOrReply(AssetParams, request.params, reply)
+    if (!params) return
+    const { slug, assetId } = params
     let project
     try {
       project = await readProject(app.dataRoot, slug)

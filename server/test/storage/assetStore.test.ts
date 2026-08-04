@@ -47,7 +47,7 @@ describe('saveAsset', () => {
     expect(asset.fileName).toBe('kadr.png')
     expect(asset.id).toMatch(/^asset-/)
     const files = await readdir(assetsDir(root, slug))
-    expect(files).toContain(`${asset.id}.png`)
+    expect(files).toContain(`${asset.id}.img`)
   })
 
   it('nadaje unikalne identyfikatory plikom o tej samej nazwie', async () => {
@@ -68,7 +68,7 @@ describe('saveAsset', () => {
     })
     expect(asset.kind).toBe('image')
     const files = await readdir(assetsDir(root, slug))
-    expect(files).toContain(`${asset.id}.png`)
+    expect(files).toContain(`${asset.id}.img`)
   })
 })
 

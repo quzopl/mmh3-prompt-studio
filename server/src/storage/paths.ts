@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 
 const DIACRITICS: Record<string, string> = {
   ą: 'a', ć: 'c', ę: 'e', ł: 'l', ń: 'n', ó: 'o', ś: 's', ź: 'z', ż: 'z',
@@ -20,6 +20,18 @@ export function slugify(name: string): string {
 
   if (!slug) throw new Error(`Z nazwy "${name}" nie da się zbudować nazwy katalogu`)
   return slug
+}
+
+/**
+ * Druga linia obrony. Trasy walidują kształt sluga, ale katalog danych jest
+ * zbyt cenny, żeby polegać na jednym sprawdzeniu — `deleteProject` kasuje
+ * rekurencyjnie.
+ */
+export function assertInsideRoot(root: string, candidate: string): void {
+  const rel = relative(root, candidate)
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`Ścieżka "${candidate}" wychodzi poza katalogiem danych`)
+  }
 }
 
 export const projectDir = (root: string, slug: string): string => join(root, slug)
