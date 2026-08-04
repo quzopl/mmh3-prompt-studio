@@ -1980,7 +1980,10 @@ export function injectPrompt(
   }
 
   const target: Node = isPlainObject(node.inputs) ? node.inputs : node
-  if (!(field in target)) {
+  // hasOwnProperty, nie `in` — `in` przechodzi po lancuchu prototypow, wiec
+  // pole o nazwie toString albo valueOf przechodziloby te kontrole na wezle,
+  // ktory takiego pola nie ma.
+  if (!Object.prototype.hasOwnProperty.call(target, field)) {
     throw new Error(`Węzeł "${nodeId}" nie ma pola "${field}"`)
   }
 
