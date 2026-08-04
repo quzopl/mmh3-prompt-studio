@@ -27,6 +27,21 @@ export function Inspector() {
 
 type Apply = (mutate: (project: Project) => Project) => void
 
+/**
+ * Puste pole daje zero i walidator to zgłosi — taka jest pętla zwrotna.
+ * NaN natomiast przechodzi przez typy i po cichu wyłącza część reguł
+ * czasowych, bo każde porównanie z NaN jest fałszem, więc go nie wpuszczamy.
+ *
+ * Przez samo pole `type="number"` NaN nie przyjdzie — HTML sanityzuje wpis
+ * nieliczbowy do pustego ciągu, zanim onChange go zobaczy. To zabezpieczenie
+ * na inne drogi do modelu: import projektu, łatkę od modelu językowego,
+ * zmianę programową. Dlatego testujemy je wprost, a nie przez DOM.
+ */
+export const toMs = (raw: string, previous: number): number => {
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? parsed : previous
+}
+
 function ProjectFields({ t, project, apply }: { t: Translate; project: Project; apply: Apply }) {
   return (
     <div className="flex flex-col gap-3">
@@ -43,7 +58,7 @@ function ProjectFields({ t, project, apply }: { t: Translate; project: Project; 
           value={project.video.durationMs}
           onChange={event => apply(current => ({
             ...current,
-            video: { ...current.video, durationMs: Number(event.target.value) },
+            video: { ...current.video, durationMs: toMs(event.target.value, current.video.durationMs) },
           }))}
           className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm"
         />
@@ -98,7 +113,7 @@ function ShotFields({ t, shot, apply }: { t: Translate; shot: Shot; apply: Apply
           <input
             type="number"
             value={shot.startMs}
-            onChange={event => patch({ startMs: Number(event.target.value) })}
+            onChange={event => patch({ startMs: toMs(event.target.value, shot.startMs) })}
             className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm"
           />
         </Field>

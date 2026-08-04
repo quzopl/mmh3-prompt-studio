@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Project } from '@mmh3/shared'
-import { Inspector } from '../../src/panels/Inspector.js'
+import { Inspector, toMs } from '../../src/panels/Inspector.js'
 import { useProject } from '../../src/store/projectStore.js'
 import { useSelection } from '../../src/store/selectionStore.js'
 import { useLang } from '../../src/i18n/useT.js'
@@ -56,6 +56,13 @@ describe('Inspector', () => {
     await userEvent.clear(field)
     await userEvent.type(field, '5000')
     expect(useProject.getState().project!.shots[1]!.startMs).toBe(5000)
+  })
+
+  it('toMs odrzuca wartość nieliczbową i zachowuje poprzednią', () => {
+    expect(toMs('abc', 8000)).toBe(8000)
+    expect(toMs('Infinity', 8000)).toBe(8000)
+    expect(toMs('', 8000)).toBe(0)
+    expect(toMs('5000', 8000)).toBe(5000)
   })
 
   it('pokazuje komunikat, gdy zaznaczony obiekt zniknął', () => {

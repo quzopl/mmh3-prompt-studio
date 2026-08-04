@@ -72,7 +72,9 @@ export function ShotList() {
               }`}
             >
               {t('shot.number', { number: shot.index + 1 })}
-              <span className="ml-2 font-mono text-xs text-neutral-500">{shot.startMs} ms</span>
+              <span className="ml-2 font-mono text-xs text-neutral-500">
+                {t('shot.msValue', { ms: shot.startMs })}
+              </span>
             </button>
             <button
               type="button"
