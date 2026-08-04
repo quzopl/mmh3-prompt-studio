@@ -74,18 +74,33 @@ const speakerFirstIntro = defineRule({
     const out: Diagnostic[] = []
     for (const shot of [...project.shots].sort((a, b) => a.index - b.index)) {
       for (const seg of shot.body) {
-        if (seg.kind !== 'speaker') continue
-        const fresh = seg.speakerIds.filter(id => !introduced.has(id))
-        if (fresh.length === 0) continue
-        for (const id of fresh) introduced.add(id)
-        const hasDescriptor = seg.form === 'full' || Boolean(seg.descriptor)
-        if (hasDescriptor) continue
-        out.push(makeDiagnostic(
-          speakerFirstIntro,
-          { kind: 'speaker', id: fresh[0]! },
-          'Pierwsze wystąpienie mówcy musi zawierać opis tożsamości głosu.',
-          'A speaker\'s first appearance must establish a stable voice identity.',
-        ))
+        if (seg.kind === 'speaker') {
+          const fresh = seg.speakerIds.filter(id => !introduced.has(id))
+          if (fresh.length === 0) continue
+          for (const id of fresh) introduced.add(id)
+          if (seg.form === 'full' || seg.descriptor) continue
+          out.push(makeDiagnostic(
+            speakerFirstIntro,
+            { kind: 'speaker', id: fresh[0]! },
+            'Pierwsze wystąpienie mówcy musi zawierać opis tożsamości głosu.',
+            'A speaker\'s first appearance must establish a stable voice identity.',
+          ))
+          continue
+        }
+        if (seg.kind === 'label' && seg.speakerId) {
+          if (introduced.has(seg.speakerId)) continue
+          introduced.add(seg.speakerId)
+          // Segment etykiety renderuje samo "<Subject N> (Sx)" i nie niesie opisu,
+          // więc tożsamość głosu musi być zapisana w rekordzie mówcy.
+          const speaker = project.speakers.find(s => s.id === seg.speakerId)
+          if (speaker?.fullDescriptor.trim()) continue
+          out.push(makeDiagnostic(
+            speakerFirstIntro,
+            { kind: 'speaker', id: seg.speakerId },
+            'Pierwsze wystąpienie mówcy musi zawierać opis tożsamości głosu.',
+            'A speaker\'s first appearance must establish a stable voice identity.',
+          ))
+        }
       }
     }
     return out
