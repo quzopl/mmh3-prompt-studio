@@ -26,6 +26,24 @@ test('od utworzenia projektu do gotowego promptu', async ({ page }) => {
   // wyścigowo wyprzedzałoby PUT za każdym razem, nie tylko czasami.
   await autosaved
 
+  // Oś czasu: jedno ujęcie na start, podział daje drugie, cofnięcie wraca do jednego.
+  const clips = page.getByRole('button', { name: /^ujęcie \d/i })
+  await expect(clips).toHaveCount(1)
+
+  await page.getByRole('slider', { name: /linijka czasu/i }).click({ position: { x: 450, y: 5 } })
+  await page.getByRole('button', { name: /dodaj ujęcie/i }).click()
+  await expect(clips).toHaveCount(2)
+  // Ten sam fragment tekstu trafia też do panelu z pełnym promptem (`PromptPanel`)
+  // obok monitora — bez zawężenia do regionu monitora selektor łapie oba miejsca
+  // naraz i Playwright odmawia w trybie strict. Region monitora to właśnie ten
+  // fragment, który dowodzi, że podział dotarł do kompilatora.
+  await expect(
+    page.getByRole('region', { name: /^monitor$/i }).getByText(/\[Shot 2\] At 00:0/),
+  ).toBeVisible()
+
+  await page.keyboard.press('Control+z')
+  await expect(clips).toHaveCount(1)
+
   // Zmiana języka przełącza interfejs, ale nie treść promptu.
   await page.getByRole('button', { name: 'EN' }).click()
   await expect(page.getByText(/ready to export/i)).toBeVisible()
