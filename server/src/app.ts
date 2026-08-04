@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import { registerProjectRoutes } from './routes/projects.js'
 import { registerAssetRoutes } from './routes/assets.js'
+import { registerExportRoutes } from './routes/export.js'
 
 export const VERSION = '0.1.0'
 
@@ -17,6 +18,7 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
 
   registerProjectRoutes(app)
   await registerAssetRoutes(app)
+  registerExportRoutes(app)
 
   app.setNotFoundHandler(async (request, reply) => {
     await reply.status(404).send({ error: `Nie znaleziono ścieżki ${request.url}` })
