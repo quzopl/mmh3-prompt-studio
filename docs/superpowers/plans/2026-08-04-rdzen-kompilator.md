@@ -17,7 +17,7 @@
 - Teksty źródłowe guide'ów leżą w `docs/guide_base.md` i `docs/guide_ref.md`. Przy rozbieżności między tym planem a guide'em wygrywa guide.
 - Treść wewnątrz `<d>…</d>` jest **verbatim** — żaden kod nie tłumaczy jej, nie przycina ani nie zmienia interpunkcji.
 - Każda diagnostyka ma komunikat po polsku (`message`) i po angielsku (`messageEn`) oraz odwołanie do sekcji guide'a (`guideRef`).
-- Commity po polsku, w trybie rozkazującym, prefiks `feat:` / `test:` / `chore:`.
+- Commity po polsku, prefiks `feat:` / `test:` / `chore:` / `fix:`. Treść komunikatu dyktuje krok „Commit" danego zadania — używaj jej dosłownie.
 - Wszystkie identyfikatory obiektów są jawnie podawane w fixture'ach testowych — brak losowości w testach.
 
 ---
