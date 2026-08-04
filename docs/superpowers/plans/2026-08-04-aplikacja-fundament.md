@@ -3164,7 +3164,10 @@ describe('ModePicker', () => {
   it('pokazuje wszystkie tryby z opisami', () => {
     render(<ModePicker onPick={vi.fn()} />)
     for (const mode of ['T2VA', 'I2VA', 'FL2VA', 'L2VA', 'REF']) {
-      expect(screen.getByRole('button', { name: new RegExp(mode) })).toBeInTheDocument()
+      // Kotwica jest konieczna: "FL2VA" zawiera "L2VA" jako podciąg, więc
+      // niezakotwiczone wyrażenie trafiłoby w dwa przyciski naraz. Nazwa
+      // dostępna przycisku zaczyna się od kodu trybu.
+      expect(screen.getByRole('button', { name: new RegExp(`^${mode}`) })).toBeInTheDocument()
     }
     expect(screen.getByText(/jedyny tryb bez linii alignmentu/i)).toBeInTheDocument()
   })
@@ -3172,7 +3175,7 @@ describe('ModePicker', () => {
   it('zgłasza wybrany tryb', async () => {
     const onPick = vi.fn()
     render(<ModePicker onPick={onPick} />)
-    await userEvent.click(screen.getByRole('button', { name: /FL2VA/ }))
+    await userEvent.click(screen.getByRole('button', { name: /^FL2VA/ }))
     expect(onPick).toHaveBeenCalledWith('FL2VA')
   })
 
