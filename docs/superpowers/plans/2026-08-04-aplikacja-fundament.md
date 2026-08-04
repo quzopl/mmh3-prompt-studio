@@ -2566,6 +2566,8 @@ const pl = {
   'export.comfyField': 'Pole węzła',
   'export.comfyUpload': 'Wgraj workflow',
   'export.blocked': 'Eksport zablokowany — walidator zgłasza błędy.',
+  'export.invalidJson': 'Plik nie jest poprawnym JSON-em',
+  'export.serverError': 'Serwer odpowiedział kodem {status}',
 
   'common.cancel': 'Anuluj',
   'common.save': 'Zapisz',
@@ -2641,6 +2643,8 @@ const en: Record<TKey, string> = {
   'export.comfyField': 'Node field',
   'export.comfyUpload': 'Upload workflow',
   'export.blocked': 'Export blocked — the validator reports errors.',
+  'export.invalidJson': 'The file is not valid JSON',
+  'export.serverError': 'The server responded with status {status}',
 
   'common.cancel': 'Cancel',
   'common.save': 'Save',
@@ -4886,7 +4890,7 @@ export function ExportPanel({ slug }: { slug: string }) {
       })
       const body = await response.json()
       if (!response.ok) {
-        setError(body.error ?? `Serwer odpowiedział kodem ${response.status}`)
+        setError(body.error ?? t('export.serverError', { status: response.status }))
         return
       }
       setError(null)
@@ -4927,7 +4931,7 @@ export function ExportPanel({ slug }: { slug: string }) {
               setWorkflow(JSON.parse(await file.text()))
               setError(null)
             } catch {
-              setError('Plik nie jest poprawnym JSON-em')
+              setError(t('export.invalidJson'))
             }
           }}
         />
