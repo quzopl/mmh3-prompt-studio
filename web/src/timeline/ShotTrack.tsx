@@ -1,5 +1,5 @@
 import { useProject } from '../store/projectStore.js'
-import { useSelection } from '../store/selectionStore.js'
+import { same, useSelection } from '../store/selectionStore.js'
 import { useT } from '../i18n/useT.js'
 import { msToPx, type Scale } from './scale.js'
 import { shotSpans, type ShotSpan } from './spans.js'
@@ -39,7 +39,7 @@ export function ShotTrack({ scale }: { scale: Scale }) {
     >
       {shotSpans(project.shots, project.video.durationMs).map(span => {
         const ref = { kind: 'shot' as const, id: span.shot.id }
-        const isSelected = selected.some(candidate => candidate.kind === ref.kind && candidate.id === ref.id)
+        const isSelected = selected.some(candidate => same(candidate, ref))
         return (
           <button
             key={span.shot.id}

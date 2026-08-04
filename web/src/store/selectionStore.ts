@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import type { ObjectRef } from '@mmh3/shared'
 
-const same = (a: ObjectRef, b: ObjectRef): boolean => a.kind === b.kind && a.id === b.id
+/** Tożsamość zaznaczenia — wspólna dla store'u i konsumentów spoza niego. */
+export const same = (a: ObjectRef, b: ObjectRef): boolean => a.kind === b.kind && a.id === b.id
 
 interface SelectionState {
   selected: ObjectRef[]
