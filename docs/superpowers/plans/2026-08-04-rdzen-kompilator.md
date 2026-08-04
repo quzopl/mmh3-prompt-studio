@@ -1191,7 +1191,7 @@ export function renderLabelSegment(
 - [ ] **Step 4: Uruchom testy**
 
 Run: `cd ~/mmh3-studio && npm test -- renderSpeech`
-Expected: PASS, 15 testów
+Expected: PASS, 14 testów
 
 - [ ] **Step 5: Commit**
 
@@ -3141,7 +3141,7 @@ export const cameraRules: Rule[] = [
 - [ ] **Step 5: Uruchom testy**
 
 Run: `cd ~/mmh3-studio && npm test -- timeCamera`
-Expected: PASS, 15 testów
+Expected: PASS, 14 testów
 
 - [ ] **Step 6: Commit**
 
