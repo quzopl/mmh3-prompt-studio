@@ -43,6 +43,7 @@ const pl = {
   'timeline.playhead': 'Znacznik odtwarzania',
   'timeline.trackShots': 'Ujęcia',
   'timeline.clipLabel': 'Ujęcie {number}, od {start} ms do {end} ms',
+  'timeline.boundaryHandle': 'Ujęcie {number} — przeciągnij granicę, aby zmienić czas cięcia',
 
   'validation.ready': 'Gotowy do eksportu',
   'validation.count': 'Problemy: {count}',
@@ -132,6 +133,7 @@ const en: Record<TKey, string> = {
   'timeline.playhead': 'Playhead',
   'timeline.trackShots': 'Shots',
   'timeline.clipLabel': 'Shot {number}, from {start} ms to {end} ms',
+  'timeline.boundaryHandle': 'Shot {number} — drag the boundary to change the cut time',
 
   'validation.ready': 'Ready to export',
   'validation.count': 'Issues: {count}',

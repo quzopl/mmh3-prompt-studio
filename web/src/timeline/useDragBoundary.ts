@@ -1,11 +1,32 @@
-import { useRef } from 'react'
 import { MS_PER_FRAME, snapToFrame } from '@mmh3/shared'
 import { useProject } from '../store/projectStore.js'
 import { pxToMs, snapMs, type Scale } from './scale.js'
 import { shotSpans } from './spans.js'
 
-/** Dwie klatki. Krócej i po przyciągnięciu do klatki cięcia przestałyby rosnąć. */
-export const MIN_SHOT_MS = Math.round(2 * MS_PER_FRAME)
+/**
+ * Indeks klatki najbliższej danemu czasowi i odwrotność — te same wzory co
+ * `snapToFrame`, ale osobno, żeby dało się dodawać/odejmować klatki jako
+ * liczby całkowite. `previousMs + MIN_SHOT_MS` wygląda kusząco prosto, ale
+ * MIN_SHOT_MS to zaokrąglone dwie klatki (83 ms, nie dokładne 83,333…), więc
+ * dodanie go do czasu sąsiada zdejmuje wynik z siatki klatek za każdym razem,
+ * gdy ten sąsiad sam nie leży w klatce zero. Licząc na indeksach klatek,
+ * ograniczenie zawsze wypada dokładnie na granicy klatki.
+ */
+const frameIndexOf = (ms: number): number => Math.round(ms / MS_PER_FRAME)
+const msOfFrameIndex = (frame: number): number => Math.round(frame * MS_PER_FRAME)
+
+/** Najkrótsze dopuszczalne ujęcie w klatkach. Krócej i po przyciągnięciu do klatki cięcia przestałyby rosnąć. */
+const MIN_SHOT_FRAMES = 2
+
+export const MIN_SHOT_MS = msOfFrameIndex(MIN_SHOT_FRAMES)
+
+/**
+ * Tolerancja przyciągania do punktów (inne granice, początek i koniec wideo).
+ * Liczbowo dziś taka sama jak `MIN_SHOT_MS`, ale to zbieżność, nie zależność
+ * — jedno reguluje najkrótsze ujęcie, drugie promień przyciągania kursora, i
+ * wolno je stroić osobno.
+ */
+export const SNAP_TOLERANCE_MS = msOfFrameIndex(MIN_SHOT_FRAMES)
 
 export interface BoundaryArgs {
   desiredMs: number
@@ -22,14 +43,22 @@ export interface BoundaryArgs {
  */
 export function boundaryTargetMs(args: BoundaryArgs): number {
   const snapped = snapToFrame(snapMs(args.desiredMs, args.snapPoints, args.toleranceMs))
-  const lowest = args.previousMs + MIN_SHOT_MS
-  const highest = args.nextMs - MIN_SHOT_MS
+  const lowest = msOfFrameIndex(frameIndexOf(args.previousMs) + MIN_SHOT_FRAMES)
+  const highest = msOfFrameIndex(frameIndexOf(args.nextMs) - MIN_SHOT_FRAMES)
   return Math.min(Math.max(snapped, lowest), highest)
 }
 
-export function useDragBoundary(scale: Scale) {
-  const gesture = useRef(0)
+/**
+ * Identyfikator gestu musi być unikalny w całym procesie, nie tylko w obrębie
+ * jednej instancji komponentu — stąd zmienna modułowa zamiast `useRef`. Gdyby
+ * licznik żył w refie, odmontowanie i ponowne zamontowanie `ShotTrack`
+ * zresetowałoby go do zera, a drugi (osobny) gest odtworzyłby ten sam klucz
+ * koalescencji co pierwszy i scaliłby się z jego już zamkniętym wpisem
+ * historii zamiast dołożyć nowy.
+ */
+let gestureCounter = 0
 
+export function useDragBoundary(scale: Scale) {
   return (shotId: string, event: React.PointerEvent<HTMLElement>) => {
     const project = useProject.getState().project
     if (!project) return
@@ -38,8 +67,8 @@ export function useDragBoundary(scale: Scale) {
 
     event.preventDefault()
     event.stopPropagation()
-    gesture.current += 1
-    const coalesceKey = `shot-boundary:${shotId}:${gesture.current}`
+    gestureCounter += 1
+    const coalesceKey = `shot-boundary:${shotId}:${gestureCounter}`
     const bounds = track.getBoundingClientRect()
     const target = event.currentTarget
 
@@ -58,10 +87,10 @@ export function useDragBoundary(scale: Scale) {
       ]
       const startMs = boundaryTargetMs({
         desiredMs,
-        previousMs: spans[position - 1]!.startMs,
+        previousMs: spans[position - 1]?.startMs ?? 0,
         nextMs: spans[position + 1]?.startMs ?? current.video.durationMs,
         snapPoints,
-        toleranceMs: MIN_SHOT_MS,
+        toleranceMs: SNAP_TOLERANCE_MS,
       })
 
       useProject.getState().apply(

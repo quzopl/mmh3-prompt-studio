@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { Project } from '@mmh3/shared'
+import { isFrameAligned, type Project } from '@mmh3/shared'
 import { firePointer } from './pointer.js'
-import { boundaryTargetMs, MIN_SHOT_MS } from '../../src/timeline/useDragBoundary.js'
+import { boundaryTargetMs, MIN_SHOT_MS, SNAP_TOLERANCE_MS } from '../../src/timeline/useDragBoundary.js'
 import { ShotTrack } from '../../src/timeline/ShotTrack.js'
 import { createScale } from '../../src/timeline/scale.js'
 import { useProject } from '../../src/store/projectStore.js'
@@ -34,6 +34,27 @@ describe('boundaryTargetMs', () => {
 
   it('ograniczenia mają pierwszeństwo przed punktem przyciągania', () => {
     expect(boundaryTargetMs({ ...base, desiredMs: 10, snapPoints: [0] })).toBe(MIN_SHOT_MS)
+  })
+
+  it('dolne ograniczenie zostaje na siatce klatek, nawet gdy poprzednik sam nie leży w klatce zero', () => {
+    // previousMs = 208 to klatka 5 (5 * 41,666… ≈ 208,33, zaokrąglone do 208).
+    // Naiwne `previousMs + MIN_SHOT_MS` dałoby 208 + 83 = 291 — poza siatką,
+    // bo MIN_SHOT_MS to zaokrąglone dwie klatki, nie dokładna wielokrotność
+    // MS_PER_FRAME. Klatka 7 (5 + 2) leży w 292 ms.
+    const result = boundaryTargetMs({ ...base, previousMs: 208, desiredMs: 10 })
+    expect(isFrameAligned(result)).toBe(true)
+    expect(result).toBe(292)
+  })
+
+  it('korzysta z rzeczywistej tolerancji przyciągania (SNAP_TOLERANCE_MS), nie tylko wartości 40 z reszty testów', () => {
+    const justInside = 4000 + SNAP_TOLERANCE_MS - 1
+    const justOutside = 4000 + SNAP_TOLERANCE_MS + 1
+    expect(boundaryTargetMs({
+      ...base, desiredMs: justInside, snapPoints: [4000], toleranceMs: SNAP_TOLERANCE_MS,
+    })).toBe(4000)
+    expect(boundaryTargetMs({
+      ...base, desiredMs: justOutside, snapPoints: [4000], toleranceMs: SNAP_TOLERANCE_MS,
+    })).not.toBe(4000)
   })
 })
 
@@ -106,5 +127,84 @@ describe('przeciąganie granicy w ścieżce ujęć', () => {
     render(<ShotTrack scale={createScale(8000, 800, 1)} />)
     dragTo(-200)
     expect(useProject.getState().project!.shots[1]!.startMs).toBe(MIN_SHOT_MS)
+  })
+
+  it('pointercancel przerywa gest i zdejmuje nasłuch — kolejne przeciągnięcie wciąż działa', () => {
+    render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+    const handle = screen.getByRole('separator', { name: /ujęcie 2/i })
+    handle.setPointerCapture = () => {}
+    handle.releasePointerCapture = () => {}
+    handle.parentElement!.getBoundingClientRect = () => ({ left: 0, width: 800 }) as DOMRect
+
+    firePointer(handle, 'pointerdown', 300)
+    firePointer(handle, 'pointermove', 500)
+    const afterMove = useProject.getState().project!.shots[1]!.startMs
+    handle.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true }))
+
+    // Ruch po anulowaniu nie powinien już nic zmieniać — nasłuch został zdjęty.
+    firePointer(handle, 'pointermove', 700)
+    expect(useProject.getState().project!.shots[1]!.startMs).toBe(afterMove)
+
+    // Nowy, świeży gest na tym samym uchwycie wciąż działa poprawnie.
+    firePointer(handle, 'pointerdown', 300)
+    firePointer(handle, 'pointermove', 600)
+    firePointer(handle, 'pointerup', 600)
+    expect(useProject.getState().project!.shots[1]!.startMs).toBe(6000)
+  })
+
+  it('dwa gesty rozdzielone odmontowaniem komponentu to wciąż dwa wpisy w historii', () => {
+    // `gesture` licznika nie wolno trzymać w `useRef` — restartuje się przy
+    // każdym montowaniu komponentu, więc po odmontowaniu i ponownym montażu
+    // drugi gest odtworzyłby ten sam klucz koalescencji co pierwszy i scalił
+    // się z jego (już zamkniętym) wpisem historii zamiast dołożyć nowy.
+    const first = render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+    dragTo(500)
+    first.unmount()
+
+    render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+    dragTo(600)
+
+    expect(useProject.getState().past).toHaveLength(2)
+  })
+
+  it('granica ujęcia środkowego dogania bieżące położenie sąsiada, nie to sprzed gestu', () => {
+    // Trzy ujęcia; najpierw osobnym, zakończonym gestem przesuwamy granicę
+    // trzeciego ujęcia bliżej drugiego, a dopiero potem ciągniemy granicę
+    // drugiego mocno w stronę (starego) położenia trzeciego. Ogranicznik musi
+    // odzwierciedlać bieżący stan sklepu w chwili przeciągania, a nie wartość
+    // sprzed przesunięcia sąsiada.
+    const threeShots: Project = {
+      ...project,
+      video: { ...project.video, durationMs: 9000 },
+      shots: [shot('a', 0, 0), shot('b', 1, 3000), shot('c', 2, 6000)],
+    }
+    useProject.getState().load('test', threeShots)
+    render(<ShotTrack scale={createScale(9000, 900, 1)} />)
+
+    const dragHandle = (name: RegExp, from: number, to: number) => {
+      const handle = screen.getByRole('separator', { name })
+      handle.setPointerCapture = () => {}
+      handle.releasePointerCapture = () => {}
+      handle.parentElement!.getBoundingClientRect = () => ({ left: 0, width: 900 }) as DOMRect
+      firePointer(handle, 'pointerdown', from)
+      firePointer(handle, 'pointermove', to)
+      firePointer(handle, 'pointerup', to)
+    }
+
+    // Ujęcie 3 (900 px szerokości, 0,1 px/ms): 6000 ms = 600 px, przesuwamy do 400 px = 4000 ms.
+    dragHandle(/ujęcie 3/i, 600, 400)
+    const movedC = useProject.getState().project!.shots.find(s => s.id === 'c')!.startMs
+    expect(movedC).toBeLessThan(6000)
+
+    // Teraz ciągniemy granicę ujęcia 2 mocno w prawo, w stronę starego (już nieaktualnego) położenia ujęcia 3.
+    dragHandle(/ujęcie 2/i, 300, 900)
+
+    const shots = useProject.getState().project!.shots
+    const b = shots.find(s => s.id === 'b')!
+    const c = shots.find(s => s.id === 'c')!
+    expect(b.startMs).toBe(movedC - MIN_SHOT_MS)
+    expect(b.startMs).toBeLessThan(c.startMs)
+    // Kolejność cięć (indeksy) pozostaje nienaruszona.
+    expect(shots.map(s => s.index)).toEqual([0, 1, 2])
   })
 })

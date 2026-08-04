@@ -67,9 +67,7 @@ export function ShotTrack({ scale }: { scale: Scale }) {
             {span.shot.index > 0 && (
               <div
                 role="separator"
-                aria-label={t('timeline.clipLabel', {
-                  number: span.shot.index + 1, start: span.startMs, end: span.endMs,
-                })}
+                aria-label={t('timeline.boundaryHandle', { number: span.shot.index + 1 })}
                 onPointerDown={event => startDrag(span.shot.id, event)}
                 className="absolute top-0 z-10 h-10 w-2 -translate-x-1 cursor-col-resize bg-transparent hover:bg-sky-600/40"
                 style={{ left: msToPx(scale, span.startMs) }}
