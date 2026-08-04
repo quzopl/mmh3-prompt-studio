@@ -31,8 +31,6 @@ interface ProjectState extends Compiled {
   undo: () => void
   redo: () => void
   markSaved: () => void
-  canUndo: () => boolean
-  canRedo: () => boolean
 }
 
 /**
@@ -114,6 +112,4 @@ export const useProject = create<ProjectState>((set, get) => ({
   },
 
   markSaved: () => set({ dirty: false }),
-  canUndo: () => get().past.length > 0,
-  canRedo: () => get().future.length > 0,
 }))

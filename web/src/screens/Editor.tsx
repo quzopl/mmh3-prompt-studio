@@ -24,6 +24,12 @@ export function Editor({ slug, onClose }: Props) {
   const project = useProject(state => state.project)
   const undo = useProject(state => state.undo)
   const redo = useProject(state => state.redo)
+  // Długość historii, nie funkcja `canUndo` ze sklepu: getter ma stałą
+  // referencję między wywołaniami `set`, więc subskrypcja na nim nigdy nie
+  // wykryłaby zmiany (ten sam antywzorzec, co przy zaznaczeniu w zadaniach
+  // 5 i 11). Same akcesory zniknęły — nie miały żadnego konsumenta.
+  const canUndo = useProject(state => state.past.length > 0)
+  const canRedo = useProject(state => state.future.length > 0)
   const [error, setError] = useState<string | null>(null)
   const { saving, error: saveError } = useAutosave(slug)
   useTimelineShortcuts()
@@ -66,10 +72,20 @@ export function Editor({ slug, onClose }: Props) {
         {saving && <span className="text-xs text-neutral-500">{t('common.loading')}</span>}
         {saveError && <span className="text-xs text-red-400">{saveError}</span>}
         <span className="ml-auto flex gap-1">
-          <button type="button" onClick={undo} className="rounded px-2 py-0.5 hover:bg-neutral-800">
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndo}
+            className="rounded px-2 py-0.5 hover:bg-neutral-800 disabled:opacity-40 disabled:hover:bg-transparent"
+          >
             {t('editor.undo')}
           </button>
-          <button type="button" onClick={redo} className="rounded px-2 py-0.5 hover:bg-neutral-800">
+          <button
+            type="button"
+            onClick={redo}
+            disabled={!canRedo}
+            className="rounded px-2 py-0.5 hover:bg-neutral-800 disabled:opacity-40 disabled:hover:bg-transparent"
+          >
             {t('editor.redo')}
           </button>
         </span>

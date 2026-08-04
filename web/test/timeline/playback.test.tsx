@@ -38,13 +38,12 @@ describe('Playhead', () => {
   it('stoi w miejscu odpowiadającym czasowi', () => {
     usePlayhead.setState({ ms: 4000, playing: false })
     render(<Playhead scale={createScale(8000, 800, 1)} />)
-    expect(screen.getByRole('presentation', { name: /znacznik odtwarzania/i }).style.left)
-      .toBe('400px')
+    expect(screen.getByRole('presentation').style.left).toBe('400px')
   })
 
   it('przeciągnięcie przesuwa czas', () => {
     render(<Playhead scale={createScale(8000, 800, 1)} />)
-    const handle = screen.getByRole('presentation', { name: /znacznik odtwarzania/i })
+    const handle = screen.getByRole('presentation')
     handle.setPointerCapture = () => {}
     handle.releasePointerCapture = () => {}
     handle.parentElement!.getBoundingClientRect = () => ({ left: 0, width: 800 }) as DOMRect
@@ -54,7 +53,7 @@ describe('Playhead', () => {
     expect(usePlayhead.getState().ms).toBe(2000)
   })
 
-  it('linia jest czysto wizualna — tylko uchwyt ma nazwę dostępności i przyjmuje wskaźnik', () => {
+  it('linia jest czysto wizualna — tylko uchwyt przyjmuje wskaźnik', () => {
     const { container } = render(<Playhead scale={createScale(8000, 800, 1)} />)
 
     // Element linii jest oznaczony `aria-hidden` i niczym innym w tym
@@ -64,11 +63,15 @@ describe('Playhead', () => {
     expect(line).not.toBeNull()
     expect(line?.className).toContain('pointer-events-none')
 
-    // Rolę i nazwę dostępności ma wyłącznie uchwyt — dokładnie jeden element,
-    // nie dwa. Gdyby linia też ją miała (jak przed tą poprawką), przyjmowałaby
+    // Rolę ma wyłącznie uchwyt — dokładnie jeden element, nie dwa. Gdyby linia
+    // też była interaktywna (jak przed poprawką z zadania 7), przyjmowałaby
     // zdarzenia na całej wysokości i przykrywałaby granice ujęć w tym samym
-    // miejscu.
-    expect(screen.getAllByRole('presentation', { name: /znacznik odtwarzania/i })).toHaveLength(1)
+    // miejscu. Uchwyt nie ma własnej nazwy dostępności: kontrolką tej wartości
+    // jest linijka czasu z rolą `slider`, a `aria-label` na elemencie
+    // prezentacyjnym jest niedozwolone i kasuje samą rolę.
+    const handles = screen.getAllByRole('presentation')
+    expect(handles).toHaveLength(1)
+    expect(handles[0]).not.toHaveAttribute('aria-label')
   })
 })
 

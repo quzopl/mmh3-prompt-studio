@@ -36,7 +36,9 @@ describe('Timeline', () => {
     render(<Timeline />)
     expect(screen.getByRole('slider', { name: /linijka czasu/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /ujęcie 1/i })).toBeInTheDocument()
-    expect(screen.getByRole('presentation', { name: /znacznik odtwarzania/i })).toBeInTheDocument()
+    // Znacznik nie ma nazwy dostępności — dostępną kontrolką czasu jest
+    // linijka (`slider`) sprawdzana wyżej, a uchwyt to sam afordans myszy.
+    expect(screen.getByRole('presentation')).toBeInTheDocument()
   })
 
   it('przybliżenie poszerza oś, oddalenie zwęża', async () => {

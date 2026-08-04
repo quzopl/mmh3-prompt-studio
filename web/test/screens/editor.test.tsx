@@ -73,6 +73,29 @@ describe('Editor — przełączenie projektu', () => {
     expect(usePlayhead.getState().playing).toBe(false)
   })
 
+  it('cofanie i ponawianie są wyłączone, dopóki nie ma czego cofać', async () => {
+    // Oba przyciski były włączone zawsze — stąd wzięły się nieużywane
+    // `canUndo`/`canRedo` w sklepie: ktoś przewidział tę potrzebę i nikt jej
+    // nie podłączył. Zamiast trzymać martwe akcesory, przyciski czytają
+    // długość historii wprost (subskrypcja na `past.length`, a nie na funkcji
+    // gettera — ta ma stałą referencję i nigdy nie wywołałaby przemalowania).
+    render(<Editor slug="dlugi" onClose={() => {}} />)
+    await openedName('Długi')
+
+    const undo = screen.getByRole('button', { name: /^cofnij$/i })
+    const redo = screen.getByRole('button', { name: /^ponów$/i })
+    expect(undo).toBeDisabled()
+    expect(redo).toBeDisabled()
+
+    act(() => useProject.getState().apply(p => ({ ...p, style: 'Anime' })))
+    expect(undo).toBeEnabled()
+    expect(redo).toBeDisabled()
+
+    act(() => useProject.getState().undo())
+    expect(undo).toBeDisabled()
+    expect(redo).toBeEnabled()
+  })
+
   it('odmontowanie edytora też zeruje znacznik', async () => {
     // Powrót do listy projektów zostawiał odtwarzanie włączone — kolejny
     // otwarty projekt zastawał je już w biegu.

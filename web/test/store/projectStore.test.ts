@@ -103,17 +103,21 @@ describe('undo i redo', () => {
     useProject.getState().load('test', base)
     useProject.getState().undo()
     expect(useProject.getState().project!.style).toBe('')
-    expect(useProject.getState().canUndo()).toBe(false)
+    expect(useProject.getState().past).toEqual([])
   })
 
-  it('raportuje dostępność cofania i ponawiania', () => {
+  it('historia rośnie i przenosi się między stosami', () => {
+    // Dawniej sprawdzane przez `canUndo`/`canRedo` — akcesory zniknęły, bo
+    // nie miały konsumenta; przyciski edytora czytają długość stosów wprost
+    // i to one są dziś testowane w `web/test/screens/editor.test.tsx`.
     useProject.getState().load('test', base)
-    expect(useProject.getState().canUndo()).toBe(false)
+    expect(useProject.getState().past).toEqual([])
     useProject.getState().apply(p => ({ ...p, style: 'A' }))
-    expect(useProject.getState().canUndo()).toBe(true)
-    expect(useProject.getState().canRedo()).toBe(false)
+    expect(useProject.getState().past).toHaveLength(1)
+    expect(useProject.getState().future).toEqual([])
     useProject.getState().undo()
-    expect(useProject.getState().canRedo()).toBe(true)
+    expect(useProject.getState().past).toEqual([])
+    expect(useProject.getState().future).toHaveLength(1)
   })
 })
 

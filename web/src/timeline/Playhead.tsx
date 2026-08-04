@@ -1,9 +1,7 @@
 import { usePlayhead } from '../store/playheadStore.js'
-import { useT } from '../i18n/useT.js'
 import { msToPx, pxToMs, type Scale } from './scale.js'
 
 export function Playhead({ scale }: { scale: Scale }) {
-  const t = useT()
   const ms = usePlayhead(state => state.ms)
   const setMs = usePlayhead(state => state.setMs)
   const left = msToPx(scale, ms)
@@ -50,9 +48,19 @@ export function Playhead({ scale }: { scale: Scale }) {
         className="pointer-events-none absolute bottom-0 top-0 z-20 w-px bg-amber-400"
         style={{ left }}
       />
+      {/*
+        Uchwyt jest szczerze prezentacyjny: `role="presentation"` bez
+        `aria-label`, bo `aria-label` na elemencie prezentacyjnym jest
+        niedozwolone i przeglądarka rozstrzyga ten konflikt zdejmując rolę —
+        element nie był wtedy ani prezentacyjny, ani kontrolką (nie miał też
+        `tabIndex`). Rozstrzygnięcie długu z zadania 7: dostępną kontrolką tej
+        wartości jest linijka czasu, która ma rolę `slider` i własną nazwę,
+        a przewijanie z klawiatury działa globalnie strzałkami, Home i End.
+        Uchwyt tylko dubluje myszą funkcję już osiągalną — nie potrzebuje
+        więc własnej nazwy dostępności i nie powinien jej udawać.
+      */}
       <div
         role="presentation"
-        aria-label={t('timeline.playhead')}
         onPointerDown={startDrag}
         className="absolute top-0 z-30 h-2 w-2 -translate-x-1 cursor-col-resize rounded-sm bg-amber-400"
         style={{ left }}

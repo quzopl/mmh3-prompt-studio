@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useSelection } from '../../src/store/selectionStore.js'
+import { same, useSelection } from '../../src/store/selectionStore.js'
 
 const shot = (id: string) => ({ kind: 'shot' as const, id })
 
@@ -21,9 +21,14 @@ describe('useSelection', () => {
   })
 
   it('rozpoznaje zaznaczenie po rodzaju i identyfikatorze, nie po referencji', () => {
+    // Predykat `same` jest tym, czego używają oba konsumenty (`ShotTrack`
+    // i `PromptPanel`) — sklep nie ma już własnej metody `isSelected`, bo
+    // subskrypcja na getterze o stałej referencji nie przemalowuje widoku
+    // i była pułapką dla nowego kodu.
     useSelection.getState().select(shot('a'))
-    expect(useSelection.getState().isSelected({ kind: 'shot', id: 'a' })).toBe(true)
-    expect(useSelection.getState().isSelected({ kind: 'camera', id: 'a' })).toBe(false)
+    const selected = useSelection.getState().selected
+    expect(selected.some(ref => same(ref, { kind: 'shot', id: 'a' }))).toBe(true)
+    expect(selected.some(ref => same(ref, { kind: 'camera', id: 'a' }))).toBe(false)
   })
 
   it('czyści całość', () => {

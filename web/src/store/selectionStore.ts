@@ -9,10 +9,9 @@ interface SelectionState {
   select: (ref: ObjectRef) => void
   toggle: (ref: ObjectRef) => void
   clear: () => void
-  isSelected: (ref: ObjectRef) => boolean
 }
 
-export const useSelection = create<SelectionState>((set, get) => ({
+export const useSelection = create<SelectionState>(set => ({
   selected: [],
   select: ref => set({ selected: [ref] }),
   toggle: ref => set(state => ({
@@ -21,5 +20,4 @@ export const useSelection = create<SelectionState>((set, get) => ({
       : [...state.selected, ref],
   })),
   clear: () => set({ selected: [] }),
-  isSelected: ref => get().selected.some(candidate => same(candidate, ref)),
 }))

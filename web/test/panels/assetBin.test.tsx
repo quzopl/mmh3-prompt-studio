@@ -96,6 +96,6 @@ describe('AssetBin', () => {
     const state = useProject.getState()
     expect(state.project!.style).toBe('lokalna zmiana')
     expect(state.project!.assets.map(a => a.id)).toContain('asset-9')
-    expect(state.canUndo()).toBe(true)
+    expect(state.past.length).toBeGreaterThan(0)
   })
 })
