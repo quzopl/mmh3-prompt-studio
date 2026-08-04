@@ -614,7 +614,7 @@ export * from './model/schema.js'
 ```
 
 Run: `cd ~/mmh3-studio && npm test && npm run typecheck`
-Expected: PASS, 7 testów
+Expected: PASS, 6 testów
 
 - [ ] **Step 6: Commit**
 
