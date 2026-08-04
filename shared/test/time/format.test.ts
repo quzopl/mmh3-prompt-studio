@@ -29,6 +29,11 @@ describe('formatShotTime', () => {
     expect(formatShotTime(9000)).toBe('00:09.000')
     expect(formatShotTime(65432)).toBe('01:05.432')
   })
+
+  it('zaokrągla niecałkowite milisekundy', () => {
+    expect(formatShotTime(3500.7)).toBe('00:03.501')
+    expect(formatShotTime(3500.2)).toBe('00:03.500')
+  })
 })
 
 describe('formatAlignSeconds', () => {
@@ -38,5 +43,10 @@ describe('formatAlignSeconds', () => {
     expect(formatAlignSeconds(8000)).toBe('8.00')
     expect(formatAlignSeconds(7500)).toBe('7.50')
     expect(formatAlignSeconds(12340)).toBe('12.34')
+  })
+
+  it('prawidłowo zaokrągla wartości wiążące (tie values)', () => {
+    expect(formatAlignSeconds(1005)).toBe('1.01')
+    expect(formatAlignSeconds(8005)).toBe('8.01')
   })
 })
