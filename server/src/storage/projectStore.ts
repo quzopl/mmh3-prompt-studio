@@ -20,6 +20,10 @@ const exists = async (path: string): Promise<boolean> => {
   }
 }
 
+export async function projectExists(root: string, slug: string): Promise<boolean> {
+  return exists(projectFile(root, slug))
+}
+
 export async function createProject(
   root: string,
   name: string,

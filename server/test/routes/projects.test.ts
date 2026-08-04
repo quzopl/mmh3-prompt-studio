@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { FastifyInstance } from 'fastify'
@@ -109,6 +109,21 @@ describe('PUT /api/projects/:slug', () => {
       method: 'PUT', url: '/api/projects/nie-ma', payload: { project: created.project },
     })
     expect(res.statusCode).toBe(404)
+  })
+
+  it('pozwala naprawić uszkodzony projekt poprawnym zapisem', async () => {
+    const created = (await create('Uszkodzony')).json()
+    await writeFile(join(root, 'uszkodzony', 'project.json'), '{ to nie jest json', 'utf8')
+
+    expect((await app.inject({ method: 'GET', url: '/api/projects/uszkodzony' })).statusCode)
+      .toBe(400)
+
+    const res = await app.inject({
+      method: 'PUT', url: '/api/projects/uszkodzony', payload: { project: created.project },
+    })
+    expect(res.statusCode).toBe(200)
+    expect((await app.inject({ method: 'GET', url: '/api/projects/uszkodzony' })).statusCode)
+      .toBe(200)
   })
 })
 

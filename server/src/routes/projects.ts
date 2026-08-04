@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { buildPrompt, ProjectSchema } from '@mmh3/shared'
 import {
-  createProject, deleteProject, listProjects, readProject, writeProject,
+  createProject, deleteProject, listProjects, projectExists, readProject, writeProject,
 } from '../storage/projectStore.js'
 
 const CreateBody = z.object({
@@ -18,6 +18,9 @@ const isMissing = (err: unknown): boolean =>
 
 const isDuplicate = (err: unknown): boolean =>
   err instanceof Error && /już istnieje/i.test(err.message)
+
+const isCorrupt = (err: unknown): boolean =>
+  err instanceof SyntaxError || (err instanceof Error && err.name === 'ZodError')
 
 export function registerProjectRoutes(app: FastifyInstance): void {
   app.get('/api/projects', async () => listProjects(app.dataRoot))
@@ -44,7 +47,11 @@ export function registerProjectRoutes(app: FastifyInstance): void {
       return { project, prompt: result.text, tokens: result.tokens, diagnostics: result.diagnostics }
     } catch (err) {
       if (isMissing(err)) return reply.status(404).send({ error: (err as Error).message })
-      return reply.status(400).send({ error: `Projekt "${slug}" jest uszkodzony` })
+      if (isCorrupt(err)) {
+        return reply.status(400).send({ error: `Projekt "${slug}" jest uszkodzony` })
+      }
+      // Awaria infrastruktury — nie udawaj, że to wina klienta.
+      throw err
     }
   })
 
@@ -54,11 +61,10 @@ export function registerProjectRoutes(app: FastifyInstance): void {
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Projekt niezgodny ze schematem', details: parsed.error.issues })
     }
-    try {
-      await readProject(app.dataRoot, slug)
-    } catch (err) {
-      if (isMissing(err)) return reply.status(404).send({ error: (err as Error).message })
-      throw err
+    // Sprawdzamy obecność pliku, a nie jego treść: poprawny zapis ma prawo
+    // nadpisać uszkodzony projekt, bo to jedyna operacja zdolna go naprawić.
+    if (!await projectExists(app.dataRoot, slug)) {
+      return reply.status(404).send({ error: `Projekt "${slug}" nie istnieje` })
     }
     const project = parsed.data.project
     await writeProject(app.dataRoot, slug, project)
