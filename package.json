@@ -1,0 +1,11 @@
+{
+  "name": "mmh3-studio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": ["shared"],
+  "scripts": {
+    "test": "npm test --workspace @mmh3/shared",
+    "typecheck": "npm run typecheck --workspace @mmh3/shared"
+  }
+}
