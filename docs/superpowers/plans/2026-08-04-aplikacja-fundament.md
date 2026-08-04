@@ -821,6 +821,7 @@ Czysta logika na systemie plików, bez HTTP. Testowana na katalogu tymczasowym.
   - `projectDir(root: string, slug: string): string`
   - `newProject(name: string, mode: Mode, id: string): Project`
   - `listProjects(root): Promise<ProjectSummary[]>` gdzie `ProjectSummary = { slug: string; name: string; mode: Mode; updatedAt: string }`
+  - `projectExists(root, slug): Promise<boolean>`
   - `readProject(root, slug): Promise<Project>`
   - `writeProject(root, slug, project): Promise<void>`
   - `createProject(root, name, mode): Promise<{ slug: string; project: Project }>`
@@ -1092,6 +1093,10 @@ export async function writeProject(
   await writeFile(projectFile(root, slug), `${JSON.stringify(project, null, 2)}\n`, 'utf8')
 }
 
+export async function projectExists(root: string, slug: string): Promise<boolean> {
+  return exists(projectFile(root, slug))
+}
+
 export async function readProject(root: string, slug: string): Promise<Project> {
   const path = projectFile(root, slug)
   if (!await exists(path)) throw new Error(`Projekt "${slug}" nie istnieje`)
@@ -1316,7 +1321,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { buildPrompt, ProjectSchema } from '@mmh3/shared'
 import {
-  createProject, deleteProject, listProjects, readProject, writeProject,
+  createProject, deleteProject, listProjects, projectExists, readProject, writeProject,
 } from '../storage/projectStore.js'
 
 const CreateBody = z.object({
@@ -1332,6 +1337,10 @@ const isMissing = (err: unknown): boolean =>
 
 const isDuplicate = (err: unknown): boolean =>
   err instanceof Error && /już istnieje/i.test(err.message)
+
+/** Tylko nieczytelna treść pliku jest winą danych; reszta to awaria serwera. */
+const isCorrupt = (err: unknown): boolean =>
+  err instanceof SyntaxError || (err instanceof Error && err.name === 'ZodError')
 
 export function registerProjectRoutes(app: FastifyInstance): void {
   app.get('/api/projects', async () => listProjects(app.dataRoot))
@@ -1357,7 +1366,11 @@ export function registerProjectRoutes(app: FastifyInstance): void {
       return { project, ...buildPrompt(project) }
     } catch (err) {
       if (isMissing(err)) return reply.status(404).send({ error: (err as Error).message })
-      return reply.status(400).send({ error: `Projekt "${slug}" jest uszkodzony` })
+      if (isCorrupt(err)) {
+        return reply.status(400).send({ error: `Projekt "${slug}" jest uszkodzony` })
+      }
+      // Awaria infrastruktury nie jest wina klienta — niech zostanie piatka.
+      throw err
     }
   })
 
@@ -1367,11 +1380,10 @@ export function registerProjectRoutes(app: FastifyInstance): void {
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Projekt niezgodny ze schematem', details: parsed.error.issues })
     }
-    try {
-      await readProject(app.dataRoot, slug)
-    } catch (err) {
-      if (isMissing(err)) return reply.status(404).send({ error: (err as Error).message })
-      throw err
+    // Sprawdzamy obecność pliku, a nie jego treść: poprawny zapis ma prawo
+    // nadpisać uszkodzony projekt, bo to jedyna operacja zdolna go naprawić.
+    if (!await projectExists(app.dataRoot, slug)) {
+      return reply.status(404).send({ error: `Projekt "${slug}" nie istnieje` })
     }
     const project = parsed.data.project
     await writeProject(app.dataRoot, slug, project)
@@ -2882,7 +2894,7 @@ export interface ProjectSummary {
 
 export interface ProjectResponse {
   project: Project
-  text: string
+  prompt: string
   tokens: Token[]
   diagnostics: Diagnostic[]
 }
@@ -4630,14 +4642,14 @@ afterEach(() => vi.restoreAllMocks())
 
 describe('useAutosave', () => {
   it('nie zapisuje projektu, którego nikt nie zmienił', async () => {
-    const save = vi.spyOn(api, 'saveProject').mockResolvedValue({ text: '', tokens: [], diagnostics: [] })
+    const save = vi.spyOn(api, 'saveProject').mockResolvedValue({ prompt: '', tokens: [], diagnostics: [] })
     renderHook(() => useAutosave('test', 5))
     await new Promise(resolve => setTimeout(resolve, 30))
     expect(save).not.toHaveBeenCalled()
   })
 
   it('zapisuje po chwili bezczynności', async () => {
-    const save = vi.spyOn(api, 'saveProject').mockResolvedValue({ text: '', tokens: [], diagnostics: [] })
+    const save = vi.spyOn(api, 'saveProject').mockResolvedValue({ prompt: '', tokens: [], diagnostics: [] })
     renderHook(() => useAutosave('test', 5))
     act(() => useProject.getState().apply(p => ({ ...p, style: 'Live-action' })))
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
@@ -4645,7 +4657,7 @@ describe('useAutosave', () => {
   })
 
   it('zbija serię szybkich zmian w jeden zapis', async () => {
-    const save = vi.spyOn(api, 'saveProject').mockResolvedValue({ text: '', tokens: [], diagnostics: [] })
+    const save = vi.spyOn(api, 'saveProject').mockResolvedValue({ prompt: '', tokens: [], diagnostics: [] })
     renderHook(() => useAutosave('test', 20))
     act(() => {
       useProject.getState().apply(p => ({ ...p, style: 'A' }))
@@ -4657,7 +4669,7 @@ describe('useAutosave', () => {
   })
 
   it('zdejmuje znacznik zmiany po udanym zapisie', async () => {
-    vi.spyOn(api, 'saveProject').mockResolvedValue({ text: '', tokens: [], diagnostics: [] })
+    vi.spyOn(api, 'saveProject').mockResolvedValue({ prompt: '', tokens: [], diagnostics: [] })
     renderHook(() => useAutosave('test', 5))
     act(() => useProject.getState().apply(p => ({ ...p, style: 'X' })))
     await waitFor(() => expect(useProject.getState().dirty).toBe(false))
