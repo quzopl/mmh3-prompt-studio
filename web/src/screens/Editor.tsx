@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client.js'
 import { useProject } from '../store/projectStore.js'
+import { useAutosave } from '../store/useAutosave.js'
 import { useT } from '../i18n/useT.js'
 import { PromptPanel } from '../panels/PromptPanel.js'
 import { ValidationPanel } from '../panels/ValidationPanel.js'
 import { ShotList } from '../panels/ShotList.js'
 import { Inspector } from '../panels/Inspector.js'
 import { AssetBin } from '../panels/AssetBin.js'
+import { ExportPanel } from '../panels/ExportPanel.js'
 
 interface Props {
   slug: string
@@ -20,6 +22,7 @@ export function Editor({ slug, onClose }: Props) {
   const undo = useProject(state => state.undo)
   const redo = useProject(state => state.redo)
   const [error, setError] = useState<string | null>(null)
+  const { saving, error: saveError } = useAutosave(slug)
 
   useEffect(() => {
     api.getProject(slug)
@@ -38,6 +41,8 @@ export function Editor({ slug, onClose }: Props) {
         </button>
         <span className="font-medium">{project.name}</span>
         <span className="font-mono text-xs text-neutral-500">{project.mode}</span>
+        {saving && <span className="text-xs text-neutral-500">{t('common.loading')}</span>}
+        {saveError && <span className="text-xs text-red-400">{saveError}</span>}
         <span className="ml-auto flex gap-1">
           <button type="button" onClick={undo} className="rounded px-2 py-0.5 hover:bg-neutral-800">
             {t('editor.undo')}
@@ -52,7 +57,10 @@ export function Editor({ slug, onClose }: Props) {
         <ShotList />
         <PromptPanel />
         <ValidationPanel />
-        <Inspector />
+        <div className="flex flex-col divide-y divide-neutral-800 overflow-auto">
+          <Inspector />
+          <ExportPanel slug={slug} />
+        </div>
       </div>
     </div>
   )
