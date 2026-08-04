@@ -4703,6 +4703,20 @@ describe('useAutosave', () => {
     await waitFor(() => expect(useProject.getState().dirty).toBe(false))
   })
 
+  it('nie uznaje za zapisaną edycji wykonanej w trakcie zapisu', async () => {
+    let release: () => void = () => {}
+    vi.spyOn(api, 'saveProject').mockImplementation(
+      () => new Promise(resolve => { release = () => resolve({ prompt: '', tokens: [], diagnostics: [] }) }),
+    )
+    renderHook(() => useAutosave('test', 5))
+    act(() => useProject.getState().apply(p => ({ ...p, style: 'pierwsza' })))
+    await waitFor(() => expect(api.saveProject).toHaveBeenCalledTimes(1))
+    act(() => useProject.getState().apply(p => ({ ...p, style: 'druga' })))
+    act(() => release())
+    await waitFor(() => expect(useProject.getState().project!.style).toBe('druga'))
+    expect(useProject.getState().dirty).toBe(true)
+  })
+
   it('pokazuje błąd i zostawia znacznik zmiany, gdy zapis padnie', async () => {
     vi.spyOn(api, 'saveProject').mockRejectedValue(new Error('dysk pełny'))
     const { result } = renderHook(() => useAutosave('test', 5))
@@ -4795,7 +4809,10 @@ export function useAutosave(slug: string, delayMs = DEFAULT_DELAY_MS) {
       api.saveProject(slug, project)
         .then(() => {
           setError(null)
-          markSaved()
+          // Znacznik zdejmujemy tylko, jeśli w trakcie zapisu nic się nie zmieniło.
+          // Inaczej edycja wykonana w locie zostałaby uznana za zapisaną i po
+          // przeładowaniu zniknęłaby bez ostrzeżenia.
+          if (useProject.getState().project === project) markSaved()
         })
         .catch((err: Error) => setError(err.message))
         .finally(() => setSaving(false))
