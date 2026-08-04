@@ -5005,6 +5005,7 @@ git commit -m "feat: autozapis projektu i eksport wraz z workflow ComfyUI"
 - Create: `web/e2e/happyPath.spec.ts`
 - Modify: `web/package.json` (skrypt `e2e`, zależność `@playwright/test`)
 - Modify: `package.json` (skrypt `e2e`)
+- Modify: `.gitignore` (artefakty Playwrighta: `web/test-results/`, `web/playwright-report/`)
 
 **Interfaces:**
 - Consumes: cała aplikacja
@@ -5018,10 +5019,11 @@ git commit -m "feat: autozapis projektu i eksport wraz z workflow ComfyUI"
 import { test, expect } from '@playwright/test'
 
 test('od utworzenia projektu do gotowego promptu', async ({ page }) => {
+  const name = `E2E ${Date.now()}`
   await page.goto('/')
 
   await page.getByRole('button', { name: /nowy projekt/i }).click()
-  await page.getByLabel(/nazwa projektu/i).fill(`E2E ${Date.now()}`)
+  await page.getByLabel(/nazwa projektu/i).fill(name)
   await page.getByRole('button', { name: /T2VA/ }).click()
   await page.getByRole('button', { name: /^utwórz$/i }).click()
 
@@ -5034,10 +5036,18 @@ test('od utworzenia projektu do gotowego promptu', async ({ page }) => {
   await page.getByLabel(/tło dźwiękowe/i).fill('Rain taps the window.')
   await expect(page.getByText(/gotowy do eksportu/i)).toBeVisible()
 
-  // Zmiana języka przełącza interfejs, ale nie prompt.
+  // Zmiana języka przełącza interfejs, ale nie treść promptu.
   await page.getByRole('button', { name: 'EN' }).click()
   await expect(page.getByText(/ready to export/i)).toBeVisible()
   await expect(page.getByText(/integrated_multimodal_description/)).toBeVisible()
+  await expect(page.getByText(/Live-action, cinematic/).first()).toBeVisible()
+  await expect(page.getByText(/Rain taps the window\./).first()).toBeVisible()
+
+  // Przeładowanie dowodzi, że autozapis naprawdę dotarł na dysk, a nie tylko
+  // do pamięci przeglądarki — bez tego cały ruch mógłby być pozorny.
+  await page.reload()
+  await page.getByRole('button', { name: new RegExp(name) }).click()
+  await expect(page.getByText(/Live-action, cinematic/).first()).toBeVisible()
 })
 ```
 
@@ -5056,7 +5066,11 @@ export default defineConfig({
     {
       command: 'npm run start --workspace @mmh3/server',
       url: 'http://127.0.0.1:8899/api/health',
-      reuseExistingServer: true,
+      // Świadomie NIE wolno tu ponownie użyć działającego serwera. Zmienna
+      // MMH3_DATA_ROOT dotyczy wyłącznie procesu, który Playwright sam startuje,
+      // więc podłączenie się pod uruchomione `npm run dev:api` oznaczałoby
+      // tworzenie projektów testowych w prawdziwym katalogu danych.
+      reuseExistingServer: false,
       env: { MMH3_DATA_ROOT: '/tmp/mmh3-e2e' },
       cwd: '..',
     },
