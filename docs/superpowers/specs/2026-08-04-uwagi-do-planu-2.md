@@ -37,6 +37,16 @@ pierwszej i ostatniej klatce. Dzisiejsze `anchor: Anchor` tego nie wyraża — f
 złoty ustawia tylko `picture-first`, a `ANCHOR_REQUIRED` to akceptuje. Rozszerzenie
 do `anchors: Anchor[]` przed napisaniem edytora kosztuje kilka linii; po — migrację.
 
+**Rozstrzygnięcie (commit `1c597d9`, korekty rdzenia przed budową edytora):**
+zamknięte dokładnie tak, jak zalecał ten wpis — pole ma dziś postać
+`anchors: Anchor[]` (`shared/src/model/types.ts:135`), a schemat przyjmuje
+tablicę wartości `picture-first | picture-last | keyframe`
+(`shared/src/model/schema.ts:99`). Zmiana weszła przed edytorem, więc migracja
+plików projektów nie była potrzebna. Plan 3 oparł na tym odznaki kotwic na
+klipie (`web/src/timeline/AnchorBadges.tsx`): FL2VA ustawia obie kotwice na
+jednym ujęciu bez żadnego obejścia, co przy pojedynczym `anchor` nie było
+wyrażalne.
+
 ## 4. `COMPILE_FAILED` nie jest regułą
 
 `buildPrompt` po nieudanej kompilacji dokłada syntetyczną diagnostykę o tym
@@ -80,9 +90,16 @@ z `path: "../../../../etc/passwd"` zwracał **200 z treścią pliku spoza projek
 
 Dziś zamknięte po stronie serwera — trasa woła `assertInsideRoot(projectDir, resolved)`
 i odpowiada 400. Właściwym domknięciem jest zawężenie samego schematu do
-`/^assets\/[A-Za-z0-9._-]+$/`, ale to zmiana w zamrożonym `shared/`. **Do zrobienia,
-gdy pakiet zostanie odmrożony** — wraz z migracją istniejących plików projektów,
-bo dziś `saveAsset` zapisuje `join('assets', stored)`, co ten wzorzec spełnia.
+`/^assets\/[A-Za-z0-9._-]+$/`, ale to zmiana w zamrożonym `shared/`.
+
+**Rozstrzygnięcie (Plan 3, Task 1, commit `13b28ee`):** zrobione — pakiet został
+odmrożony na czas spłaty długu i `AssetSchema.path` ma dziś dokładnie ten
+wzorzec (`shared/src/model/schema.ts:134`). Migracja plików projektów nie była
+potrzebna, bo `saveAsset` od początku zapisuje `join('assets', stored)`, co
+wzorzec spełnia. Kontrola po stronie trasy (`assertInsideRoot`) została na
+miejscu: schemat zawęża to, co wolno zapisać, a trasa broni się przed tym, co
+już leży na dysku — patrz też punkt 13, gdzie pokazano, że sam wzorzec
+dowiązania symbolicznego nie zamyka.
 
 ---
 
@@ -105,6 +122,13 @@ utraty danych na głośną awarię. Właściwe domknięcie to kolejka zapisów p
 stronie serwera — należy do Planu 3, razem z drugim pisarzem, którego wprowadzi
 oś czasu.
 
+**Domknięte (Plan 3, Task 1, commit `13b28ee`):** kolejka powstała dokładnie w
+zapowiedzianej postaci — `writeQueues` w `server/src/storage/projectStore.ts`
+trzyma po jednej obietnicy na slug, a `writeProject` dokłada swój zapis na jej
+koniec, więc dwaj piszący nigdy nie dzielą pliku tymczasowego. Kolejka jest per
+slug, więc różne projekty nadal zapisują się równolegle; wpis usuwa się dopiero
+wtedy, gdy jest ostatni w łańcuchu, żeby nie porzucić czekających.
+
 ## 11. Ostatnia zmiana ginie przy wyjściu z edytora
 
 Sprzątanie efektu w `useAutosave` kasuje zaplanowany zapis bez opróżnienia, więc
@@ -116,6 +140,13 @@ cudzego projektu.
 blokada nawigacji przy `dirty` — jedno i drugie należy do warstwy nawigacji,
 której ten plan nie budował.
 
+**Stan po Planie 3 (nadal otwarte, wyższa stawka):** oś czasu zwielokrotniła
+drogi, którymi projekt staje się „brudny" — podział i usuwanie ujęć skrótami,
+przeciąganie granicy, odznaki kotwic, pole czasu cięcia w inspektorze. Każda z
+nich potrafi zabrudzić projekt jednym naciśnięciem klawisza, bez dotykania
+formularza, więc okno, w którym wyjście z edytora gubi ostatnią zmianę, jest
+dziś nieporównanie łatwiejsze do trafienia niż przy samym pisaniu w polach.
+
 ## 12. Odnośniki eksportu są wyłączane tylko wizualnie
 
 `pointer-events-none` i `aria-disabled` powstrzymują mysz, ale `href` zostaje, więc
@@ -125,6 +156,12 @@ stan. Twardą strażą jest dziś tylko sprawdzenie `dirty` w eksporcie workflow
 **Rozstrzygnięcie:** dług. Właściwie eksport `.txt` i `.json` powinien powstawać
 w przeglądarce z modelu w pamięci — kompilator i tak działa po stronie klienta —
 a do serwera powinno iść wyłącznie wstrzyknięcie do workflow ComfyUI.
+
+**Stan po Planie 3 (nadal otwarte, wyższa stawka):** ta sama przyczyna co przy
+punkcie 11 — oś czasu dołożyła kilka pisarzy projektu, więc stan `dirty` zapala
+się teraz znacznie częściej i na dłużej. Odnośnik wyłączony wyłącznie wizualnie
+tym częściej odda plik sprzed ostatniej zmiany: dziś wystarczy przeciągnąć
+granicę ujęcia i od razu otworzyć eksport w nowej karcie.
 
 ## 13. `assertInsideRoot` jest leksykalne, nie oparte o `realpath`
 
