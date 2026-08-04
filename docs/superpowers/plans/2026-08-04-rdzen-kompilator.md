@@ -1191,7 +1191,7 @@ export function renderLabelSegment(
 - [ ] **Step 4: Uruchom testy**
 
 Run: `cd ~/mmh3-studio && npm test -- renderSpeech`
-Expected: PASS, 14 testów
+Expected: PASS, 15 testów
 
 - [ ] **Step 5: Commit**
 
@@ -3141,7 +3141,7 @@ export const cameraRules: Rule[] = [
 - [ ] **Step 5: Uruchom testy**
 
 Run: `cd ~/mmh3-studio && npm test -- timeCamera`
-Expected: PASS, 14 testów
+Expected: PASS, 15 testów
 
 - [ ] **Step 6: Commit**
 
@@ -3254,10 +3254,31 @@ describe('reguły mowy', () => {
     }))).toContain('SCENETRANS_BOTH_SIDES')
   })
 
+  it('SPEAKER_FIRST_INTRO — tryb REF: mówca wprowadzony etykietą bez opisu głosu', () => {
+    const speakers = refProject.speakers.map(s =>
+      s.id === 'sp1' ? { ...s, fullDescriptor: '' } : s)
+    expect(run({ ...refProject, speakers })).toContain('SPEAKER_FIRST_INTRO')
+  })
+
+  // Nastepne ujecie musi niesc znacznik kontynuacji, inaczej odpala sie galaz
+  // "brak kontynuacji" i test przeszedlby nawet bez sprawdzania listy fraz.
   it('SCENETRANS_BOTH_SIDES — zdanie o ciągłości spoza dozwolonej listy', () => {
-    expect(run(withDialogue(t2vaProject, {
-      sceneTransAfter: true, continuityPhrase: 'keeps going somehow',
-    }))).toContain('SCENETRANS_BOTH_SIDES')
+    const shots = [...t2vaProject.shots]
+    shots[0] = {
+      ...shots[0]!,
+      dialogue: [{ ...shots[0]!.dialogue[0]!, sceneTransAfter: true, continuityPhrase: 'keeps going somehow' }],
+    }
+    shots[1] = {
+      ...shots[1]!,
+      dialogue: [{
+        ...shots[0]!.dialogue[0]!, id: 'd2', sceneTransBefore: true, sceneTransAfter: false,
+        continuityPhrase: 'carries over from the previous shot',
+        startMs: 5000, endMs: 6000,
+      }],
+      body: [...shots[1]!.body, { kind: 'dialogue', eventId: 'd2' }],
+    }
+    const ids = run({ ...t2vaProject, shots })
+    expect(ids.filter(id => id === 'SCENETRANS_BOTH_SIDES')).toHaveLength(1)
   })
 
   it('CUTOFF_AT_END — mowa wychodzi poza koniec bez znacznika', () => {
@@ -3364,18 +3385,34 @@ const speakerFirstIntro = defineRule({
     const out: Diagnostic[] = []
     for (const shot of [...project.shots].sort((a, b) => a.index - b.index)) {
       for (const seg of shot.body) {
-        if (seg.kind !== 'speaker') continue
-        const fresh = seg.speakerIds.filter(id => !introduced.has(id))
-        if (fresh.length === 0) continue
-        for (const id of fresh) introduced.add(id)
-        const hasDescriptor = seg.form === 'full' || Boolean(seg.descriptor)
-        if (hasDescriptor) continue
-        out.push(makeDiagnostic(
-          speakerFirstIntro,
-          { kind: 'speaker', id: fresh[0]! },
-          'Pierwsze wystąpienie mówcy musi zawierać opis tożsamości głosu.',
-          'A speaker\'s first appearance must establish a stable voice identity.',
-        ))
+        if (seg.kind === 'speaker') {
+          const fresh = seg.speakerIds.filter(id => !introduced.has(id))
+          if (fresh.length === 0) continue
+          for (const id of fresh) introduced.add(id)
+          if (seg.form === 'full' || seg.descriptor) continue
+          out.push(makeDiagnostic(
+            speakerFirstIntro,
+            { kind: 'speaker', id: fresh[0]! },
+            'Pierwsze wystąpienie mówcy musi zawierać opis tożsamości głosu.',
+            'A speaker\'s first appearance must establish a stable voice identity.',
+          ))
+          continue
+        }
+        if (seg.kind === 'label' && seg.speakerId) {
+          if (introduced.has(seg.speakerId)) continue
+          introduced.add(seg.speakerId)
+          // Segment etykiety renderuje samo "<Subject N> (Sx)" i nie niesie opisu,
+          // więc tożsamość głosu musi być zapisana w rekordzie mówcy. Bez tej
+          // gałęzi reguła jest ślepa na tryb REF, gdzie mówców wprowadza etykieta.
+          const speaker = project.speakers.find(s => s.id === seg.speakerId)
+          if (speaker?.fullDescriptor.trim()) continue
+          out.push(makeDiagnostic(
+            speakerFirstIntro,
+            { kind: 'speaker', id: seg.speakerId },
+            'Pierwsze wystąpienie mówcy musi zawierać opis tożsamości głosu.',
+            'A speaker\'s first appearance must establish a stable voice identity.',
+          ))
+        }
       }
     }
     return out
@@ -3536,7 +3573,7 @@ export const speechRules: Rule[] = [
 - [ ] **Step 4: Uruchom testy**
 
 Run: `cd ~/mmh3-studio && npm test -- speech`
-Expected: PASS, 14 testów
+Expected: PASS, 15 testów
 
 - [ ] **Step 5: Commit**
 
