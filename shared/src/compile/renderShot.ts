@@ -1,5 +1,6 @@
 import type { Project, Shot } from '../model/types.js'
 import { formatShotTime } from '../time/format.js'
+import { TRANSITION_PHRASES } from '../vocab/cutPhrases.js'
 import { renderCameraMove } from './renderCamera.js'
 import { renderSpeakerSegment } from './renderSpeaker.js'
 import { renderDialogue } from './renderDialogue.js'
@@ -43,9 +44,12 @@ export function renderShot(
   opts: { includeStyle: boolean },
 ): string {
   const number = shot.index + 1
+  const transition = shot.cutType === 'cut'
+    ? shot.cutPhrase
+    : TRANSITION_PHRASES[shot.cutType]
   const head = shot.index === 0
     ? `[Shot ${number}] `
-    : `[Shot ${number}] At ${formatShotTime(shot.startMs)}, ${shot.cutPhrase} `
+    : `[Shot ${number}] At ${formatShotTime(shot.startMs)}, ${transition} `
   const stylePrefix = shot.index === 0 && opts.includeStyle && project.style
     ? `${project.style}, `
     : ''

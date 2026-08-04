@@ -32,4 +32,24 @@ describe('buildPrompt', () => {
     expect(result.diagnostics.some(d => d.severity === 'error')).toBe(true)
     expect(isExportReady(result.diagnostics)).toBe(false)
   })
+
+  it('nie rzuca wyjątkiem przy wiszącej referencji i pozwala regułom przemówić', () => {
+    const shots = [...t2vaProject.shots]
+    shots[0] = { ...shots[0]!, cameraMoves: [] }
+    const result = buildPrompt({ ...t2vaProject, shots })
+    const ids = result.diagnostics.map(d => d.ruleId)
+    expect(ids).toContain('COMPILE_FAILED')
+    expect(ids).toContain('BODY_REFS_COMPLETE')
+    expect(isExportReady(result.diagnostics)).toBe(false)
+  })
+
+  it('nieznany typ ruchu kamery daje diagnostykę, nie wyjątek', () => {
+    const shots = [...t2vaProject.shots]
+    shots[0] = {
+      ...shots[0]!,
+      cameraMoves: [{ ...shots[0]!.cameraMoves[0]!, type: 'dolly-zoom' as never }],
+    }
+    const ids = buildPrompt({ ...t2vaProject, shots }).diagnostics.map(d => d.ruleId)
+    expect(ids).toContain('CAM_VOCAB')
+  })
 })

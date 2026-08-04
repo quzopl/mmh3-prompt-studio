@@ -8,7 +8,14 @@ if (!path) {
   process.exit(2)
 }
 
-const project = parseProject(JSON.parse(readFileSync(path, 'utf8')))
+let project
+try {
+  project = parseProject(JSON.parse(readFileSync(path, 'utf8')))
+} catch (err) {
+  console.error(`Nie udało się wczytać projektu z ${path}: ${err instanceof Error ? err.message : String(err)}`)
+  process.exit(2)
+}
+
 const { text, diagnostics } = buildPrompt(project)
 
 console.log(text)

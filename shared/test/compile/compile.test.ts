@@ -39,6 +39,14 @@ describe('compile', () => {
     expect(text.slice(label!.start, label!.end)).toBe('<Subject 1>')
   })
 
+  it('token ujęcia 1 w trybie REF wskazuje opis, a nie retention_analysis', () => {
+    const { text, tokens } = compile(refProject)
+    const shot1 = tokens.find(t => t.ref.kind === 'shot' && t.ref.id === 's1')
+    expect(shot1).toBeDefined()
+    expect(shot1!.start).toBeGreaterThan(text.indexOf('detailed_description:'))
+    expect(text.slice(shot1!.start, shot1!.end)).toBe('[Shot 1]')
+  })
+
   it('zwraca tokeny w rosnącej kolejności pozycji', () => {
     const { tokens } = compile(refProject)
     const starts = tokens.map(t => t.start)

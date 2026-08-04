@@ -125,7 +125,7 @@ const dialogueDTagPure = defineRule({
 
 const dialogueVerbatim = defineRule({
   id: 'DIALOGUE_VERBATIM',
-  severity: 'error',
+  severity: 'hint',
   guideRef: 'guide_base §4.4',
   run: ({ project }) => eachDialogue(project, event => {
     const firstWord = event.text.trim().split(/\s|[:,]/)[0]?.toLowerCase() ?? ''
@@ -133,8 +133,8 @@ const dialogueVerbatim = defineRule({
     return [makeDiagnostic(
       dialogueVerbatim,
       { kind: 'dialogue', id: event.id },
-      'Treść kwestii zaczyna się od czasownika mówienia — sposób podania należy poza znacznik <d>.',
-      'The dialogue text starts with a speech verb — delivery belongs outside the <d> tag.',
+      'Treść kwestii zaczyna się od czasownika mówienia — sprawdź, czy sposób podania nie trafił przypadkiem do środka <d>.',
+      'The dialogue text starts with a speech verb — check that delivery has not slipped inside the <d> tag.',
     )]
   }),
 })

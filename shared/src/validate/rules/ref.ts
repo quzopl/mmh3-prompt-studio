@@ -1,5 +1,7 @@
 import type { Project } from '../../model/types.js'
-import { AUDIO_MARKERS, REF_TASK_TYPES, VISUAL_MARKERS } from '../../vocab/refVocab.js'
+import {
+  AUDIO_MARKERS, REF_TASK_TYPES, VIDEO_EDIT_SUMMARY_OPENING, VISUAL_MARKERS,
+} from '../../vocab/refVocab.js'
 import { renderDetailedDescription, renderSummary } from '../../compile/emitRef.js'
 import { labelText } from '../../compile/renderLabel.js'
 import { defineRule, makeDiagnostic, type Diagnostic, type Rule } from '../types.js'
@@ -145,6 +147,23 @@ const refTaskTypes = defineRule({
   },
 })
 
+const refVideoEditOpening = defineRule({
+  id: 'REF_VIDEO_EDIT_OPENING',
+  severity: 'error',
+  guideRef: 'guide_ref §3',
+  run: ({ project }) => {
+    if (!isRef(project)) return []
+    if (!project.ref.taskTypes.includes('video editing')) return []
+    if (project.ref.summaryText.trimStart().startsWith(VIDEO_EDIT_SUMMARY_OPENING)) return []
+    return [makeDiagnostic(
+      refVideoEditOpening,
+      { kind: 'project', id: project.id },
+      `Summary zadania montażowego musi zaczynać się od: "${VIDEO_EDIT_SUMMARY_OPENING}".`,
+      `A video-editing summary must begin with: "${VIDEO_EDIT_SUMMARY_OPENING}".`,
+    )]
+  },
+})
+
 const refAssetLimits = defineRule({
   id: 'REF_ASSET_LIMITS',
   severity: 'error',
@@ -167,7 +186,7 @@ const refAssetLimits = defineRule({
 
 const refWordCount = defineRule({
   id: 'REF_WORD_COUNT',
-  severity: 'warning',
+  severity: 'hint',
   guideRef: 'guide_ref §5.2',
   run: ({ project }) => {
     if (!isRef(project)) return []
@@ -181,16 +200,17 @@ const refWordCount = defineRule({
   },
 })
 
-const refStyleBeforeShot1 = defineRule({
-  id: 'REF_STYLE_BEFORE_SHOT1',
+const styleRequired = defineRule({
+  id: 'STYLE_REQUIRED',
   severity: 'error',
-  guideRef: 'guide_ref §5.2',
+  guideRef: 'guide_base §4.1, guide_ref §5.2',
   run: ({ project }) => {
-    if (!isRef(project) || project.style.trim()) return []
+    if (project.style.trim()) return []
     return [makeDiagnostic(
-      refStyleBeforeShot1, { kind: 'project', id: project.id },
-      'Tryb REF wymaga zdania o stylu przed [Shot 1].',
-      'REF mode requires a style statement before [Shot 1].',
+      styleRequired,
+      { kind: 'project', id: project.id },
+      'Każdy tryb wymaga podania stylu wizualnego — w trybach bazowych otwiera pierwsze ujęcie, w REF stoi w osobnej linii przed [Shot 1].',
+      'Every mode requires a visual style — in base modes it opens the first shot, in REF it stands on its own line before [Shot 1].',
     )]
   },
 })
@@ -215,6 +235,6 @@ const refNoNewLabelsInSummary = defineRule({
 
 export const refRules: Rule[] = [
   refLabelDefined, refLabelUsed, refRetentionComplete, refMarkerVocab,
-  refNoSpeakerInRetention, refTaskTypes, refAssetLimits, refWordCount,
-  refStyleBeforeShot1, refNoNewLabelsInSummary,
+  refNoSpeakerInRetention, refTaskTypes, refVideoEditOpening, refAssetLimits,
+  refWordCount, styleRequired, refNoNewLabelsInSummary,
 ]

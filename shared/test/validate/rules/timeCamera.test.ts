@@ -56,6 +56,18 @@ describe('reguły czasu i kamery', () => {
     expect(run({ ...t2vaProject, shots })).toContain('SHOT_TIME_IN_RANGE')
   })
 
+  it('SHOT_INDEX_SEQUENTIAL — dziura w numeracji ujęć', () => {
+    const shots = [...t2vaProject.shots]
+    shots[1] = { ...shots[1]!, index: 4 }
+    expect(run({ ...t2vaProject, shots })).toContain('SHOT_INDEX_SEQUENTIAL')
+  })
+
+  it('SHOT_INDEX_SEQUENTIAL — powtórzony numer ujęcia', () => {
+    const shots = [...t2vaProject.shots]
+    shots[1] = { ...shots[1]!, index: 0 }
+    expect(run({ ...t2vaProject, shots })).toContain('SHOT_INDEX_SEQUENTIAL')
+  })
+
   it('FRAME_SNAP — czas nie leży na granicy klatki', () => {
     const shots = [...t2vaProject.shots]
     shots[1] = { ...shots[1]!, startMs: 5010 }

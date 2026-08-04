@@ -13,7 +13,10 @@ import { renderLabelSegment } from './renderLabel.js'
  */
 export function buildTokens(project: Project, text: string): Token[] {
   const tokens: Token[] = []
-  let cursor = 0
+  // W trybie REF etykiety ujęć pojawiają się wcześniej, w retention_analysis.
+  // Tokeny opisują tylko treść opisu szczegółowego, więc zaczynamy od niego.
+  const descriptionStart = text.indexOf('detailed_description:')
+  let cursor = descriptionStart === -1 ? 0 : descriptionStart
 
   const locate = (fragment: string, ref: ObjectRef): void => {
     if (!fragment) return

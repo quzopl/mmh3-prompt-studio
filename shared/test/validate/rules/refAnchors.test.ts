@@ -34,6 +34,13 @@ describe('reguły trybu REF', () => {
       .toContain('REF_RETENTION_COMPLETE')
   })
 
+  it('REF_LABEL_DEFINED — segment ujęcia wskazuje niezdefiniowaną etykietę', () => {
+    const labels = refProject.labels.filter(l => l.id !== 'sub2')
+    const retention = refProject.ref.retention.filter(r => r.labelId !== 'sub2')
+    expect(runRef({ ...refProject, labels, ref: { ...refProject.ref, retention } }))
+      .toContain('REF_LABEL_DEFINED')
+  })
+
   it('REF_MARKER_VOCAB — marker wizualny przy etykiecie audio', () => {
     const retention = refProject.ref.retention.map(r =>
       r.labelId === 'aud1' ? { ...r, marker: 'fully_preserved' as const } : r)
@@ -66,8 +73,26 @@ describe('reguły trybu REF', () => {
     expect(runRef({ ...refProject, assets })).toContain('REF_ASSET_LIMITS')
   })
 
-  it('REF_STYLE_BEFORE_SHOT1 — brak zdania o stylu', () => {
-    expect(runRef({ ...refProject, style: '' })).toContain('REF_STYLE_BEFORE_SHOT1')
+  it('REF_VIDEO_EDIT_OPENING — montaż wideo bez wymaganego otwarcia summary', () => {
+    const ref = { ...refProject.ref, taskTypes: ['video editing' as const] }
+    expect(runRef({ ...refProject, ref })).toContain('REF_VIDEO_EDIT_OPENING')
+  })
+
+  it('REF_VIDEO_EDIT_OPENING — poprawne otwarcie nie zgłasza nic', () => {
+    const ref = {
+      ...refProject.ref,
+      taskTypes: ['video editing' as const],
+      summaryText: `The target video is an edited version of <Video 1>. ${refProject.ref.summaryText}`,
+    }
+    expect(runRef({ ...refProject, ref })).not.toContain('REF_VIDEO_EDIT_OPENING')
+  })
+
+  it('STYLE_REQUIRED — brak zdania o stylu w trybie REF', () => {
+    expect(runRef({ ...refProject, style: '' })).toContain('STYLE_REQUIRED')
+  })
+
+  it('STYLE_REQUIRED — tryb bazowy bez stylu', () => {
+    expect(runRef({ ...t2vaProject, style: '' })).toContain('STYLE_REQUIRED')
   })
 
   it('REF_NO_NEW_LABELS_IN_SUMMARY — etykieta niezdefiniowana', () => {

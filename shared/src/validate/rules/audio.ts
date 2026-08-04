@@ -2,10 +2,19 @@ import type { Project } from '../../model/types.js'
 import { DIEGETIC_SOURCES, MOOD_WORDS } from '../../vocab/moodWords.js'
 import { defineRule, makeDiagnostic, type Diagnostic, type Rule } from '../types.js'
 
+const ABBREVIATIONS = ['mr', 'mrs', 'ms', 'dr', 'st', 'vs', 'etc', 'jr', 'sr', 'no']
+
 export function countSentences(text: string): number {
   const trimmed = text.trim()
   if (!trimmed) return 0
-  return trimmed.split(/[.!?]+(?:\s+|$)/).filter(part => part.trim().length > 0).length
+  // Kropka po skrócie albo po pojedynczej wielkiej literze (inicjał)
+  // nie kończy zdania.
+  const masked = trimmed.replace(/\b([A-Za-z]{1,4})\./g, (match, word: string) =>
+    ABBREVIATIONS.includes(word.toLowerCase()) || /^[A-Z]$/.test(word)
+      ? `${word} `
+      : match,
+  )
+  return masked.split(/[.!?]+(?:\s+|$)/).filter(part => part.trim().length > 0).length
 }
 
 const isNA = (text: string): boolean => text.trim() === 'N/A'
@@ -119,7 +128,7 @@ const diegeticInDescription = defineRule({
   run: ({ project }) => {
     const lower = project.audio.nonDiegeticMusic.toLowerCase()
     return DIEGETIC_SOURCES
-      .filter(source => lower.includes(source))
+      .filter(source => new RegExp(`\\b${source}\\b`).test(lower))
       .map(source => makeDiagnostic(
         diegeticInDescription,
         { kind: 'audio', id: 'nonDiegeticMusic' },

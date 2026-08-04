@@ -69,6 +69,14 @@ describe('reguły mowy', () => {
       .toContain('DIALOGUE_VERBATIM')
   })
 
+  it('DIALOGUE_VERBATIM — poprawna kwestia zaczynająca się od czasownika nie blokuje eksportu', () => {
+    const p = withDialogue(t2vaProject, { text: 'Says who?' })
+    const diagnostics = validateWith(speechRules, p, compile(p))
+    const found = diagnostics.filter(d => d.ruleId === 'DIALOGUE_VERBATIM')
+    expect(found).toHaveLength(1)
+    expect(found[0]!.severity).toBe('hint')
+  })
+
   it('VO_LIPS_CLAUSE — voiceover bez klauzuli o ustach', () => {
     expect(run(withDialogue(t2vaProject, { voiceover: true })))
       .toContain('VO_LIPS_CLAUSE')

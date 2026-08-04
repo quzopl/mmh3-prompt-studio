@@ -67,6 +67,23 @@ const shotTimeInRange = defineRule({
     )),
 })
 
+const shotIndexSequential = defineRule({
+  id: 'SHOT_INDEX_SEQUENTIAL',
+  severity: 'error',
+  guideRef: 'guide_base §4.2',
+  run: ({ project }) => {
+    const indexes = project.shots.map(s => s.index).sort((a, b) => a - b)
+    const broken = indexes.some((value, position) => value !== position)
+    if (!broken) return []
+    return [makeDiagnostic(
+      shotIndexSequential,
+      { kind: 'project', id: project.id },
+      'Numery ujęć muszą tworzyć ciąg bez dziur i powtórzeń, zaczynający się od pierwszego ujęcia.',
+      'Shot numbers must form a gapless, duplicate-free sequence starting at the first shot.',
+    )]
+  },
+})
+
 const frameSnap = defineRule({
   id: 'FRAME_SNAP',
   severity: 'warning',
@@ -82,5 +99,6 @@ const frameSnap = defineRule({
 })
 
 export const timeRules: Rule[] = [
-  durationRange, shot1NoTimestamp, shotTimeMonotonic, shotTimeInRange, frameSnap,
+  durationRange, shot1NoTimestamp, shotTimeMonotonic, shotTimeInRange,
+  shotIndexSequential, frameSnap,
 ]

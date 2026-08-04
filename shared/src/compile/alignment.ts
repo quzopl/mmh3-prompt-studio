@@ -7,7 +7,9 @@ import { formatAlignSeconds } from '../time/format.js'
  * (FL2VA bez nawiasów kątowych, I2VA i L2VA z nawiasami).
  */
 export function alignmentLine(project: Project): string | null {
-  const lastShotNumber = Math.max(1, project.shots.length)
+  const lastShotNumber = project.shots.length === 0
+    ? 1
+    : Math.max(...project.shots.map(s => s.index)) + 1
   const end = formatAlignSeconds(project.video.durationMs)
 
   switch (project.mode) {

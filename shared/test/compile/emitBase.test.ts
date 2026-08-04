@@ -50,6 +50,17 @@ describe('alignmentLine', () => {
     }
     expect(alignmentLine(p)).toContain('Picture 2 (from Shot 2)')
   })
+
+  it('liczy numer ostatniego ujęcia z indeksów, nie z liczby ujęć', () => {
+    const p: Project = {
+      ...base, mode: 'L2VA',
+      shots: [
+        base.shots[0]!,
+        { ...base.shots[0]!, id: 's2', index: 4, startMs: 4000 },
+      ],
+    }
+    expect(alignmentLine(p)).toContain('(from [Shot 5])')
+  })
 })
 
 describe('emitBase', () => {

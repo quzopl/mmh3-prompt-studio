@@ -16,6 +16,18 @@ describe('countSentences', () => {
     expect(countSentences('Just one sentence.')).toBe(1)
     expect(countSentences('')).toBe(0)
   })
+
+  it('nie liczy kropki po skrócie jako końca zdania', () => {
+    expect(countSentences('Mr. Chen coughs. A door slams shut.')).toBe(2)
+    expect(countSentences('Dr. Adams and Mrs. Lee whisper.')).toBe(1)
+    expect(countSentences('A. Nowak steps inside.')).toBe(1)
+  })
+
+  it('cztery zdania ze skrótem liczą się jako cztery', () => {
+    expect(countSentences(
+      'Mr. Chen coughs in the doorway. A door slams shut. Rain taps the glass. Wind rises outside.',
+    )).toBe(4)
+  })
 })
 
 describe('reguły audio', () => {
@@ -26,8 +38,11 @@ describe('reguły audio', () => {
   })
 
   it('SOUNDSCAPE_SENTENCES — więcej niż cztery zdania', () => {
-    expect(run(withAudio(t2vaProject, { overallSoundscape: 'A. B. C. D. E.' })))
-      .toContain('SOUNDSCAPE_SENTENCES')
+    expect(run(withAudio(t2vaProject, {
+      overallSoundscape:
+        'Shutters scrape open. A door slams shut. Rain taps the glass. '
+        + 'Wind rises outside. Footsteps fade away.',
+    }))).toContain('SOUNDSCAPE_SENTENCES')
   })
 
   it('SOUNDSCAPE_SENTENCES — pusty opis', () => {
@@ -36,8 +51,11 @@ describe('reguły audio', () => {
   })
 
   it('MUSIC_SENTENCES — więcej niż trzy zdania', () => {
-    expect(run(withAudio(t2vaProject, { nonDiegeticMusic: 'A. B. C. D.' })))
-      .toContain('MUSIC_SENTENCES')
+    expect(run(withAudio(t2vaProject, {
+      nonDiegeticMusic:
+        'A piano melody at a slow tempo. Strings enter underneath. '
+        + 'The rhythm steadies. The dynamics swell.',
+    }))).toContain('MUSIC_SENTENCES')
   })
 
   it('SOUNDSCAPE_NO_DIALOGUE — treść kwestii powtórzona w soundscape', () => {
@@ -61,5 +79,11 @@ describe('reguły audio', () => {
     expect(run(withAudio(t2vaProject, {
       nonDiegeticMusic: 'A radio in the corner plays guitar chords at a moderate tempo.',
     }))).toContain('DIEGETIC_IN_DESCRIPTION')
+  })
+
+  it('DIEGETIC_IN_DESCRIPTION — słowo zawierające nazwę źródła nie wyzwala reguły', () => {
+    expect(run(withAudio(t2vaProject, {
+      nonDiegeticMusic: 'A radiophonic drone at a slow tempo, fading out.',
+    }))).not.toContain('DIEGETIC_IN_DESCRIPTION')
   })
 })

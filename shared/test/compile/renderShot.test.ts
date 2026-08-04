@@ -65,6 +65,22 @@ describe('renderShot', () => {
     )
   })
 
+  it('renderuje przejście inne niż cięcie zgodnie z cutType', () => {
+    const faded: Shot = { ...shot2, cutType: 'fade' }
+    expect(renderShot(faded, project, { includeStyle: false }))
+      .toContain('[Shot 2] At 00:05.000, the shot fades to a close-up')
+  })
+
+  it('renderuje tekst ekranowy w cudzysłowie', () => {
+    const withText: Shot = {
+      ...shot2,
+      screenText: [{ id: 't1', text: '营业中' }],
+      body: [{ kind: 'text', text: 'a neon sign reading ' }, { kind: 'screenText', id: 't1' }],
+    }
+    expect(renderShot(withText, project, { includeStyle: false }))
+      .toBe('[Shot 2] At 00:05.000, the camera cuts to a neon sign reading "营业中"')
+  })
+
   it('rzuca wyjątek przy segmencie wskazującym nieistniejący ruch', () => {
     const broken: Shot = { ...shot2, body: [{ kind: 'camera', moveId: 'brak' }] }
     expect(() => renderShot(broken, project, { includeStyle: false })).toThrow(/brak/)
