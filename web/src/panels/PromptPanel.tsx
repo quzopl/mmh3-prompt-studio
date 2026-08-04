@@ -1,14 +1,20 @@
 import type { ReactNode } from 'react'
+import type { ObjectRef } from '@mmh3/shared'
 import { useProject } from '../store/projectStore.js'
-import { useSelection } from '../store/selectionStore.js'
+import { same, useSelection } from '../store/selectionStore.js'
 import { useT } from '../i18n/useT.js'
 
 export function PromptPanel() {
   const t = useT()
   const prompt = useProject(state => state.prompt)
   const tokens = useProject(state => state.tokens)
-  const isSelected = useSelection(state => state.isSelected)
+  // `state.selected` (nie `state.isSelected`) — jak w ShotTrack: getter ma
+  // stałą referencję między wywołaniami `set`, więc subskrypcja na nim nigdy
+  // nie wykryłaby zmiany zaznaczenia dokonanej gdzie indziej (np. kliknięciem
+  // klipu na osi czasu), a token nie podświetliłby się bez ponownego montowania.
+  const selected = useSelection(state => state.selected)
   const select = useSelection(state => state.select)
+  const isSelected = (ref: ObjectRef) => selected.some(candidate => same(candidate, ref))
 
   const ordered = [...tokens].sort((a, b) => a.start - b.start)
   const pieces: ReactNode[] = []

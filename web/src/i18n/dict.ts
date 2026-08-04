@@ -44,6 +44,8 @@ const pl = {
   'timeline.trackShots': 'Ujęcia',
   'timeline.clipLabel': 'Ujęcie {number}, od {start} ms do {end} ms',
   'timeline.boundaryHandle': 'Ujęcie {number} — przeciągnij granicę, aby zmienić czas cięcia',
+  'timeline.addShot': 'Dodaj ujęcie',
+  'timeline.shortcuts': 'Spacja odtwarza, S dzieli ujęcie, Delete usuwa zaznaczone',
 
   'monitor.title': 'Monitor',
   'monitor.empty': 'Playhead nie stoi nad żadnym ujęciem.',
@@ -143,6 +145,8 @@ const en: Record<TKey, string> = {
   'timeline.trackShots': 'Shots',
   'timeline.clipLabel': 'Shot {number}, from {start} ms to {end} ms',
   'timeline.boundaryHandle': 'Shot {number} — drag the boundary to change the cut time',
+  'timeline.addShot': 'Add shot',
+  'timeline.shortcuts': 'Space plays, S splits a shot, Delete removes the selection',
 
   'monitor.title': 'Monitor',
   'monitor.empty': 'The playhead is not over any shot.',

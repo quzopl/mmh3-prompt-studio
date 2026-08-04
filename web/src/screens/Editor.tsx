@@ -5,10 +5,12 @@ import { useAutosave } from '../store/useAutosave.js'
 import { useT } from '../i18n/useT.js'
 import { PromptPanel } from '../panels/PromptPanel.js'
 import { ValidationPanel } from '../panels/ValidationPanel.js'
-import { ShotList } from '../panels/ShotList.js'
+import { ProgramMonitor } from '../panels/ProgramMonitor.js'
 import { Inspector } from '../panels/Inspector.js'
 import { AssetBin } from '../panels/AssetBin.js'
 import { ExportPanel } from '../panels/ExportPanel.js'
+import { Timeline } from '../timeline/Timeline.js'
+import { useTimelineShortcuts } from '../timeline/useTimelineShortcuts.js'
 
 interface Props {
   slug: string
@@ -23,6 +25,7 @@ export function Editor({ slug, onClose }: Props) {
   const redo = useProject(state => state.redo)
   const [error, setError] = useState<string | null>(null)
   const { saving, error: saveError } = useAutosave(slug)
+  useTimelineShortcuts()
 
   useEffect(() => {
     // Poprzedni projekt nie może wisieć w sklepie, kiedy montuje się edytor
@@ -59,15 +62,20 @@ export function Editor({ slug, onClose }: Props) {
           </button>
         </span>
       </div>
-      <div className="grid flex-1 grid-cols-[200px_200px_1fr_1fr_280px] overflow-hidden divide-x divide-neutral-800">
+      <div className="grid flex-1 grid-cols-[200px_1fr_1fr_280px] overflow-hidden divide-x divide-neutral-800">
         <AssetBin slug={slug} />
-        <ShotList />
-        <PromptPanel />
+        <div className="flex flex-col divide-y divide-neutral-800 overflow-hidden">
+          <ProgramMonitor />
+          <PromptPanel />
+        </div>
         <ValidationPanel />
         <div className="flex flex-col divide-y divide-neutral-800 overflow-auto">
           <Inspector />
           <ExportPanel slug={slug} />
         </div>
+      </div>
+      <div className="h-48 border-t border-neutral-800">
+        <Timeline />
       </div>
     </div>
   )
