@@ -3882,8 +3882,23 @@ import { refProject } from '../../golden/fixtures/ref.js'
 import { t2vaProject, i2vaProject, fl2vaProject, l2vaProject } from '../../golden/fixtures/base.js'
 import type { Project } from '../../../src/model/types.js'
 
-const runRef = (p: Project) => validateWith(refRules, p, compile(p)).map(d => d.ruleId)
-const runAnchors = (p: Project) => validateWith(anchorRules, p, compile(p)).map(d => d.ruleId)
+/**
+ * Część przypadków celowo psuje model tak, że kompilacja rzuca wyjątek
+ * (segment wskazujący usuniętą etykietę). Walidator ma wtedy nadal działać,
+ * więc kompilujemy defensywnie — dokładnie jak w testach reguł czasu i kamery.
+ * Renderery zostają surowe: model wskazujący nieistniejącą etykietę jest
+ * uszkodzony i kompilator ma prawo odmówić głośno.
+ */
+const safeCompile = (p: Project) => {
+  try {
+    return compile(p)
+  } catch {
+    return { text: '', tokens: [] }
+  }
+}
+
+const runRef = (p: Project) => validateWith(refRules, p, safeCompile(p)).map(d => d.ruleId)
+const runAnchors = (p: Project) => validateWith(anchorRules, p, safeCompile(p)).map(d => d.ruleId)
 
 describe('reguły trybu REF', () => {
   it('złoty przykład zgłasza wyłącznie ostrzeżenie o liczbie słów', () => {
