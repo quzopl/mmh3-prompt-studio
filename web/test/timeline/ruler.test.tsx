@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { Ruler } from '../../src/timeline/Ruler.js'
 import { createScale } from '../../src/timeline/scale.js'
 import { usePlayhead } from '../../src/store/playheadStore.js'
 import { useLang } from '../../src/i18n/useT.js'
+import { firePointer } from './pointer.js'
 
 beforeEach(() => {
   useLang.setState({ lang: 'pl' })
@@ -32,7 +33,7 @@ describe('Ruler', () => {
     render(<Ruler scale={scale} />)
     const ruler = screen.getByRole('slider', { name: /linijka czasu/i })
     ruler.getBoundingClientRect = () => ({ left: 0, width: 800 }) as DOMRect
-    fireEvent.pointerDown(ruler, { clientX: 400 })
+    firePointer(ruler, 'pointerdown', 400)
     expect(usePlayhead.getState().ms).toBe(4000)
   })
 })
