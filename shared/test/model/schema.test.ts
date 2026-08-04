@@ -40,7 +40,7 @@ describe('ProjectSchema', () => {
           id: 's1', index: 0, startMs: 0, cutType: 'cut',
           cutPhrase: 'the camera cuts to', composition: '', body: [],
           cameraMoves: [{ id: 'c1', type: 'barrel-roll', startMs: 0, endMs: 1000 }],
-          dialogue: [], screenText: [], diegeticSfx: [], labelRefs: [], anchor: 'none',
+          dialogue: [], screenText: [], diegeticSfx: [], labelRefs: [], anchors: [],
         },
       ],
     }
@@ -56,7 +56,7 @@ describe('ProjectSchema', () => {
           cutPhrase: 'the camera cuts to', composition: '',
           body: [{ kind: 'sparkle' }],
           cameraMoves: [], dialogue: [], screenText: [], diegeticSfx: [],
-          labelRefs: [], anchor: 'none',
+          labelRefs: [], anchors: [],
         },
       ],
     }

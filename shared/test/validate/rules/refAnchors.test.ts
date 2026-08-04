@@ -162,7 +162,7 @@ describe('reguły kotwic', () => {
   it('L2VA_ANCHOR_LAST_SHOT — kotwica nie w ostatnim ujęciu', () => {
     const shots = [
       l2vaProject.shots[0]!,
-      { ...l2vaProject.shots[0]!, id: 's2', index: 1, startMs: 3000, anchor: 'none' as const, body: [{ kind: 'text' as const, text: 'more.' }], cameraMoves: [] },
+      { ...l2vaProject.shots[0]!, id: 's2', index: 1, startMs: 3000, anchors: [], body: [{ kind: 'text' as const, text: 'more.' }], cameraMoves: [] },
     ]
     expect(runAnchors({ ...l2vaProject, shots })).toContain('L2VA_ANCHOR_LAST_SHOT')
   })
