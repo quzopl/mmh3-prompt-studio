@@ -83,3 +83,52 @@ i odpowiada 400. Właściwym domknięciem jest zawężenie samego schematu do
 `/^assets\/[A-Za-z0-9._-]+$/`, ale to zmiana w zamrożonym `shared/`. **Do zrobienia,
 gdy pakiet zostanie odmrożony** — wraz z migracją istniejących plików projektów,
 bo dziś `saveAsset` zapisuje `join('assets', stored)`, co ten wzorzec spełnia.
+
+---
+
+# Przeniesione z recenzji końcowej Planu 2
+
+Rzeczy wykryte przy zamykaniu gałęzi `feat/aplikacja-fundament`, rozstrzygnięte
+jako dług zamiast blokady scalenia. Każda ma uzasadnienie.
+
+## 10. Równoległe zapisy tego samego projektu nie są serializowane
+
+`writeProject` zapisuje przez plik tymczasowy o stałej nazwie i `rename`, co
+usuwa okno obcięcia pliku przy przerwaniu procesu. Nie usuwa jednak wyścigu
+dwóch piszących naraz: dzielą ten sam plik tymczasowy, a jeśli pierwszy zdąży
+z `rename`, drugi dostanie `ENOENT`. Ścieżka wgrywania assetu i autozapis mogą
+się na to nałożyć.
+
+**Rozstrzygnięcie:** nie blokuje scalenia. Przed poprawką ta sama zbieżność dawała
+uszkodzony `project.json`; teraz daje widoczny błąd zapisu, co jest zamianą cichej
+utraty danych na głośną awarię. Właściwe domknięcie to kolejka zapisów per slug po
+stronie serwera — należy do Planu 3, razem z drugim pisarzem, którego wprowadzi
+oś czasu.
+
+## 11. Ostatnia zmiana ginie przy wyjściu z edytora
+
+Sprzątanie efektu w `useAutosave` kasuje zaplanowany zapis bez opróżnienia, więc
+kliknięcie „← Projekty" w oknie opóźnienia gubi ostatnią zmianę. Reset sklepu przy
+zmianie sluga nieznacznie to poszerza, ale był konieczny, żeby zamknąć zapis do
+cudzego projektu.
+
+**Rozstrzygnięcie:** dług. Domknięcie to opróżnienie przy odmontowaniu albo
+blokada nawigacji przy `dirty` — jedno i drugie należy do warstwy nawigacji,
+której ten plan nie budował.
+
+## 12. Odnośniki eksportu są wyłączane tylko wizualnie
+
+`pointer-events-none` i `aria-disabled` powstrzymują mysz, ale `href` zostaje, więc
+klawiatura, środkowy przycisk i „otwórz w nowej karcie" nadal pobiorą nieaktualny
+stan. Twardą strażą jest dziś tylko sprawdzenie `dirty` w eksporcie workflow.
+
+**Rozstrzygnięcie:** dług. Właściwie eksport `.txt` i `.json` powinien powstawać
+w przeglądarce z modelu w pamięci — kompilator i tak działa po stronie klienta —
+a do serwera powinno iść wyłącznie wstrzyknięcie do workflow ComfyUI.
+
+## 13. `assertInsideRoot` jest leksykalne, nie oparte o `realpath`
+
+Dowiązanie symboliczne podłożone w katalogu projektu obeszłoby tę kontrolę. Żadna
+obecna ścieżka zapisu takiego dowiązania nie tworzy — wgrywanie zapisuje zwykłe
+pliki pod generowanymi nazwami — więc dziś to nieosiągalne. Warto o tym pamiętać,
+bo zawężenie `AssetSchema.path` w odmrożonym `shared/` też tego nie zamknie.
