@@ -108,12 +108,13 @@ Expected: FAIL — brak `package.json` / brak modułu `../src/index.js`
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/node": "^22",
     "typescript": "^5.6.3",
     "vitest": "^3.0.5",
     "tsx": "^4.19.2"
@@ -121,11 +122,22 @@ Expected: FAIL — brak `package.json` / brak modułu `../src/index.js`
 }
 ```
 
-`shared/tsconfig.json`:
+`shared/tsconfig.json` — sam kod źródłowy, bez typów otoczenia. Pusta lista `types` jest tu zabezpieczeniem: gdyby ktoś sięgnął w `shared/src/` po `process`, `Buffer` czy `require`, kompilacja padnie, co egzekwuje ograniczenie globalne zakazujące `node:*` w tym drzewie.
 
 ```json
 {
   "extends": "../tsconfig.base.json",
+  "compilerOptions": { "types": [] },
+  "include": ["src"]
+}
+```
+
+`shared/tsconfig.test.json` — testy wraz z importowanymi źródłami; tylko one dostają typy Node'a, bo pliki testowe czytają pliki oczekiwane przez `node:fs`:
+
+```json
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "types": ["node"] },
   "include": ["src", "test"]
 }
 ```
