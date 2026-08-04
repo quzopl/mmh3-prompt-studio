@@ -41,9 +41,12 @@ export function ShotTrack({ scale }: { scale: Scale }) {
       className="relative h-10 border-b border-neutral-800"
       style={{ width: msToPx(scale, scale.durationMs) }}
     >
-      {shotSpans(project.shots, project.video.durationMs).map(span => {
+      {shotSpans(project.shots, project.video.durationMs).map((span, position, spans) => {
         const ref = { kind: 'shot' as const, id: span.shot.id }
         const isSelected = selected.some(candidate => same(candidate, ref))
+        // `shotSpans` sortuje rosnąco po `index`, więc ostatni element tablicy —
+        // nie ten z najwyższym `index` z osobna liczony — to ujęcie zamykające.
+        const isLastShot = position === spans.length - 1
         return (
           <Fragment key={span.shot.id}>
             <div
@@ -79,7 +82,12 @@ export function ShotTrack({ scale }: { scale: Scale }) {
                   <span className="ml-2 text-neutral-400">{span.shot.composition}</span>
                 )}
               </span>
-              <AnchorBadges shotId={span.shot.id} anchors={span.shot.anchors} />
+              <AnchorBadges
+                shotId={span.shot.id}
+                anchors={span.shot.anchors}
+                shotNumber={span.shot.index + 1}
+                isLastShot={isLastShot}
+              />
             </div>
             {span.shot.index > 0 && (
               <div

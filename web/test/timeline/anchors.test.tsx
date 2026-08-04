@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Project } from '@mmh3/shared'
-import { anchorsForMode } from '../../src/timeline/AnchorBadges.js'
+import { anchorsForShot } from '../../src/timeline/AnchorBadges.js'
 import { ShotTrack } from '../../src/timeline/ShotTrack.js'
 import { createScale } from '../../src/timeline/scale.js'
 import { useProject } from '../../src/store/projectStore.js'
@@ -35,25 +35,32 @@ beforeEach(() => {
   useSelection.setState({ selected: [] })
 })
 
-describe('anchorsForMode', () => {
+describe('anchorsForShot', () => {
   it('tryb tekstowy nie ma kotwic', () => {
-    expect(anchorsForMode('T2VA')).toEqual([])
+    expect(anchorsForShot('T2VA', true)).toEqual([])
   })
 
   it('I2VA kotwiczy tylko pierwszą klatkę', () => {
-    expect(anchorsForMode('I2VA')).toEqual(['picture-first'])
+    expect(anchorsForShot('I2VA', true)).toEqual(['picture-first'])
   })
 
-  it('FL2VA kotwiczy obie klatki', () => {
-    expect(anchorsForMode('FL2VA')).toEqual(['picture-first', 'picture-last'])
+  it('FL2VA kotwiczy obie klatki niezależnie od pozycji ujęcia', () => {
+    // Żadna reguła nie wiąże pary kotwic FL2VA z konkretnym ujęciem.
+    expect(anchorsForShot('FL2VA', false)).toEqual(['picture-first', 'picture-last'])
   })
 
-  it('L2VA kotwiczy tylko ostatnią klatkę', () => {
-    expect(anchorsForMode('L2VA')).toEqual(['picture-last'])
+  it('L2VA kotwiczy ostatnie ujęcie', () => {
+    expect(anchorsForShot('L2VA', true)).toEqual(['picture-last'])
+  })
+
+  it('L2VA nie oferuje kotwicy na ujęciu innym niż ostatnie', () => {
+    // L2VA_ANCHOR_LAST_SHOT wymaga, żeby kotwica siedziała akurat na ostatnim
+    // ujęciu — oferowanie jej gdzie indziej prowadziłoby donikąd.
+    expect(anchorsForShot('L2VA', false)).toEqual([])
   })
 
   it('tryb pełnoreferencyjny dopuszcza klatkę kluczową', () => {
-    expect(anchorsForMode('REF')).toEqual(['keyframe'])
+    expect(anchorsForShot('REF', true)).toEqual(['keyframe'])
   })
 })
 
@@ -93,5 +100,56 @@ describe('kotwice na klipie', () => {
     expect(badge).toHaveAttribute('aria-pressed', 'false')
     await userEvent.click(badge)
     expect(badge).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('nazwa dostępności odznaki wskazuje, do którego ujęcia należy', async () => {
+    // Regresja: `aria-label` klipu nie "spływa" do dziecka, które ma własny
+    // `aria-label` — bez numeru ujęcia w treści dwie odznaki tego samego typu
+    // na różnych klipach miałyby identyczną nazwę dostępności.
+    useProject.getState().load('test', {
+      ...project('I2VA'),
+      shots: [shot('a', 0, 0), shot('b', 1, 4000)],
+    })
+    render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+    expect(screen.getByRole('button', { name: /przełącz kotwicę: pierwsza klatka — ujęcie 1/i }))
+      .toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /przełącz kotwicę: pierwsza klatka — ujęcie 2/i }))
+      .toBeInTheDocument()
+  })
+
+  it('L2VA pokazuje kotwicę tylko na ostatnim ujęciu', () => {
+    useProject.getState().load('test', {
+      ...project('L2VA'),
+      shots: [shot('a', 0, 0), shot('b', 1, 4000)],
+    })
+    render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+    const badges = screen.getAllByRole('button', { name: /przełącz kotwicę: ostatnia klatka/i })
+    expect(badges).toHaveLength(1)
+    expect(badges[0]).toHaveAccessibleName(/ujęcie 2/i)
+  })
+
+  it('kliknięcie odznaki nie zmienia zaznaczenia klipu', async () => {
+    // `stopPropagation` w AnchorBadges musi powstrzymać kliknięcie od
+    // przebicia się do handlera zaznaczenia na klipie-rodzicu.
+    useProject.getState().load('test', project('I2VA'))
+    render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+    await userEvent.click(screen.getByRole('button', { name: /przełącz kotwicę: pierwsza klatka/i }))
+    expect(useSelection.getState().selected).toEqual([])
+  })
+
+  it('każde przełączenie kotwicy to osobny wpis historii cofania', async () => {
+    useProject.getState().load('test', project('FL2VA'))
+    render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+    const before = useProject.getState().past.length
+
+    await userEvent.click(screen.getByRole('button', { name: /przełącz kotwicę: pierwsza klatka/i }))
+    await userEvent.click(screen.getByRole('button', { name: /przełącz kotwicę: ostatnia klatka/i }))
+
+    expect(useProject.getState().past.length).toBe(before + 2)
+    expect(useProject.getState().project!.shots[0]!.anchors)
+      .toEqual(['picture-first', 'picture-last'])
+
+    useProject.getState().undo()
+    expect(useProject.getState().project!.shots[0]!.anchors).toEqual(['picture-first'])
   })
 })

@@ -17,8 +17,21 @@ const BY_MODE: Record<Mode, Anchor[]> = {
   REF: ['keyframe'],
 }
 
-/** Które kotwice mają sens w danym trybie — reszta byłaby szumem na klipie. */
-export const anchorsForMode = (mode: Mode): Anchor[] => BY_MODE[mode]
+/**
+ * Które kotwice mają sens na danym ujęciu — reszta byłaby szumem na klipie albo,
+ * gorzej, pułapką. ANCHOR_REQUIRED zapala się, gdy kotwica istnieje gdziekolwiek
+ * w projekcie, ale sąsiednia reguła L2VA_ANCHOR_LAST_SHOT (ten sam plik) wymaga
+ * dodatkowo, żeby siedziała akurat na ostatnim ujęciu. Bez `isLastShot` odznaka
+ * na środkowym klipie w L2VA gasiłaby jedną regułę i od razu włączała drugą, nie
+ * podpowiadając, które ujęcie było właściwe — więc na ujęciach innych niż ostatnie
+ * w L2VA kotwicy w ogóle nie oferujemy. FL2VA zostaje bez zmian: żadna reguła nie
+ * ogranicza, które ujęcie niesie parę kotwic, a jego główny przypadek to i tak
+ * pojedyncze ujęcie.
+ */
+export function anchorsForShot(mode: Mode, isLastShot: boolean): Anchor[] {
+  if (mode === 'L2VA' && !isLastShot) return []
+  return BY_MODE[mode]
+}
 
 const LABEL_KEY: Record<Anchor, 'anchor.picture-first' | 'anchor.picture-last' | 'anchor.keyframe'> = {
   'picture-first': 'anchor.picture-first',
@@ -34,13 +47,21 @@ const LABEL_KEY: Record<Anchor, 'anchor.picture-first' | 'anchor.picture-last' |
  * i tak zgłosi ANCHOR_REQUIRED, a niepozwolenie użytkownikowi cofnąć własnego
  * kliknięcia byłoby gorsze niż chwilowo niepoprawny projekt.
  */
-export function AnchorBadges({ shotId, anchors }: { shotId: string; anchors: Anchor[] }) {
+export function AnchorBadges({
+  shotId, anchors, shotNumber, isLastShot,
+}: {
+  shotId: string
+  anchors: Anchor[]
+  /** Numer ujęcia liczony od 1 — dla nazwy dostępności, nie do logiki. */
+  shotNumber: number
+  isLastShot: boolean
+}) {
   const t = useT()
   const mode = useProject(state => state.project?.mode)
   const apply = useProject(state => state.apply)
 
   if (!mode) return null
-  const available = anchorsForMode(mode)
+  const available = anchorsForShot(mode, isLastShot)
   if (available.length === 0) return null
 
   const toggle = (anchor: Anchor) => apply(current => ({
@@ -67,7 +88,7 @@ export function AnchorBadges({ shotId, anchors }: { shotId: string; anchors: Anc
             key={anchor}
             type="button"
             aria-pressed={active}
-            aria-label={t('anchor.toggle', { name })}
+            aria-label={t('anchor.toggle', { name, number: shotNumber })}
             title={name}
             onClick={event => {
               event.stopPropagation()

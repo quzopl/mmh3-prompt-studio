@@ -48,7 +48,7 @@ const pl = {
   'anchor.picture-first': 'Pierwsza klatka',
   'anchor.picture-last': 'Ostatnia klatka',
   'anchor.keyframe': 'Klatka kluczowa',
-  'anchor.toggle': 'Przełącz kotwicę: {name}',
+  'anchor.toggle': 'Przełącz kotwicę: {name} — ujęcie {number}',
 
   'validation.ready': 'Gotowy do eksportu',
   'validation.count': 'Problemy: {count}',
@@ -143,7 +143,7 @@ const en: Record<TKey, string> = {
   'anchor.picture-first': 'First frame',
   'anchor.picture-last': 'Last frame',
   'anchor.keyframe': 'Keyframe',
-  'anchor.toggle': 'Toggle anchor: {name}',
+  'anchor.toggle': 'Toggle anchor: {name} — shot {number}',
 
   'validation.ready': 'Ready to export',
   'validation.count': 'Issues: {count}',
