@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ProjectList } from './screens/ProjectList.js'
+import { Editor } from './screens/Editor.js'
 import { useLang, useT } from './i18n/useT.js'
 
 export function App() {
@@ -28,7 +29,7 @@ export function App() {
       <main className="flex-1 overflow-auto">
         {slug === null
           ? <ProjectList onOpen={setSlug} />
-          : <p className="p-6 font-mono text-sm text-neutral-400">{slug}</p>}
+          : <Editor slug={slug} onClose={() => setSlug(null)} />}
       </main>
     </div>
   )
