@@ -2546,6 +2546,7 @@ const pl = {
   'shot.remove': 'Usuń ujęcie',
   'shot.number': 'Ujęcie {number}',
   'shot.startMs': 'Czas cięcia',
+  'shot.msValue': '{ms} ms',
   'shot.composition': 'Kompozycja',
   'shot.cutPhrase': 'Fraza cięcia',
   'shot.cutType': 'Rodzaj przejścia',
@@ -2620,6 +2621,7 @@ const en: Record<TKey, string> = {
   'shot.remove': 'Remove shot',
   'shot.number': 'Shot {number}',
   'shot.startMs': 'Cut time',
+  'shot.msValue': '{ms} ms',
   'shot.composition': 'Composition',
   'shot.cutPhrase': 'Cut phrase',
   'shot.cutType': 'Transition type',
@@ -3986,7 +3988,7 @@ describe('ShotList', () => {
 
 ```tsx
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Project } from '@mmh3/shared'
 import { Inspector } from '../../src/panels/Inspector.js'
@@ -4043,6 +4045,13 @@ describe('Inspector', () => {
     await userEvent.clear(field)
     await userEvent.type(field, '5000')
     expect(useProject.getState().project!.shots[1]!.startMs).toBe(5000)
+  })
+
+  it('nie wpuszcza NaN do modelu przy nieliczbowym wpisie', () => {
+    render(<Inspector />)
+    const field = screen.getByLabelText(/długość wideo/i)
+    fireEvent.change(field, { target: { value: 'abc' } })
+    expect(useProject.getState().project!.video.durationMs).toBe(8000)
   })
 
   it('pokazuje komunikat, gdy zaznaczony obiekt zniknął', () => {
@@ -4137,7 +4146,9 @@ export function ShotList() {
               }`}
             >
               {t('shot.number', { number: shot.index + 1 })}
-              <span className="ml-2 font-mono text-xs text-neutral-500">{shot.startMs} ms</span>
+              <span className="ml-2 font-mono text-xs text-neutral-500">
+                {t('shot.msValue', { ms: shot.startMs })}
+              </span>
             </button>
             <button
               type="button"
@@ -4190,6 +4201,16 @@ export function Inspector() {
 
 type Apply = (mutate: (project: Project) => Project) => void
 
+/**
+ * Puste pole daje zero i walidator to zgłosi — taka jest pętla zwrotna.
+ * NaN natomiast przechodzi przez typy i po cichu wyłącza część reguł
+ * czasowych, bo każde porównanie z NaN jest fałszem, więc go nie wpuszczamy.
+ */
+const toMs = (raw: string, previous: number): number => {
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? parsed : previous
+}
+
 function ProjectFields({ t, project, apply }: { t: Translate; project: Project; apply: Apply }) {
   return (
     <div className="flex flex-col gap-3">
@@ -4206,7 +4227,7 @@ function ProjectFields({ t, project, apply }: { t: Translate; project: Project; 
           value={project.video.durationMs}
           onChange={event => apply(current => ({
             ...current,
-            video: { ...current.video, durationMs: Number(event.target.value) },
+            video: { ...current.video, durationMs: toMs(event.target.value, current.video.durationMs) },
           }))}
           className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm"
         />
@@ -4261,7 +4282,7 @@ function ShotFields({ t, shot, apply }: { t: Translate; shot: Shot; apply: Apply
           <input
             type="number"
             value={shot.startMs}
-            onChange={event => patch({ startMs: Number(event.target.value) })}
+            onChange={event => patch({ startMs: toMs(event.target.value, shot.startMs) })}
             className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm"
           />
         </Field>
