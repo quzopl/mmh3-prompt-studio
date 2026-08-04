@@ -19,6 +19,7 @@
 - Cały tekst widoczny dla użytkownika przechodzi przez warstwę i18n — żadnych literałów w komponentach. Prompt wyjściowy zawsze po angielsku.
 - Commity po polsku, prefiks `feat:` / `fix:` / `test:` / `chore:` / `docs:`. Treść dyktuje krok „Commit" danego zadania.
 - Żadnych zapytań sieciowych do ComfyUI ani do usług zewnętrznych. Eksport to plik na dysku.
+- **Slug pochodzący z adresu URL nigdy nie trafia do `path.join` bez walidacji kształtu.** Jedyna dozwolona postać to `/^[a-z0-9][a-z0-9-]*$/`, czyli dokładnie to, co produkuje `slugify`. Warstwa magazynu dodatkowo sprawdza, że wyliczona ścieżka leży wewnątrz katalogu danych — `deleteProject` kasuje rekurencyjnie, więc jedno sprawdzenie to za mało.
 
 ---
 
@@ -963,7 +964,7 @@ Expected: FAIL — brak modułów
 `server/src/storage/paths.ts`:
 
 ```ts
-import { join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 
 const DIACRITICS: Record<string, string> = {
   ą: 'a', ć: 'c', ę: 'e', ł: 'l', ń: 'n', ó: 'o', ś: 's', ź: 'z', ż: 'z',
@@ -988,6 +989,18 @@ export function slugify(name: string): string {
 }
 
 export const projectDir = (root: string, slug: string): string => join(root, slug)
+
+/**
+ * Druga linia obrony. Trasy walidują kształt sluga, ale katalog danych jest
+ * zbyt cenny, żeby polegać na jednym sprawdzeniu — `deleteProject` kasuje
+ * rekurencyjnie, więc slug `..` skasowałby katalog nadrzędny.
+ */
+export function assertInsideRoot(root: string, candidate: string): void {
+  const rel = relative(root, candidate)
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`Ścieżka "${candidate}" wychodzi poza katalog danych`)
+  }
+}
 export const projectFile = (root: string, slug: string): string =>
   join(projectDir(root, slug), 'project.json')
 export const assetsDir = (root: string, slug: string): string =>
@@ -1330,7 +1343,10 @@ const CreateBody = z.object({
 })
 
 const UpdateBody = z.object({ project: ProjectSchema })
-const SlugParams = z.object({ slug: z.string().min(1) })
+/** Wyłącznie kształt, jaki produkuje slugify — nic z separatorem ani kropką. */
+const SlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'Niepoprawny identyfikator projektu')
+
+const SlugParams = z.object({ slug: SlugSchema })
 
 const isMissing = (err: unknown): boolean =>
   err instanceof Error && /nie istnieje/i.test(err.message)
@@ -1508,7 +1524,7 @@ describe('saveAsset', () => {
     expect(asset.fileName).toBe('kadr.png')
     expect(asset.id).toMatch(/^asset-/)
     const files = await readdir(assetsDir(root, slug))
-    expect(files).toContain(`${asset.id}.png`)
+    expect(files).toContain(`${asset.id}.img`)
   })
 
   it('nadaje unikalne identyfikatory plikom o tej samej nazwie', async () => {
@@ -1560,7 +1576,7 @@ W `server/package.json` dopisz do `dependencies`:
 
 ```json
     "@fastify/multipart": "^9.0.1",
-    "sharp": "^0.33.5"
+    "sharp": "^0.35.3"
 ```
 
 Run: `cd ~/mmh3-studio && npm install`
@@ -1571,7 +1587,7 @@ Run: `cd ~/mmh3-studio && npm install`
 
 ```ts
 import { readdir, rm, writeFile } from 'node:fs/promises'
-import { extname, join } from 'node:path'
+import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Asset } from '@mmh3/shared'
 import { assetsDir } from './paths.js'
@@ -1579,6 +1595,10 @@ import { assetsDir } from './paths.js'
 export type AssetKind = Asset['kind']
 
 const THUMBNAIL_WIDTH = 320
+
+const EXTENSION_BY_KIND: Record<AssetKind, string> = {
+  image: '.img', video: '.vid', audio: '.aud',
+}
 
 export function assetKindFromMime(mime: string): AssetKind | null {
   if (mime.startsWith('image/')) return 'image'
@@ -1602,8 +1622,9 @@ export async function saveAsset(
   if (!kind) throw new Error(`Niedozwolony typ pliku: ${file.mime || '(brak)'}`)
 
   const id = `asset-${randomUUID()}`
-  const extension = extname(file.fileName) || ''
-  const stored = `${id}${extension}`
+  // Rozszerzenie bierzemy z rozpoznanego rodzaju, nie z nazwy podanej przez
+  // klienta — inaczej treść na dysku dostaje rozszerzenie wybrane przez niego.
+  const stored = `${id}${EXTENSION_BY_KIND[kind]}`
   const dir = assetsDir(root, slug)
   await writeFile(join(dir, stored), file.data)
 
@@ -1759,8 +1780,10 @@ import { projectDir } from '../storage/paths.js'
 import { readProject, writeProject } from '../storage/projectStore.js'
 import { removeAsset, saveAsset } from '../storage/assetStore.js'
 
-const Params = z.object({ slug: z.string().min(1) })
-const AssetParams = z.object({ slug: z.string().min(1), assetId: z.string().min(1) })
+const SlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'Niepoprawny identyfikator projektu')
+
+const Params = z.object({ slug: SlugSchema })
+const AssetParams = z.object({ slug: SlugSchema, assetId: z.string().min(1) })
 
 const MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 
