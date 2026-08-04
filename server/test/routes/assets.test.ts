@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { FastifyInstance } from 'fastify'
@@ -108,6 +108,30 @@ describe('PUT /api/projects/:slug — przejście po ścieżce assetu', () => {
     expect(put.statusCode).toBe(400)
     const after = await app.inject({ method: 'GET', url: '/api/projects/assety' })
     expect(after.json().project.assets).toEqual([])
+  })
+
+  it('trasa odczytu broni się sama, gdy uszkodzony projekt trafi na dysk z pominięciem API', async () => {
+    // `readProject` waliduje całość przez `ProjectSchema.parse` przy każdym
+    // odczycie, niezależnie od tego, jak plik trafił na dysk — więc ścieżka
+    // spoza wzorca `assets/[A-Za-z0-9._-]+` (np. `../../etc/passwd`) nigdy nie
+    // dotrze do tej trasy: cały projekt odpada wcześniej, jako 404. Jedyny
+    // ciąg, który przechodzi ten wzorzec, a mimo to normalizuje się poza
+    // katalog `assets/`, to sam ogon złożony z kropek — `assets/..` — bo `.`
+    // jest w dozwolonym zbiorze znaków. To jedyny obecnie osiągalny przypadek,
+    // w którym `assertInsideRoot` wciąż ma coś do roboty.
+    const current = JSON.parse(
+      await readFile(join(root, 'assety', 'project.json'), 'utf8'),
+    ) as { assets: unknown[] }
+    current.assets = [
+      { id: 'asset-00000000-0000-4000-8000-000000000000', kind: 'image', path: 'assets/..', fileName: 'x.png' },
+    ]
+    await writeFile(join(root, 'assety', 'project.json'), JSON.stringify(current), 'utf8')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/projects/assety/assets/asset-00000000-0000-4000-8000-000000000000/raw',
+    })
+    expect(res.statusCode).toBe(400)
   })
 })
 

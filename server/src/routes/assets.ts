@@ -53,10 +53,10 @@ export async function registerAssetRoutes(app: FastifyInstance): Promise<void> {
     }
     const asset = project.assets.find(a => a.id === assetId)
     if (!asset) return reply.status(404).send({ error: `Asset "${assetId}" nie istnieje` })
-    // `asset.path` pochodzi z `project.json`, a schemat dopuszcza tam dowolny
-    // napis — trasa PUT pozwala więc klientowi wstawić `../..`. Korzeniem jest
-    // katalog projektu, nie korzeń danych: asset nie ma prawa wyjść nawet do
-    // sąsiedniego projektu.
+    // Schemat ogranicza dziś kształt ścieżki, ale ta straż zostaje: model może
+    // trafić na dysk z pominięciem API — ręczną edycją pliku, kopią z innej
+    // maszyny, łatką wygenerowaną przez model językowy — a wtedy schemat nigdy
+    // się nie wypowiedział.
     const home = projectDir(app.dataRoot, slug)
     const resolved = join(home, asset.path)
     try {
