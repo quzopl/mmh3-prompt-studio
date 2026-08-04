@@ -776,6 +776,7 @@ git commit -m "feat: magazyn playheada z przyciaganiem do klatek"
 
 **Files:**
 - Create: `web/src/timeline/Ruler.tsx`
+- Create: `web/test/timeline/pointer.ts`
 - Modify: `web/src/i18n/dict.ts`
 - Test: `web/test/timeline/ruler.test.tsx`
 
@@ -817,8 +818,9 @@ i do angielskiej:
 
 ```tsx
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { Ruler } from '../../src/timeline/Ruler.js'
+import { firePointer } from './pointer.js'
 import { createScale } from '../../src/timeline/scale.js'
 import { usePlayhead } from '../../src/store/playheadStore.js'
 import { useLang } from '../../src/i18n/useT.js'
@@ -850,10 +852,31 @@ describe('Ruler', () => {
     render(<Ruler scale={scale} />)
     const ruler = screen.getByRole('slider', { name: /linijka czasu/i })
     ruler.getBoundingClientRect = () => ({ left: 0, width: 800 }) as DOMRect
-    fireEvent.pointerDown(ruler, { clientX: 400 })
+    firePointer(ruler, 'pointerdown', 400)
     expect(usePlayhead.getState().ms).toBe(4000)
   })
 })
+```
+
+- [ ] **Step 2b: Utwórz pomocnik zdarzeń wskaźnika**
+
+`web/test/timeline/pointer.ts`:
+
+```ts
+/**
+ * jsdom nie zna klasy `PointerEvent` — sprawdzone: `typeof PointerEvent`
+ * zwraca tam `undefined`. Przez to `fireEvent.pointerDown` buduje zwykłe
+ * `Event` bez współrzędnych i React widzi `clientX` równe `null`, więc każdy
+ * test przeciągania mierzyłby zero. `MouseEvent` o nazwie zdarzenia wskaźnika
+ * niesie współrzędne i React czyta je poprawnie.
+ */
+export function firePointer(
+  element: Element,
+  type: 'pointerdown' | 'pointermove' | 'pointerup' | 'pointercancel',
+  clientX: number,
+): void {
+  element.dispatchEvent(new MouseEvent(type, { clientX, bubbles: true }))
+}
 ```
 
 - [ ] **Step 3: Uruchom i potwierdź porażkę**
@@ -1226,8 +1249,9 @@ Granica przeciągana jest zawsze **początkiem** danego ujęcia, więc pierwsze 
 
 ```tsx
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import type { Project } from '@mmh3/shared'
+import { firePointer } from './pointer.js'
 import { boundaryTargetMs, MIN_SHOT_MS } from '../../src/timeline/useDragBoundary.js'
 import { ShotTrack } from '../../src/timeline/ShotTrack.js'
 import { createScale } from '../../src/timeline/scale.js'
@@ -1291,9 +1315,9 @@ describe('przeciąganie granicy w ścieżce ujęć', () => {
     handle.releasePointerCapture = () => {}
     const track = handle.parentElement!
     track.getBoundingClientRect = () => ({ left: 0, width: 800 }) as DOMRect
-    fireEvent.pointerDown(handle, { clientX: 300, pointerId: 1 })
-    fireEvent.pointerMove(handle, { clientX, pointerId: 1 })
-    fireEvent.pointerUp(handle, { clientX, pointerId: 1 })
+    firePointer(handle, 'pointerdown', 300)
+    firePointer(handle, 'pointermove', clientX)
+    firePointer(handle, 'pointerup', clientX)
   }
 
   it('pierwsze ujęcie nie ma uchwytu, bo jego czas jest zawsze zerem', () => {
@@ -1313,11 +1337,11 @@ describe('przeciąganie granicy w ścieżce ujęć', () => {
     handle.setPointerCapture = () => {}
     handle.releasePointerCapture = () => {}
     handle.parentElement!.getBoundingClientRect = () => ({ left: 0, width: 800 }) as DOMRect
-    fireEvent.pointerDown(handle, { clientX: 300, pointerId: 1 })
-    fireEvent.pointerMove(handle, { clientX: 400, pointerId: 1 })
-    fireEvent.pointerMove(handle, { clientX: 450, pointerId: 1 })
-    fireEvent.pointerMove(handle, { clientX: 500, pointerId: 1 })
-    fireEvent.pointerUp(handle, { clientX: 500, pointerId: 1 })
+    firePointer(handle, 'pointerdown', 300)
+    firePointer(handle, 'pointermove', 400)
+    firePointer(handle, 'pointermove', 450)
+    firePointer(handle, 'pointermove', 500)
+    firePointer(handle, 'pointerup', 500)
     expect(useProject.getState().past).toHaveLength(1)
   })
 
@@ -1518,7 +1542,8 @@ git commit -m "feat: przeciaganie granicy ujecia ze snapowaniem do klatek"
 
 ```tsx
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import { firePointer } from './pointer.js'
 import { advancePlayback } from '../../src/timeline/usePlayback.js'
 import { Playhead } from '../../src/timeline/Playhead.js'
 import { createScale } from '../../src/timeline/scale.js'
@@ -1562,9 +1587,9 @@ describe('Playhead', () => {
     handle.setPointerCapture = () => {}
     handle.releasePointerCapture = () => {}
     handle.parentElement!.getBoundingClientRect = () => ({ left: 0, width: 800 }) as DOMRect
-    fireEvent.pointerDown(handle, { clientX: 0, pointerId: 1 })
-    fireEvent.pointerMove(handle, { clientX: 200, pointerId: 1 })
-    fireEvent.pointerUp(handle, { clientX: 200, pointerId: 1 })
+    firePointer(handle, 'pointerdown', 0)
+    firePointer(handle, 'pointermove', 200)
+    firePointer(handle, 'pointerup', 200)
     expect(usePlayhead.getState().ms).toBe(2000)
   })
 })
