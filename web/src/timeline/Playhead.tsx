@@ -10,6 +10,8 @@ export function Playhead({ scale }: { scale: Scale }) {
   const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const track = event.currentTarget.parentElement
     if (!track) return
+    event.preventDefault()
+    event.stopPropagation()
     const bounds = track.getBoundingClientRect()
     const target = event.currentTarget
 

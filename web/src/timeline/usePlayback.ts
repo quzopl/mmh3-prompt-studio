@@ -20,10 +20,12 @@ export function usePlayback(durationMs: number): void {
   const lastFrame = useRef<number | null>(null)
 
   useEffect(() => {
-    if (!playing) {
-      lastFrame.current = null
-      return
-    }
+    // Resetowane przy każdym uruchomieniu efektu, nie tylko przy zatrzymaniu —
+    // inaczej zmiana `durationMs` w trakcie odtwarzania zostawiłaby znacznik
+    // czasu sprzed zmiany, a pierwsza klatka po niej policzyłaby odcinek przez
+    // granicę zmiany zamiast zacząć od nowa.
+    lastFrame.current = null
+    if (!playing) return
 
     let handle = 0
     const tick = (now: number) => {
