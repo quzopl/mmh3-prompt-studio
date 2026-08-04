@@ -358,7 +358,7 @@ export interface Label {
 export type Segment =
   | { kind: 'text'; text: string }
   | { kind: 'camera'; moveId: string }
-  | { kind: 'speaker'; speakerId: string; descriptor?: string; form: 'full' | 'short' | 'idOnly' }
+  | { kind: 'speaker'; speakerIds: string[]; descriptor?: string; form: 'full' | 'short' | 'idOnly' }
   | { kind: 'dialogue'; eventId: string }
   | { kind: 'label'; labelId: string; speakerId?: string; bracketed: boolean }
   | { kind: 'screenText'; id: string }
@@ -501,7 +501,7 @@ export const SegmentSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('camera'), moveId: z.string() }),
   z.object({
     kind: z.literal('speaker'),
-    speakerId: z.string(),
+    speakerIds: z.array(z.string()).min(1),
     descriptor: z.string().optional(),
     form: z.enum(['full', 'short', 'idOnly']),
   }),
@@ -980,23 +980,31 @@ const dlg = (over: Partial<DialogueEvent>): DialogueEvent => ({
 
 describe('renderSpeakerSegment', () => {
   it('renderuje pełny opis z ID', () => {
-    expect(renderSpeakerSegment({ kind: 'speaker', speakerId: 'sp1', form: 'full' }, [speaker]))
+    expect(renderSpeakerSegment({ kind: 'speaker', speakerIds: ['sp1'], form: 'full' }, [speaker]))
       .toBe('the middle-aged baker with a calm, slightly raspy voice (S1)')
   })
 
   it('renderuje skrócony opis z ID', () => {
-    expect(renderSpeakerSegment({ kind: 'speaker', speakerId: 'sp1', form: 'short' }, [speaker]))
+    expect(renderSpeakerSegment({ kind: 'speaker', speakerIds: ['sp1'], form: 'short' }, [speaker]))
       .toBe('the baker (S1)')
   })
 
   it('renderuje samo ID', () => {
-    expect(renderSpeakerSegment({ kind: 'speaker', speakerId: 'sp1', form: 'idOnly' }, [speaker]))
+    expect(renderSpeakerSegment({ kind: 'speaker', speakerIds: ['sp1'], form: 'idOnly' }, [speaker]))
       .toBe('(S1)')
+  })
+
+  it('składa złożone ID dla grupy mówiącej jednocześnie', () => {
+    const child2: Speaker = { ...speaker, id: 'sp2', code: 'S2' }
+    expect(renderSpeakerSegment(
+      { kind: 'speaker', speakerIds: ['sp1', 'sp2'], form: 'full', descriptor: 'The two children' },
+      [speaker, child2],
+    )).toBe('The two children (S1,S2)')
   })
 
   it('nadpisanie descriptor ma pierwszeństwo', () => {
     expect(renderSpeakerSegment(
-      { kind: 'speaker', speakerId: 'sp1', form: 'full', descriptor: 'the young woman with a quiet, breathy voice' },
+      { kind: 'speaker', speakerIds: ['sp1'], form: 'full', descriptor: 'the young woman with a quiet, breathy voice' },
       [speaker],
     )).toBe('the young woman with a quiet, breathy voice (S1)')
   })
@@ -1091,12 +1099,16 @@ import type { Segment, Speaker } from '../model/types.js'
 type SpeakerSegment = Extract<Segment, { kind: 'speaker' }>
 
 export function renderSpeakerSegment(seg: SpeakerSegment, speakers: Speaker[]): string {
-  const speaker = speakers.find(s => s.id === seg.speakerId)
-  if (!speaker) throw new Error(`Brak mówcy o id ${seg.speakerId}`)
-  const ids = `(${speaker.code})`
+  const resolved = seg.speakerIds.map(id => {
+    const speaker = speakers.find(s => s.id === id)
+    if (!speaker) throw new Error(`Brak mówcy o id ${id}`)
+    return speaker
+  })
+  const first = resolved[0]!
+  const ids = renderSpeakerGroup(resolved.map(s => s.code))
   if (seg.form === 'idOnly') return ids
   const descriptor = seg.descriptor
-    ?? (seg.form === 'full' ? speaker.fullDescriptor : speaker.shortDescriptor)
+    ?? (seg.form === 'full' ? first.fullDescriptor : first.shortDescriptor)
   return `${descriptor} ${ids}`
 }
 
@@ -1167,7 +1179,7 @@ export function renderLabelSegment(
 - [ ] **Step 4: Uruchom testy**
 
 Run: `cd ~/mmh3-studio && npm test -- renderSpeech`
-Expected: PASS, 15 testów
+Expected: PASS, 14 testów
 
 - [ ] **Step 5: Commit**
 
@@ -1223,7 +1235,7 @@ const shot1: Shot = {
     { kind: 'text', text: 'a medium-wide shot frames a baker opening the shutters of a small street bakery before sunrise. ' },
     { kind: 'camera', moveId: 'c1' },
     { kind: 'text', text: ' as ' },
-    { kind: 'speaker', speakerId: 'sp1', form: 'full' },
+    { kind: 'speaker', speakerIds: ['sp1'], form: 'full' },
     { kind: 'text', text: ' places a fresh loaf on the wooden counter and ' },
     { kind: 'dialogue', eventId: 'd1' },
   ],
@@ -1708,7 +1720,7 @@ export const t2vaProject: Project = emptyProject({
         { kind: 'text', text: 'a medium-wide shot frames a baker opening the shutters of a small street bakery before sunrise. ' },
         { kind: 'camera', moveId: 'c1' },
         { kind: 'text', text: ' as ' },
-        { kind: 'speaker', speakerId: 'sp1', form: 'full' },
+        { kind: 'speaker', speakerIds: ['sp1'], form: 'full' },
         { kind: 'text', text: ' places a fresh loaf on the wooden counter and ' },
         { kind: 'dialogue', eventId: 'd1' },
       ],
@@ -1753,7 +1765,7 @@ export const i2vaProject: Project = emptyProject({
         { kind: 'text', text: ' remains beside the rain-covered train window, preserving her appearance, clothing, seat position, and the carriage layout. ' },
         { kind: 'camera', moveId: 'c1' },
         { kind: 'text', text: ' as she lifts her gaze from the folded letter toward the passing city lights. Her reflection moves across the glass while ' },
-        { kind: 'speaker', speakerId: 'sp1', form: 'full' },
+        { kind: 'speaker', speakerIds: ['sp1'], form: 'full' },
         { kind: 'text', text: ' ' },
         { kind: 'dialogue', eventId: 'd1' },
         { kind: 'text', text: ' She folds the letter along its existing crease.' },
@@ -2421,7 +2433,9 @@ export function buildTokens(project: Project, text: string): Token[] {
           break
         }
         case 'speaker':
-          locate(renderSpeakerSegment(seg, project.speakers), { kind: 'speaker', id: seg.speakerId })
+          // Grupa mówiąca jednocześnie renderuje się jako jeden fragment;
+          // token wskazuje pierwszego mówcę z grupy.
+          locate(renderSpeakerSegment(seg, project.speakers), { kind: 'speaker', id: seg.speakerIds[0]! })
           break
         case 'label':
           locate(renderLabelSegment(seg, project.labels, project.speakers), { kind: 'label', id: seg.labelId })
@@ -3339,13 +3353,14 @@ const speakerFirstIntro = defineRule({
     for (const shot of [...project.shots].sort((a, b) => a.index - b.index)) {
       for (const seg of shot.body) {
         if (seg.kind !== 'speaker') continue
-        if (introduced.has(seg.speakerId)) continue
-        introduced.add(seg.speakerId)
+        const fresh = seg.speakerIds.filter(id => !introduced.has(id))
+        if (fresh.length === 0) continue
+        for (const id of fresh) introduced.add(id)
         const hasDescriptor = seg.form === 'full' || Boolean(seg.descriptor)
         if (hasDescriptor) continue
         out.push(makeDiagnostic(
           speakerFirstIntro,
-          { kind: 'speaker', id: seg.speakerId },
+          { kind: 'speaker', id: fresh[0]! },
           'Pierwsze wystąpienie mówcy musi zawierać opis tożsamości głosu.',
           'A speaker\'s first appearance must establish a stable voice identity.',
         ))
