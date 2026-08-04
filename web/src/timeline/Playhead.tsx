@@ -6,6 +6,7 @@ export function Playhead({ scale }: { scale: Scale }) {
   const t = useT()
   const ms = usePlayhead(state => state.ms)
   const setMs = usePlayhead(state => state.setMs)
+  const left = msToPx(scale, ms)
 
   const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const track = event.currentTarget.parentElement
@@ -36,14 +37,26 @@ export function Playhead({ scale }: { scale: Scale }) {
   }
 
   return (
-    <div
-      role="presentation"
-      aria-label={t('timeline.playhead')}
-      onPointerDown={startDrag}
-      className="absolute bottom-0 top-0 z-20 w-px cursor-col-resize bg-amber-400"
-      style={{ left: msToPx(scale, ms) }}
-    >
-      <span className="absolute -left-1 top-0 h-2 w-2 rounded-sm bg-amber-400" />
-    </div>
+    <>
+      {/*
+        Linia jest czysto wizualna (pointer-events-none). Gdyby przyjmowała
+        zdarzenia na całej wysokości, zasłaniałaby uchwyty granic ujęć leżące
+        w tym samym miejscu co playhead — a tuż po rozcięciu leżą dokładnie
+        tam, bo cięcie powstaje w pozycji playheada. Przeciąganie żyje
+        wyłącznie w małym uchwycie u góry, tak jak w edytorach wideo.
+      */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute bottom-0 top-0 z-20 w-px bg-amber-400"
+        style={{ left }}
+      />
+      <div
+        role="presentation"
+        aria-label={t('timeline.playhead')}
+        onPointerDown={startDrag}
+        className="absolute top-0 z-30 h-2 w-2 -translate-x-1 cursor-col-resize rounded-sm bg-amber-400"
+        style={{ left }}
+      />
+    </>
   )
 }

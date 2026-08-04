@@ -1,10 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
+import type { Project } from '@mmh3/shared'
 import { firePointer } from './pointer.js'
 import { advancePlayback, usePlayback } from '../../src/timeline/usePlayback.js'
 import { Playhead } from '../../src/timeline/Playhead.js'
+import { ShotTrack } from '../../src/timeline/ShotTrack.js'
 import { createScale } from '../../src/timeline/scale.js'
 import { usePlayhead } from '../../src/store/playheadStore.js'
+import { useProject } from '../../src/store/projectStore.js'
+import { useSelection } from '../../src/store/selectionStore.js'
 import { useLang } from '../../src/i18n/useT.js'
 
 beforeEach(() => {
@@ -48,6 +52,75 @@ describe('Playhead', () => {
     firePointer(handle, 'pointermove', 200)
     firePointer(handle, 'pointerup', 200)
     expect(usePlayhead.getState().ms).toBe(2000)
+  })
+
+  it('linia jest czysto wizualna — tylko uchwyt ma nazwę dostępności i przyjmuje wskaźnik', () => {
+    const { container } = render(<Playhead scale={createScale(8000, 800, 1)} />)
+
+    // Element linii jest oznaczony `aria-hidden` i niczym innym w tym
+    // komponencie — to jedyny sposób, żeby go odróżnić od uchwytu bez
+    // wprowadzania data-testid, którego reszta projektu nie używa.
+    const line = container.querySelector('[aria-hidden="true"]')
+    expect(line).not.toBeNull()
+    expect(line?.className).toContain('pointer-events-none')
+
+    // Rolę i nazwę dostępności ma wyłącznie uchwyt — dokładnie jeden element,
+    // nie dwa. Gdyby linia też ją miała (jak przed tą poprawką), przyjmowałaby
+    // zdarzenia na całej wysokości i przykrywałaby granice ujęć w tym samym
+    // miejscu.
+    expect(screen.getAllByRole('presentation', { name: /znacznik odtwarzania/i })).toHaveLength(1)
+  })
+})
+
+const shot = (id: string, index: number, startMs: number) => ({
+  id, index, startMs, cutType: 'cut' as const, cutPhrase: 'the camera cuts to' as const,
+  composition: '', body: [], cameraMoves: [], dialogue: [],
+  screenText: [], diegeticSfx: [], labelRefs: [], anchors: [],
+})
+
+const twoShotProject: Project = {
+  schemaVersion: 1, id: 'p', name: 'Test', mode: 'T2VA',
+  video: { durationMs: 8000, fps: 24, aspect: '16:9', resolution: '768p' },
+  style: 'Live-action, cinematic', assets: [], labels: [], speakers: [],
+  shots: [shot('a', 0, 0), shot('b', 1, 3000)],
+  audio: { overallSoundscape: 'Rain.', nonDiegeticMusic: 'N/A' },
+  ref: { taskTypes: [], summaryText: '', retention: [] },
+}
+
+describe('Playhead nad granicą ujęcia', () => {
+  it('granica w tej samej pozycji co playhead wciąż daje się chwycić i przeciągnąć', () => {
+    // jsdom dostarcza zdarzenia bezpośrednio do elementu wskazanego w
+    // `firePointer`, z pominięciem prawdziwego trafiania w piksel na
+    // podstawie z-index/pointer-events — tego jedna przeglądarka (Chromium
+    // w e2e) pilnuje naprawdę. Ten test dokumentuje zamierzone zachowanie
+    // i chroni przed regresją strukturalną (np. przypadkowym zagnieżdżeniem
+    // znacznika nad ścieżką ujęć), ale to e2e jest ostatecznym dowodem, że
+    // granica pod znacznikiem faktycznie daje się złapać myszą.
+    useSelection.setState({ selected: [] })
+    useProject.getState().load('test', twoShotProject)
+    // Playhead stoi dokładnie na granicy ujęcia 2 (3000 ms = 300 px przy tej
+    // skali) — dokładnie tam, gdzie w prawdziwej przeglądarce rozstrzyga się
+    // konflikt z-index/pointer-events.
+    usePlayhead.setState({ ms: 3000, playing: false })
+
+    const scale = createScale(8000, 800, 1)
+    render(
+      <>
+        <ShotTrack scale={scale} />
+        <Playhead scale={scale} />
+      </>,
+    )
+
+    const handle = screen.getByRole('separator', { name: /ujęcie 2/i })
+    handle.setPointerCapture = () => {}
+    handle.releasePointerCapture = () => {}
+    handle.parentElement!.getBoundingClientRect = () => ({ left: 0, width: 800 }) as DOMRect
+
+    firePointer(handle, 'pointerdown', 300)
+    firePointer(handle, 'pointermove', 500)
+    firePointer(handle, 'pointerup', 500)
+
+    expect(useProject.getState().project!.shots[1]!.startMs).toBe(5000)
   })
 })
 
@@ -147,6 +220,25 @@ describe('usePlayback — pętla klatkowa', () => {
     expect(longStep).toBe(1000)
   })
 
+  it('przy realistycznych odstępach klatek (ok. 16,7 ms) playhead faktycznie się posuwa', () => {
+    // Prawdziwy vsync tyka co ok. 16,7 ms — mniej niż pół klatki materiału
+    // (20,8 ms przy 24 FPS). Testy z odcinkami 100 ms i 1000 ms wyżej nie
+    // wyłapały tego, bo pojedynczym skokiem przeskakują próg zaokrąglenia —
+    // ten test celowo tego nie robi.
+    usePlayhead.setState({ ms: 0, playing: true })
+    render(<TestPlayback durationMs={8000} />)
+
+    act(() => queue.runOnly(0)) // klatka bazowa
+    let now = 0
+    for (let frame = 0; frame < 120; frame += 1) {
+      now += 1000 / 60
+      act(() => queue.runOnly(now))
+    }
+
+    // 120 klatek po ok. 16,7 ms to ok. 2000 ms rzeczywistego czasu.
+    expect(usePlayhead.getState().ms).toBeGreaterThan(1900)
+  })
+
   it('zatrzymuje się dokładnie na końcu materiału i nie planuje kolejnej klatki', () => {
     usePlayhead.setState({ ms: 7960, playing: true })
     render(<TestPlayback durationMs={8000} />)
@@ -208,6 +300,30 @@ describe('usePlayback — pętla klatkowa', () => {
     act(() => queue.runOnly(1000))
     act(() => queue.runOnly(1100))
     expect(usePlayhead.getState().ms).toBeGreaterThan(0)
+  })
+
+  it('przewinięcie w trakcie odtwarzania nie zostaje cofnięte przez zakumulowaną pozycję', () => {
+    usePlayhead.setState({ ms: 0, playing: true })
+    const view = render(<TestPlayback durationMs={8000} />)
+
+    act(() => queue.runOnly(0)) // klatka bazowa
+    act(() => queue.runOnly(1000)) // odcinek 1000 ms
+    expect(usePlayhead.getState().ms).toBe(1000)
+
+    // Coś spoza pętli (np. klik w linijkę czasu) przewija playhead w trakcie
+    // odtwarzania — akumulator w hooku o tym jeszcze nie wie.
+    act(() => usePlayhead.getState().setMs(5000, 8000))
+    expect(usePlayhead.getState().ms).toBe(5000)
+
+    // Kolejna klatka powinna kontynuować od przewiniętej pozycji (5000 + ~100),
+    // a nie nadpisać ją starą, zakumulowaną wartością sprzed przewinięcia
+    // (1000 + 100 = 1100 byłoby cofnięciem przewinięcia).
+    act(() => queue.runOnly(1100))
+
+    const ms = usePlayhead.getState().ms
+    expect(ms).toBeGreaterThan(5000)
+    expect(ms).toBeLessThan(5200)
+    view.unmount()
   })
 
   it('zmiana durationMs w trakcie odtwarzania nie liczy odcinka przez granicę zmiany', () => {
