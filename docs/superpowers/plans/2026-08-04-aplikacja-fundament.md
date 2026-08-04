@@ -660,7 +660,7 @@ Expected: FAIL — brak workspace'u `server`
     "@types/node": "^22",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
-    "vitest": "^3.0.5"
+    "vitest": "^4.1.10"
   }
 }
 ```
@@ -2224,14 +2224,14 @@ Expected: FAIL — brak workspace'u `web`
     "@testing-library/user-event": "^14.5.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.4.20",
     "jsdom": "^25.0.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11",
-    "vitest": "^3.0.5"
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
   }
 }
 ```
@@ -2253,7 +2253,9 @@ Expected: FAIL — brak workspace'u `web`
 `web/vite.config.ts`:
 
 ```ts
-import { defineConfig } from 'vite'
+// defineConfig z 'vitest/config', a nie z 'vite' — od Vite 8 wariant z 'vite'
+// nie przyjmuje typowo bloku `test`.
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
