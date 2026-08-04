@@ -614,7 +614,7 @@ export * from './model/schema.js'
 ```
 
 Run: `cd ~/mmh3-studio && npm test && npm run typecheck`
-Expected: PASS, 6 testów
+Expected: PASS, 7 testów
 
 - [ ] **Step 6: Commit**
 
@@ -678,6 +678,11 @@ describe('formatShotTime', () => {
     expect(formatShotTime(9000)).toBe('00:09.000')
     expect(formatShotTime(65432)).toBe('01:05.432')
   })
+
+  it('zaokrągla ułamkowe milisekundy zamiast psuć format', () => {
+    expect(formatShotTime(3500.7)).toBe('00:03.501')
+    expect(formatShotTime(3500.2)).toBe('00:03.500')
+  })
 })
 
 describe('formatAlignSeconds', () => {
@@ -687,6 +692,11 @@ describe('formatAlignSeconds', () => {
     expect(formatAlignSeconds(8000)).toBe('8.00')
     expect(formatAlignSeconds(7500)).toBe('7.50')
     expect(formatAlignSeconds(12340)).toBe('12.34')
+  })
+
+  it('zaokrągla wartości graniczne poprawnie', () => {
+    expect(formatAlignSeconds(1005)).toBe('1.01')
+    expect(formatAlignSeconds(8005)).toBe('8.01')
   })
 })
 ```
@@ -722,23 +732,29 @@ const pad = (n: number, width: number): string => String(n).padStart(width, '0')
 
 /** Timestamp cięcia w formacie MM:SS.mmm wymaganym przez guide. */
 export function formatShotTime(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000)
+  // Ułamkowe milisekundy dałyby zepsuty timestamp typu "00:03.500.7".
+  const total = Math.round(ms)
+  const totalSeconds = Math.floor(total / 1000)
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
-  const millis = ms % 1000
+  const millis = total % 1000
   return `${pad(minutes, 2)}:${pad(seconds, 2)}.${pad(millis, 3)}`
 }
 
-/** Czas w linii alignmentu: sekundy z dokładnie dwoma miejscami po przecinku. */
+/**
+ * Czas w linii alignmentu: sekundy z dokładnie dwoma miejscami po przecinku.
+ * Zaokrąglamy w domenie całkowitej, bo (1005 / 1000).toFixed(2) daje "1.00"
+ * zamiast "1.01" — 1.005 nie jest dokładnie reprezentowalne binarnie.
+ */
 export function formatAlignSeconds(ms: number): string {
-  return (ms / 1000).toFixed(2)
+  return (Math.round(ms / 10) / 100).toFixed(2)
 }
 ```
 
 - [ ] **Step 4: Uruchom testy**
 
 Run: `cd ~/mmh3-studio && npm test -- time`
-Expected: PASS, 6 testów
+Expected: PASS, 7 testów
 
 Uwaga: `snapToFrame(3480)` daje 3500, bo klatka 84 wypada na 3500 ms — sprawdź to, jeśli test padnie, zamiast zmieniać oczekiwanie.
 
