@@ -32,6 +32,12 @@ describe('usePlayhead', () => {
     expect(usePlayhead.getState().ms).toBe(0)
   })
 
+  it('nie wychodzi poza materiał, gdy długość nie leży na granicy klatki', () => {
+    usePlayhead.getState().setMs(4999, 4999)
+    expect(usePlayhead.getState().ms).toBeLessThanOrEqual(4999)
+    expect(usePlayhead.getState().ms).toBe(4958)
+  })
+
   it('przełącza odtwarzanie', () => {
     usePlayhead.getState().toggle()
     expect(usePlayhead.getState().playing).toBe(true)
