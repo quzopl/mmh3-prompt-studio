@@ -40,4 +40,10 @@ describe('injectPrompt', () => {
     expect(() => injectPrompt([], '3', 'text', 'x')).toThrow(/workflow/i)
     expect(() => injectPrompt(null, '3', 'text', 'x')).toThrow(/workflow/i)
   })
+
+  it('nazwa pola z prototypu nie udaje istniejącego pola', () => {
+    for (const field of ['toString', 'valueOf', 'constructor', 'hasOwnProperty']) {
+      expect(() => injectPrompt(workflow, '3', field, 'x'), field).toThrow(/pol/i)
+    }
+  })
 })

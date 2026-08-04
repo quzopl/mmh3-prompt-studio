@@ -24,7 +24,7 @@ export function injectPrompt(
   }
 
   const target: Node = isPlainObject(node.inputs) ? node.inputs : node
-  if (!(field in target)) {
+  if (!Object.prototype.hasOwnProperty.call(target, field)) {
     throw new Error(`Węzeł "${nodeId}" nie ma pola "${field}"`)
   }
 
