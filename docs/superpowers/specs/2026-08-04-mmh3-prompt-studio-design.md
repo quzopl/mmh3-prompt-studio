@@ -68,13 +68,28 @@ Shot
   cutPhrase      the camera cuts to | the shot cuts to | the shot transitions to |
                  the shot changes to | the shot switches to
   composition    plan i kadr
-  action         opis obserwowalny
+  body[]         Segment — proza ujęcia jako lista segmentów (patrz niżej)
   cameraMoves[]  CameraMove
   dialogue[]     DialogueEvent
   screenText[]   tekst widoczny w kadrze
   diegeticSfx[]  dźwięk zsynchronizowany z ujęciem
   labelRefs[]    pierwsze wystąpienia etykiet
   anchor         picture-first | picture-last | keyframe | none
+
+Segment — jednostka prozy w ciele ujęcia. Konkatenacja wyrenderowanych
+segmentów daje dokładny tekst ujęcia, dzięki czemu ruch kamery, opis mówcy
+i dialog mogą znaleźć się w jednym zdaniu, tak jak wymaga guide.
+  { kind: 'text',     text }
+  { kind: 'camera',   moveId }        → "The camera pushes in with small amplitude at slow speed"
+  { kind: 'speaker',  speakerId, descriptor, form: full | short | idOnly }
+                                      → "the middle-aged baker with a calm, slightly raspy voice (S1)"
+  { kind: 'dialogue', eventId }       → "says: <d>[English] First batch of the morning.</d>"
+  { kind: 'label',    labelId, speakerId?, bracketed }
+                                      → "<Subject 3> (S1)" albo "Picture 1" bez nawiasów kątowych
+  { kind: 'screenText', id }          → "\"营业中\""
+
+Guide bywa niekonsekwentny w zapisie etykiet (raz `<Picture 1>`, raz `Picture 1`),
+dlatego zapis w nawiasach kątowych jest własnością pojedynczego wystąpienia.
 
 CameraMove
   type       12 kategorii ruchu z tabeli guide'a, 20 konkretnych wartości:
@@ -177,6 +192,8 @@ overall_soundscape:
 non_diegetic_music:
 ```
 
+Różnica układu między emiterami: w trybach bazowych wszystkie ujęcia idą **w jednym akapicie**, oddzielone spacją (`… </d> [Shot 2] At 00:05.000, …`). W trybie REF `detailed_description:` zaczyna się od zdania o stylu w nowej linii, a **każde ujęcie zaczyna nową linię**.
+
 Zasady składania, które kompilator realizuje automatycznie:
 
 - Shot 1 bez timestampu; kolejne jako `[Shot N] At MM:SS.mmm, <cutPhrase> …`
@@ -211,6 +228,7 @@ Zbiór nazwanych reguł. Każda ma identyfikator, poziom (błąd / ostrzeżenie 
 - `CAM_REDUNDANT_MODIFIER` — pomijaj amplitudę/prędkość, gdy średnia/normalna
 - `CAM_IN_SHOT_BOUNDS` — ruch mieści się w granicach ujęcia
 - `CUT_SHOULD_BE_MOVE` — ostrzeżenie, gdy sąsiednie ujęcia różnią się tylko dystansem lub drobnym kątem; guide każe wtedy użyć ruchu kamery zamiast cięcia
+- `BODY_REFS_COMPLETE` — każdy ruch kamery i każde zdarzenie dialogowe jest przywołane w `body` ujęcia dokładnie raz; żaden segment nie wskazuje na nieistniejący obiekt
 - `TRANSITION_EXPLICIT` — cross-dissolve/fade/wipe tylko przy świadomym wyborze
 
 **Mówcy i dialog**
