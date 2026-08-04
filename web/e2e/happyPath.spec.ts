@@ -41,25 +41,23 @@ test('od utworzenia projektu do gotowego promptu', async ({ page }) => {
   // fragment, który dowodzi, że podział dotarł do kompilatora.
   await expect(monitor.getByText(/^\[Shot 2\] At 00:0/)).toBeVisible()
 
-  // Playhead stoi dokładnie tam, gdzie przed chwilą powstała nowa granica —
-  // podział zrobiliśmy w jego pozycji. Jego uchwyt to niewidoczny pasek na
-  // całą wysokość osi (z-20), wyżej niż uchwyt granicy (z-10); kliknięcie w
-  // ten sam piksel trafiłoby więc w playhead, nie w granicę (sprawdzone w
-  // prawdziwej przeglądarce — patrz raport zadania 12, runda 2). Odsuwamy
-  // playhead klawiszem Home, zanim złapiemy granicę wskaźnikiem.
-  await page.keyboard.press('Home')
-
-  // Odczyt z panelu promptu, nie z monitora: monitor pokazuje ujęcie pod
-  // playheadem, a playhead właśnie stąd odjechał. Prompt pokazuje całość
+  // Odczyt z panelu promptu, nie z monitora: dalej w tym teście playhead
+  // jeszcze się przesunie (odtwarzanie niżej), a prompt pokazuje całość
   // niezależnie od jego pozycji, więc dalej można nim sprawdzić czas cięcia.
   const promptPanel = page.getByRole('region', { name: /^prompt$/i })
   const shotTwoInPrompt = promptPanel.getByText(/\[Shot 2\] At 00:0/)
   const cutBeforeDrag = await shotTwoInPrompt.textContent()
 
-  // Przeciągnięcie granicy prawdziwym gestem wskaźnika (pointerdown/move/up przez
-  // `page.mouse`) — jedyne miejsce w projekcie, gdzie `setPointerCapture` i
-  // `PointerEvent` działają naprawdę, zamiast atrapy `MouseEvent`, jaką testy
-  // jednostkowe muszą podstawiać pod jsdom (ono w ogóle nie zna klasy PointerEvent).
+  // Przeciągnięcie granicy dokładnie tam, gdzie wylądowała po podziale — w
+  // tym samym pikselu co playhead, bo cięcie powstaje w jego pozycji. Przed
+  // naprawą produkcyjną (commit 9046151, runda 2 tego zadania) tu właśnie
+  // łapało się playhead zamiast granicy: jego linia miała przechwytywanie na
+  // całą wysokość osi. Naprawa uczyniła linię czysto wizualną
+  // (pointer-events-none) i przeniosła przeciąganie playheada do osobnego,
+  // małego uchwytu u góry — więc granica jest teraz osiągalna bez żadnego
+  // obchodzenia. Ten test to jedyne miejsce w projekcie, gdzie to w ogóle
+  // można sprawdzić: jsdom nie ma layoutu i nie honoruje `pointer-events`
+  // ani kolejności z-index przy dispatchu zdarzeń.
   const boundary = page.getByRole('separator', { name: /ujęcie 2/i })
   const box = await boundary.boundingBox()
   if (!box) throw new Error('Granica ujęcia nie ma wymiarów w DOM — nie da się jej przeciągnąć.')
@@ -82,24 +80,34 @@ test('od utworzenia projektu do gotowego promptu', async ({ page }) => {
   await page.keyboard.press('Control+z')
   await expect(clips).toHaveCount(1)
 
-  // UWAGA: odtwarzanie na prawdziwym zegarze celowo NIE jest tu sprawdzane.
-  // Zbadane w rundzie 2 tego zadania i opisane w raporcie: `usePlayback.ts`
-  // liczy kolejną pozycję od WARTOŚCI JUŻ ZAOKRĄGLONEJ do klatki
-  // (`usePlayhead.getState().ms`), a nie od surowego, nieprzyciętego czasu.
-  // Prawdziwy `requestAnimationFrame` w przeglądarce tyka co ~16,7 ms — mniej
-  // niż połowa długości jednej klatki wideo przy 24 kl/s (41,7 ms) — więc
-  // każdy pojedynczy przyrost zaokrągla się z powrotem do tej samej klatki i
-  // playhead zamraża się na starcie na zawsze, mimo że `requestAnimationFrame`
-  // faktycznie tyka (potwierdzone bezpośrednim pomiarem w tej samej sesji).
-  // Testy jednostkowe tego nie łapały, bo ręcznie sterowana kolejka klatek w
-  // `playback.test.tsx` karmi `tick` pojedynczymi, wybranymi przez test
-  // dużymi skokami (100 ms, 1000 ms) — każdy z osobna większy niż próg
-  // zaokrąglenia, więc nigdy nie odtwarza sytuacji małych, powtarzanych
-  // przyrostów z prawdziwego zegara. Zgodnie z poleceniem rundy: to jest
-  // ustalenie warte więcej niż zielony test — zgłoszone w raporcie, tu
-  // celowo nie dopisuję asercji, która zależałaby od załatania błędu w
-  // `web/src/timeline/usePlayback.ts` / `web/src/store/playheadStore.ts`
-  // (poza zakresem plików tego zadania).
+  // Odtwarzanie na prawdziwym zegarze: przewijamy blisko końca materiału (End,
+  // potem parę klatek wstecz strzałką), żeby czekanie było krótkie, po czym
+  // sprawdzamy, że playhead realnie się przesuwa, a następnie zatrzymuje się
+  // dokładnie na końcu materiału, zamiast jechać dalej. Runda 1 tego zadania
+  // celowo NIE dopisała tej asercji, bo `usePlayback.ts` liczył kolejną
+  // pozycję od już zaokrąglonej do klatki wartości w magazynie — realny
+  // ~16,7 ms krok vsync jest mniejszy niż pół klatki materiału (41,7 ms przy
+  // 24 kl/s), więc zaokrąglał się z powrotem do tej samej klatki w
+  // nieskończoność i playhead zamarzał na starcie na zawsze, mimo że
+  // `requestAnimationFrame` naprawdę tykał. Naprawione w commit 9046151:
+  // hook trzyma teraz akumulator w pełnej precyzji, niezależny od zaokrąglenia
+  // w magazynie. Ten test to jedyny w projekcie dowód na prawdziwym zegarze —
+  // testy jednostkowe karmią pętlę klatkową ręcznie wybranymi skokami
+  // (100 ms, 1000 ms), które nie odtwarzają realnego rytmu przeglądarki.
+  const timeline = page.getByRole('region', { name: /^oś czasu$/i })
+  const msDisplay = timeline.getByText(/^\d+ ms$/)
+  // Fokus po poprzednich krokach stoi na przycisku „Dodaj ujęcie” — zdejmujemy
+  // go, żeby spacja jednoznacznie trafiła w globalny skrót odtwarzania
+  // (`useTimelineShortcuts.ts`), a nie w aktywację akurat skupionego przycisku.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.keyboard.press('End')
+  for (let step = 0; step < 5; step += 1) await page.keyboard.press('ArrowLeft')
+  const msBeforePlay = await msDisplay.textContent()
+
+  await page.keyboard.press(' ')
+  await expect(msDisplay).not.toHaveText(msBeforePlay ?? '')
+  await expect(timeline.getByRole('button', { name: /^odtwarzaj$/i })).toBeVisible()
+  await expect(msDisplay).toHaveText('8000 ms')
 
   // Zmiana języka przełącza interfejs, ale nie treść promptu.
   await page.getByRole('button', { name: 'EN' }).click()
