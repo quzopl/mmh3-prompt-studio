@@ -41,6 +41,8 @@ const pl = {
   'timeline.play': 'Odtwarzaj',
   'timeline.pause': 'Zatrzymaj',
   'timeline.playhead': 'Znacznik odtwarzania',
+  'timeline.trackShots': 'Ujęcia',
+  'timeline.clipLabel': 'Ujęcie {number}, od {start} ms do {end} ms',
 
   'validation.ready': 'Gotowy do eksportu',
   'validation.count': 'Problemy: {count}',
@@ -128,6 +130,8 @@ const en: Record<TKey, string> = {
   'timeline.play': 'Play',
   'timeline.pause': 'Pause',
   'timeline.playhead': 'Playhead',
+  'timeline.trackShots': 'Shots',
+  'timeline.clipLabel': 'Shot {number}, from {start} ms to {end} ms',
 
   'validation.ready': 'Ready to export',
   'validation.count': 'Issues: {count}',
