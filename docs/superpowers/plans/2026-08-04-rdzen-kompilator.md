@@ -128,9 +128,12 @@ Expected: FAIL — brak `package.json` / brak modułu `../src/index.js`
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": { "types": [] },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/cli.ts"]
 }
 ```
+
+`src/cli.ts` jest wyłączony z tego programu, bo z definicji jest programem Node'a i importuje `node:fs`. Type'uje go program testowy poniżej, który obejmuje `src` i `test`. Blokada pozostaje realna: każdy inny plik biblioteki nadal kompiluje się bez otoczenia Node'a, więc sięgnięcie po `process` czy `node:*` gdziekolwiek poza CLI wywali build.
 
 `shared/tsconfig.test.json` — testy wraz z importowanymi źródłami; tylko one dostają typy Node'a, bo pliki testowe czytają pliki oczekiwane przez `node:fs`:
 
