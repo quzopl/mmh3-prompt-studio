@@ -1,3 +1,4 @@
+import { realpath } from 'node:fs/promises'
 import { isAbsolute, join, relative } from 'node:path'
 
 const DIACRITICS: Record<string, string> = {
@@ -32,6 +33,18 @@ export function assertInsideRoot(root: string, candidate: string): void {
   if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
     throw new Error(`Ścieżka "${candidate}" wychodzi poza katalogiem danych`)
   }
+}
+
+/**
+ * Kontrola po rozwiązaniu dowiązań. `assertInsideRoot` porównuje ścieżki
+ * leksykalnie, więc dowiązanie symboliczne o nazwie zgodnej ze schematem
+ * wygląda dla niego na wnętrze projektu, a system plików prowadzi gdzie indziej.
+ * Wymaga istniejącego pliku, dlatego używamy jej tylko na ścieżkach odczytu.
+ */
+export async function assertRealPathInside(root: string, candidate: string): Promise<void> {
+  const realRoot = await realpath(root)
+  const realCandidate = await realpath(candidate)
+  assertInsideRoot(realRoot, realCandidate)
 }
 
 export const projectDir = (root: string, slug: string): string => join(root, slug)

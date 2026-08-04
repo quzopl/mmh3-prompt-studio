@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import multipart from '@fastify/multipart'
-import { assertInsideRoot, projectDir } from '../storage/paths.js'
+import { assertInsideRoot, assertRealPathInside, projectDir } from '../storage/paths.js'
 import { readProject, writeProject } from '../storage/projectStore.js'
 import { removeAsset, saveAsset } from '../storage/assetStore.js'
 import { AssetParams, SlugParams, parseParamsOrReply } from './params.js'
@@ -61,7 +61,11 @@ export async function registerAssetRoutes(app: FastifyInstance): Promise<void> {
     const resolved = join(home, asset.path)
     try {
       assertInsideRoot(home, resolved)
-    } catch {
+      await assertRealPathInside(home, resolved)
+    } catch (err) {
+      if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
+        return reply.status(404).send({ error: `Plik assetu "${assetId}" zniknął z dysku` })
+      }
       return reply.status(400).send({ error: `Ścieżka assetu "${assetId}" wychodzi poza projekt` })
     }
     try {

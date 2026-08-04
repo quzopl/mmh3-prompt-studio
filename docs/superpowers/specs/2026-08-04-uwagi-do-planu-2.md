@@ -132,3 +132,23 @@ Dowiązanie symboliczne podłożone w katalogu projektu obeszłoby tę kontrolę
 obecna ścieżka zapisu takiego dowiązania nie tworzy — wgrywanie zapisuje zwykłe
 pliki pod generowanymi nazwami — więc dziś to nieosiągalne. Warto o tym pamiętać,
 bo zawężenie `AssetSchema.path` w odmrożonym `shared/` też tego nie zamknie.
+
+**Rozstrzygnięcie (Task 1, runda poprawek 2/5):** zamknięte na ścieżce odczytu.
+Zawężenie `AssetSchema.path` (`assets/[A-Za-z0-9._-]+`) rzeczywiście tego nie
+zamyka — dowiązanie symboliczne nazwane zgodnie ze wzorcem przechodzi schemat
+i leksykalny `assertInsideRoot` bez zastrzeżeń, a system plików i tak podąża za
+nim gdziekolwiek. Trasa `GET /api/projects/:slug/assets/:assetId/raw` w
+`server/src/routes/assets.ts` woła teraz, obok istniejącego `assertInsideRoot`,
+nową `assertRealPathInside` (`server/src/storage/paths.ts`) — porównuje ścieżki
+po `realpath`, więc dowiązanie prowadzące poza katalog projektu jest wykrywane
+niezależnie od nazwy. Dowiedzione eksperymentem różnicującym: z usuniętą
+kontrolą trasa oddawała realną zawartość pliku spoza projektu (dowiązanie
+`assets/kadr.img` → `SEKRET.txt`, odpowiedź 200 z treścią sekretu); z
+przywróconą kontrolą — 400, bez treści.
+
+Ścieżki zapisu (`writeProject`, `saveAsset` i reszta magazynu) nadal używają
+wyłącznie leksykalnego `assertInsideRoot`, celowo bez zmian: piszą pod cele,
+które jeszcze nie istnieją na dysku, a `realpath` rzuca `ENOENT` dla
+nieistniejącej ścieżki — `assertRealPathInside` nadaje się więc tylko do stron
+odczytu, gdzie plik z definicji już jest obecny (albo jego brak to osobny,
+rozróżniony przypadek 404).

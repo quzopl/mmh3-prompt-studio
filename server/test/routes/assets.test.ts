@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { FastifyInstance } from 'fastify'
@@ -132,6 +132,22 @@ describe('PUT /api/projects/:slug — przejście po ścieżce assetu', () => {
       url: '/api/projects/assety/assets/asset-00000000-0000-4000-8000-000000000000/raw',
     })
     expect(res.statusCode).toBe(400)
+  })
+
+  it('dowiązanie symboliczne nie wyprowadza odczytu poza projekt', async () => {
+    const secret = join(root, 'SEKRET.txt')
+    await writeFile(secret, 'zawartosc-sekretu', 'utf8')
+    await symlink(secret, join(root, 'assety', 'assets', 'kadr.img'))
+
+    const id = 'asset-00000000-0000-4000-8000-000000000000'
+    const file = join(root, 'assety', 'project.json')
+    const current = JSON.parse(await readFile(file, 'utf8')) as { assets: unknown[] }
+    current.assets = [{ id, kind: 'image', path: 'assets/kadr.img', fileName: 'kadr.png' }]
+    await writeFile(file, JSON.stringify(current), 'utf8')
+
+    const res = await app.inject({ method: 'GET', url: `/api/projects/assety/assets/${id}/raw` })
+    expect(res.statusCode).toBe(400)
+    expect(res.rawPayload.toString()).not.toContain('zawartosc-sekretu')
   })
 })
 
