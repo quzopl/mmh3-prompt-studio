@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client.js'
 import { useProject } from '../store/projectStore.js'
+import { usePlayhead } from '../store/playheadStore.js'
 import { useAutosave } from '../store/useAutosave.js'
 import { useT } from '../i18n/useT.js'
 import { PromptPanel } from '../panels/PromptPanel.js'
@@ -35,9 +36,20 @@ export function Editor({ slug, onClose }: Props) {
       slug: null, project: null, prompt: '', tokens: [], diagnostics: [],
       past: [], future: [], dirty: false,
     })
+    // Znacznik odtwarzania jest globalny dokładnie tak samo jak sklep projektu,
+    // więc bez tego przenosił się między projektami: pozycja z dłuższego
+    // materiału wypadała poza krótszym (pasek narzędzi pokazywał czas spoza
+    // wideo, a `shotAtMs` oddawał ostatnie ujęcie jako to „pod znacznikiem"),
+    // a przeniesione `playing` uruchamiało odtwarzanie, o które nikt nie
+    // prosił — i pierwsza klatka pętli dosuwała nowy projekt do jego końca.
+    usePlayhead.getState().reset()
     api.getProject(slug)
       .then(response => load(slug, response.project))
       .catch((err: Error) => setError(err.message))
+
+    // Powrót do listy projektów tak samo nie może zostawić włączonego
+    // odtwarzania ani czasu spoza materiału na wejście do następnego edytora.
+    return () => usePlayhead.getState().reset()
   }, [slug, load])
 
   if (error) return <p className="p-6 text-red-400">{error}</p>
