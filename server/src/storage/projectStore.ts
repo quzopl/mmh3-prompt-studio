@@ -1,0 +1,85 @@
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { parseProject, type Mode, type Project } from '@mmh3/shared'
+import { assetsDir, exportsDir, projectDir, projectFile, slugify } from './paths.js'
+import { newProject } from './newProject.js'
+
+export interface ProjectSummary {
+  slug: string
+  name: string
+  mode: Mode
+  updatedAt: string
+}
+
+const exists = async (path: string): Promise<boolean> => {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function createProject(
+  root: string,
+  name: string,
+  mode: Mode,
+): Promise<{ slug: string; project: Project }> {
+  const slug = slugify(name)
+  if (await exists(projectDir(root, slug))) {
+    throw new Error(`Projekt o nazwie "${name}" już istnieje`)
+  }
+  await mkdir(assetsDir(root, slug), { recursive: true })
+  await mkdir(exportsDir(root, slug), { recursive: true })
+  const project = newProject(name, mode, slug)
+  await writeProject(root, slug, project)
+  return { slug, project }
+}
+
+export async function writeProject(
+  root: string,
+  slug: string,
+  project: Project,
+): Promise<void> {
+  await mkdir(projectDir(root, slug), { recursive: true })
+  await writeFile(projectFile(root, slug), `${JSON.stringify(project, null, 2)}\n`, 'utf8')
+}
+
+export async function readProject(root: string, slug: string): Promise<Project> {
+  const path = projectFile(root, slug)
+  if (!await exists(path)) throw new Error(`Projekt "${slug}" nie istnieje`)
+  return parseProject(JSON.parse(await readFile(path, 'utf8')))
+}
+
+export async function listProjects(root: string): Promise<ProjectSummary[]> {
+  if (!await exists(root)) return []
+  const entries = await readdir(root, { withFileTypes: true })
+  const summaries: ProjectSummary[] = []
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const path = projectFile(root, entry.name)
+    if (!await exists(path)) continue
+    try {
+      const project = parseProject(JSON.parse(await readFile(path, 'utf8')))
+      const info = await stat(path)
+      summaries.push({
+        slug: entry.name,
+        name: project.name,
+        mode: project.mode,
+        updatedAt: info.mtime.toISOString(),
+      })
+    } catch {
+      // Uszkodzony plik nie może wywrócić listy pozostałych projektów.
+      continue
+    }
+  }
+
+  return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
+
+export async function deleteProject(root: string, slug: string): Promise<void> {
+  const dir = projectDir(root, slug)
+  if (!await exists(dir)) throw new Error(`Projekt "${slug}" nie istnieje`)
+  await rm(dir, { recursive: true, force: true })
+}
