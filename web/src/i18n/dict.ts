@@ -45,6 +45,10 @@ const pl = {
   'timeline.clipLabel': 'Ujęcie {number}, od {start} ms do {end} ms',
   'timeline.boundaryHandle': 'Ujęcie {number} — przeciągnij granicę, aby zmienić czas cięcia',
 
+  'monitor.title': 'Monitor',
+  'monitor.empty': 'Playhead nie stoi nad żadnym ujęciem.',
+  'monitor.shot': 'Ujęcie {number}',
+
   'anchor.picture-first': 'Pierwsza klatka',
   'anchor.picture-last': 'Ostatnia klatka',
   'anchor.keyframe': 'Klatka kluczowa',
@@ -139,6 +143,10 @@ const en: Record<TKey, string> = {
   'timeline.trackShots': 'Shots',
   'timeline.clipLabel': 'Shot {number}, from {start} ms to {end} ms',
   'timeline.boundaryHandle': 'Shot {number} — drag the boundary to change the cut time',
+
+  'monitor.title': 'Monitor',
+  'monitor.empty': 'The playhead is not over any shot.',
+  'monitor.shot': 'Shot {number}',
 
   'anchor.picture-first': 'First frame',
   'anchor.picture-last': 'Last frame',
