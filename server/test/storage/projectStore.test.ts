@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, readdir, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { slugify, projectDir } from '../../src/storage/paths.js'
@@ -103,6 +103,14 @@ describe('writeProject', () => {
     const reloaded = await readProject(root, slug)
     expect(reloaded.name).toBe('Zapis 2')
     expect((await listProjects(root))[0]!.updatedAt >= before).toBe(true)
+  })
+
+  it('nie zostawia pliku tymczasowego po zapisie', async () => {
+    const { slug, project } = await createProject(root, 'Atomowo', 'T2VA')
+    await writeProject(root, slug, { ...project, name: 'Atomowo 2' })
+    const files = await readdir(projectDir(root, slug))
+    expect(files.filter(f => f.endsWith('.tmp'))).toEqual([])
+    expect((await readProject(root, slug)).name).toBe('Atomowo 2')
   })
 })
 

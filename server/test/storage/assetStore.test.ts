@@ -85,4 +85,22 @@ describe('removeAsset', () => {
   it('nie wywraca się na nieistniejącym assecie', async () => {
     await expect(removeAsset(root, slug, 'asset-nie-ma')).resolves.toBeUndefined()
   })
+
+  it('nie kasuje cudzych plików po samym przedrostku', async () => {
+    const a = await saveAsset(root, slug, { fileName: 'a.png', mime: 'image/png', data: PNG_1X1 })
+    const b = await saveAsset(root, slug, { fileName: 'b.png', mime: 'image/png', data: PNG_1X1 })
+    await removeAsset(root, slug, 'asset-')
+    const files = await readdir(assetsDir(root, slug))
+    expect(files.some(f => f.startsWith(a.id))).toBe(true)
+    expect(files.some(f => f.startsWith(b.id))).toBe(true)
+  })
+
+  it('kasuje plik assetu razem z miniaturą', async () => {
+    const asset = await saveAsset(root, slug, {
+      fileName: 'kadr.png', mime: 'image/png', data: PNG_1X1,
+    })
+    expect(await readdir(assetsDir(root, slug))).toContain(`${asset.id}.thumb.webp`)
+    await removeAsset(root, slug, asset.id)
+    expect(await readdir(assetsDir(root, slug))).toEqual([])
+  })
 })

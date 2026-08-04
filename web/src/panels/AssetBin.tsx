@@ -18,16 +18,20 @@ export function AssetBin({ slug }: { slug: string }) {
   const t = useT()
   const project = useProject(state => state.project)
   const apply = useProject(state => state.apply)
-  const load = useProject(state => state.load)
   const [error, setError] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
   if (!project) return null
 
+  // Projekt zwrócony przez serwer powstał z odczytu `project.json`, więc nie zna
+  // zmian czekających jeszcze w oknie opóźnienia autozapisu. `load` skasowałoby
+  // je razem z historią cofania i znacznikiem zmiany — wstawiamy więc sam asset
+  // do projektu, który klient już trzyma.
   const pickFile = async (file: File) => {
+    setError(null)
     try {
-      const { project: updated } = await uploadAsset(slug, file)
-      load(slug, updated)
+      const { asset } = await uploadAsset(slug, file)
+      apply(current => ({ ...current, assets: [...current.assets, asset] }))
     } catch (err) {
       setError((err as Error).message)
     }

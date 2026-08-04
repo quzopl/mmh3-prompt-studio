@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Project } from '@mmh3/shared'
 import { AssetBin } from '../../src/panels/AssetBin.js'
 import { useProject } from '../../src/store/projectStore.js'
 import { useLang } from '../../src/i18n/useT.js'
+import * as uploadModule from '../../src/api/uploadAsset.js'
 
 const project: Project = {
   schemaVersion: 1, id: 'p', name: 'Test', mode: 'REF',
@@ -27,6 +28,8 @@ beforeEach(() => {
   useLang.setState({ lang: 'pl' })
   useProject.getState().load('test', project)
 })
+
+afterEach(() => vi.restoreAllMocks())
 
 describe('AssetBin', () => {
   it('wypisuje assety z nazwami plików', () => {
@@ -60,5 +63,25 @@ describe('AssetBin', () => {
     await userEvent.click(screen.getByRole('button', { name: /dodaj mówcę/i }))
     const speakers = useProject.getState().project!.speakers
     expect(speakers.map(s => s.code)).toEqual(['S1', 'S2'])
+  })
+
+  it('wgranie assetu nie kasuje niezapisanej zmiany ani historii', async () => {
+    vi.spyOn(uploadModule, 'uploadAsset').mockResolvedValue({
+      asset: { id: 'asset-9', kind: 'image', path: 'assets/asset-9.img', fileName: 'nowy.png' },
+      // Atrapa celowo zwraca projekt z innym stylem — jeśli komponent nadal
+      // przyjmuje projekt serwera, ten test to pokaże.
+      project: { ...project, style: 'ZE SERWERA' },
+    })
+    useProject.getState().apply(p => ({ ...p, style: 'lokalna zmiana' }))
+    render(<AssetBin slug="test" />)
+    const input = document.querySelector('input[type="file"]')!
+    await userEvent.upload(
+      input as HTMLInputElement,
+      new File(['x'], 'nowy.png', { type: 'image/png' }),
+    )
+    const state = useProject.getState()
+    expect(state.project!.style).toBe('lokalna zmiana')
+    expect(state.project!.assets.map(a => a.id)).toContain('asset-9')
+    expect(state.canUndo()).toBe(true)
   })
 })

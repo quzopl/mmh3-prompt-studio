@@ -1,9 +1,10 @@
-import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { buildPrompt, ProjectSchema } from '@mmh3/shared'
 import {
   createProject, deleteProject, listProjects, projectExists, readProject, writeProject,
 } from '../storage/projectStore.js'
+import { SlugParams, parseParamsOrReply } from './params.js'
 
 const CreateBody = z.object({
   name: z.string().trim().min(1),
@@ -11,19 +12,6 @@ const CreateBody = z.object({
 })
 
 const UpdateBody = z.object({ project: ProjectSchema })
-
-/** Wyłącznie kształt, jaki produkuje slugify — nic z separatorem ani kropką. */
-const SlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'Niepoprawny identyfikator projektu')
-const SlugParams = z.object({ slug: SlugSchema })
-
-function parseParamsOrReply<T>(
-  schema: z.ZodType<T>, value: unknown, reply: FastifyReply,
-): T | undefined {
-  const parsed = schema.safeParse(value)
-  if (parsed.success) return parsed.data
-  reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'Niepoprawne żądanie' })
-  return undefined
-}
 
 const isMissing = (err: unknown): boolean =>
   err instanceof Error && /nie istnieje/i.test(err.message)

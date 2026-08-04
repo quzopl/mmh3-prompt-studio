@@ -6,6 +6,11 @@ import { useT } from '../i18n/useT.js'
 export function ExportPanel({ slug }: { slug: string }) {
   const t = useT()
   const diagnostics = useProject(state => state.diagnostics)
+  // Gotowość liczymy z pamięci, a wszystkie trzy trasy eksportu czytają
+  // `project.json` z dysku. Dopóki zmiana nie jest zapisana, eksport oddałby
+  // poprzedni stan — po nieudanym zapisie w nieskończoność, bo autozapis się
+  // nie ponawia.
+  const dirty = useProject(state => state.dirty)
   const [nodeId, setNodeId] = useState('')
   const [field, setField] = useState('text')
   const [workflow, setWorkflow] = useState<unknown>(null)
@@ -14,18 +19,28 @@ export function ExportPanel({ slug }: { slug: string }) {
   const ready = isExportReady(diagnostics)
 
   const exportComfy = async () => {
-    if (!workflow || !nodeId || !field) return
+    if (dirty || !workflow || !nodeId || !field) return
     try {
       const response = await fetch(`/api/projects/${slug}/export/comfy`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ workflow, nodeId, field }),
       })
-      const body = await response.json()
       if (!response.ok) {
-        setError(body.error ?? t('export.serverError', { status: response.status }))
+        // Najpierw status, potem treść: odpowiedź błędu bez JSON-a (pusta
+        // piątka, 502 z proxy) rzucałaby na parsowaniu i przykrywała
+        // tłumaczony komunikat surowym błędem parsera.
+        let message = t('export.serverError', { status: response.status })
+        try {
+          const body = await response.json() as { error?: string }
+          if (body.error) message = body.error
+        } catch {
+          // Odpowiedź bez JSON-a — zostaje komunikat z kodem statusu.
+        }
+        setError(message)
         return
       }
+      const body = await response.json()
       setError(null)
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(body, null, 2)], { type: 'application/json' }),
@@ -44,11 +59,20 @@ export function ExportPanel({ slug }: { slug: string }) {
     <section aria-label={t('export.title')} className="flex flex-col gap-2 p-3 text-sm">
       <span className="text-xs uppercase tracking-wide text-neutral-500">{t('export.title')}</span>
       {!ready && <p className="text-xs text-red-400">{t('export.blocked')}</p>}
+      {dirty && <p className="text-xs text-amber-400">{t('export.unsaved')}</p>}
 
-      <a href={`/api/projects/${slug}/export/prompt`} className="underline hover:text-sky-400">
+      <a
+        href={`/api/projects/${slug}/export/prompt`}
+        className={dirty ? 'pointer-events-none underline opacity-40' : 'underline hover:text-sky-400'}
+        aria-disabled={dirty}
+      >
         {t('export.prompt')}
       </a>
-      <a href={`/api/projects/${slug}/export/project`} className="underline hover:text-sky-400">
+      <a
+        href={`/api/projects/${slug}/export/project`}
+        className={dirty ? 'pointer-events-none underline opacity-40' : 'underline hover:text-sky-400'}
+        aria-disabled={dirty}
+      >
         {t('export.project')}
       </a>
 
@@ -91,7 +115,7 @@ export function ExportPanel({ slug }: { slug: string }) {
       <button
         type="button"
         onClick={exportComfy}
-        disabled={!workflow || !nodeId || !field}
+        disabled={dirty || !workflow || !nodeId || !field}
         className="rounded border border-neutral-700 px-2 py-1 text-xs disabled:opacity-40"
       >
         {t('export.comfy')}

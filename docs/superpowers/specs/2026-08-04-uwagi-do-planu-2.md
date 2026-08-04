@@ -70,3 +70,16 @@ Uruchamia się przez `npm run mmh3c --workspace @mmh3/shared -- <ścieżka>`.
 Zaboli, kiedy edytor zechce zestawów reguł per projekt. Wyjściem awaryjnym jest
 `validateWith(rules, project, compiled)`, eksportowane z `shared/src/index.ts`
 właśnie po to.
+
+## 9. `AssetSchema.path` jest nieograniczonym `z.string()`
+
+Trasa `GET /api/projects/:slug/assets/:assetId/raw` składa ścieżkę pliku z katalogu
+projektu i `asset.path`, a ta wartość trafia do `project.json` przez `PUT
+/api/projects/:slug`, czyli w całości spod kontroli klienta. Potwierdzone: projekt
+z `path: "../../../../etc/passwd"` zwracał **200 z treścią pliku spoza projektu**.
+
+Dziś zamknięte po stronie serwera — trasa woła `assertInsideRoot(projectDir, resolved)`
+i odpowiada 400. Właściwym domknięciem jest zawężenie samego schematu do
+`/^assets\/[A-Za-z0-9._-]+$/`, ale to zmiana w zamrożonym `shared/`. **Do zrobienia,
+gdy pakiet zostanie odmrożony** — wraz z migracją istniejących plików projektów,
+bo dziś `saveAsset` zapisuje `join('assets', stored)`, co ten wzorzec spełnia.

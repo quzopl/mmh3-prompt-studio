@@ -65,6 +65,7 @@ const pl = {
   'export.comfyField': 'Pole węzła',
   'export.comfyUpload': 'Wgraj workflow',
   'export.blocked': 'Eksport zablokowany — walidator zgłasza błędy.',
+  'export.unsaved': 'Poczekaj na zapis — eksport czyta stan z dysku.',
   'export.invalidJson': 'Plik nie jest poprawnym JSON-em',
   'export.serverError': 'Serwer odpowiedział kodem {status}',
 
@@ -142,6 +143,7 @@ const en: Record<TKey, string> = {
   'export.comfyField': 'Node field',
   'export.comfyUpload': 'Upload workflow',
   'export.blocked': 'Export blocked — the validator reports errors.',
+  'export.unsaved': 'Waiting for the save — export reads from disk.',
   'export.invalidJson': 'The file is not valid JSON',
   'export.serverError': 'The server responded with status {status}',
 

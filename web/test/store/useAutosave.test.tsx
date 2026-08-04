@@ -73,6 +73,16 @@ describe('useAutosave', () => {
     expect(useProject.getState().dirty).toBe(true)
   })
 
+  it('nie zapisuje, gdy w sklepie leży już inny projekt', async () => {
+    // `beforeEach` ładuje sklep ze slugiem 'test', więc hook zamontowany dla
+    // 'inny-slug' nie ma prawa nic wysłać.
+    const save = vi.spyOn(api, 'saveProject').mockResolvedValue({ prompt: '', tokens: [], diagnostics: [] })
+    renderHook(() => useAutosave('inny-slug', 5))
+    act(() => useProject.getState().apply(p => ({ ...p, style: 'A' })))
+    await new Promise(resolve => setTimeout(resolve, 40))
+    expect(save).not.toHaveBeenCalled()
+  })
+
   it('pokazuje błąd i zostawia znacznik zmiany, gdy zapis padnie', async () => {
     vi.spyOn(api, 'saveProject').mockRejectedValue(new Error('dysk pełny'))
     const { result } = renderHook(() => useAutosave('test', 5))

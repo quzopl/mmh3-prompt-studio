@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseProject, type Mode, type Project } from '@mmh3/shared'
 import { assertInsideRoot, assetsDir, exportsDir, projectDir, projectFile, slugify } from './paths.js'
@@ -48,7 +48,14 @@ export async function writeProject(
 ): Promise<void> {
   assertInsideRoot(root, projectDir(root, slug))
   await mkdir(projectDir(root, slug), { recursive: true })
-  await writeFile(projectFile(root, slug), `${JSON.stringify(project, null, 2)}\n`, 'utf8')
+  // Zapis przez plik tymczasowy i rename: `writeFile` najpierw obcina plik, więc
+  // przerwanie procesu w trakcie któregokolwiek z zapisów co 800 ms zostawiłoby
+  // obcięty `project.json`. `rename` w obrębie jednego systemu plików jest
+  // atomowe — czytelnik widzi albo poprzednią, albo nową całość, nigdy połowę.
+  const target = projectFile(root, slug)
+  const temporary = `${target}.tmp`
+  await writeFile(temporary, `${JSON.stringify(project, null, 2)}\n`, 'utf8')
+  await rename(temporary, target)
 }
 
 export async function readProject(root: string, slug: string): Promise<Project> {

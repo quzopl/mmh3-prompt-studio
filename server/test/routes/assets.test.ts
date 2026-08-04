@@ -13,6 +13,9 @@ const PNG_1X1 = Buffer.from(
   'base64',
 )
 
+/** Kształt identyfikatora, jaki produkuje `saveAsset`, ale bez istniejącego pliku. */
+const SPOOFED_ID = 'asset-00000000-0000-4000-8000-000000000000'
+
 const multipart = (fileName: string, mime: string, data: Buffer) => {
   const boundary = '----mmh3test'
   const head = Buffer.from(
@@ -78,12 +81,49 @@ describe('GET /api/projects/:slug/assets/:assetId/raw', () => {
   })
 
   it('zwraca 404 dla nieznanego assetu', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/projects/assety/assets/asset-x/raw' })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/projects/assety/assets/${SPOOFED_ID}/raw`,
+    })
     expect(res.statusCode).toBe(404)
   })
 })
 
+describe('GET /api/projects/:slug/assets/:assetId/raw — przejście po ścieżce', () => {
+  it('odmawia odczytu pliku spoza katalogu projektu', async () => {
+    const created = await app.inject({ method: 'GET', url: '/api/projects/assety' })
+    const project = {
+      ...created.json().project,
+      // Identyfikator ma prawidłowy kształt, więc 400 nie może pochodzić
+      // z walidacji parametru — jedyną przyczyną jest straż ścieżki.
+      assets: [{
+        id: SPOOFED_ID, kind: 'image', path: '../../../../etc/passwd', fileName: 'x.png',
+      }],
+    }
+    const put = await app.inject({
+      method: 'PUT', url: '/api/projects/assety', payload: { project },
+    })
+    expect(put.statusCode).toBe(200)
+    const res = await app.inject({
+      method: 'GET', url: `/api/projects/assety/assets/${SPOOFED_ID}/raw`,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.rawPayload.toString()).not.toContain('root:x:0:0')
+  })
+})
+
 describe('DELETE /api/projects/:slug/assets/:assetId', () => {
+  it('odrzuca identyfikator, który jest tylko przedrostkiem', async () => {
+    await app.inject({
+      method: 'POST', url: '/api/projects/assety/assets',
+      ...multipart('kadr.png', 'image/png', PNG_1X1),
+    })
+    const res = await app.inject({ method: 'DELETE', url: '/api/projects/assety/assets/asset-' })
+    expect(res.statusCode).toBe(400)
+    const after = await app.inject({ method: 'GET', url: '/api/projects/assety' })
+    expect(after.json().project.assets).toHaveLength(1)
+  })
+
   it('usuwa asset z projektu i z dysku', async () => {
     const upload = await app.inject({
       method: 'POST', url: '/api/projects/assety/assets',

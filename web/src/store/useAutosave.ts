@@ -21,6 +21,10 @@ export function useAutosave(slug: string, delayMs = DEFAULT_DELAY_MS) {
     if (timer.current) clearTimeout(timer.current)
 
     timer.current = setTimeout(() => {
+      // Sklep jest globalny i nie ma przynależności do projektu, więc licznik
+      // zaplanowany dla jednego sluga mógłby wystartować, gdy w sklepie leży już
+      // inny projekt. Zapis do cudzego pliku jest gorszy niż zapis pominięty.
+      if (useProject.getState().slug !== slug) return
       setSaving(true)
       api.saveProject(slug, project)
         .then(() => {

@@ -1,27 +1,15 @@
-import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { buildPrompt } from '@mmh3/shared'
 import { readProject } from '../storage/projectStore.js'
 import { injectPrompt } from '../export/comfyWorkflow.js'
-
-/** Wyłącznie kształt, jaki produkuje slugify — nic z separatorem ani kropką. */
-const SlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'Niepoprawny identyfikator projektu')
-const SlugParams = z.object({ slug: SlugSchema })
+import { SlugParams, parseParamsOrReply } from './params.js'
 
 const ComfyBody = z.object({
   workflow: z.unknown(),
   nodeId: z.string().min(1),
   field: z.string().min(1),
 })
-
-function parseParamsOrReply<T>(
-  schema: z.ZodType<T>, value: unknown, reply: FastifyReply,
-): T | undefined {
-  const parsed = schema.safeParse(value)
-  if (parsed.success) return parsed.data
-  reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'Niepoprawne żądanie' })
-  return undefined
-}
 
 export function registerExportRoutes(app: FastifyInstance): void {
   const load = async (slug: string) => readProject(app.dataRoot, slug)

@@ -69,7 +69,9 @@ export async function removeAsset(root: string, slug: string, assetId: string): 
     return
   }
   for (const entry of entries) {
-    if (!entry.startsWith(assetId)) continue
+    // Dokładne dopasowanie albo nazwa z rozszerzeniem/miniaturą — nie sam
+    // przedrostek, bo "asset-" pasowałoby wtedy do wszystkiego.
+    if (entry !== assetId && !entry.startsWith(`${assetId}.`)) continue
     await rm(join(dir, entry), { force: true })
   }
 }

@@ -25,6 +25,13 @@ export function Editor({ slug, onClose }: Props) {
   const { saving, error: saveError } = useAutosave(slug)
 
   useEffect(() => {
+    // Poprzedni projekt nie może wisieć w sklepie, kiedy montuje się edytor
+    // kolejnego: gdyby `getProject` padło, autozapis miałby czym nadpisać
+    // cudzy plik.
+    useProject.setState({
+      slug: null, project: null, prompt: '', tokens: [], diagnostics: [],
+      past: [], future: [], dirty: false,
+    })
     api.getProject(slug)
       .then(response => load(slug, response.project))
       .catch((err: Error) => setError(err.message))
