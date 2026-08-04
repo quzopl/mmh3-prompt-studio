@@ -686,6 +686,12 @@ describe('usePlayhead', () => {
     expect(usePlayhead.getState().ms).toBe(0)
   })
 
+  it('nie wychodzi poza materiał, gdy długość nie leży na granicy klatki', () => {
+    usePlayhead.getState().setMs(4999, 4999)
+    expect(usePlayhead.getState().ms).toBeLessThanOrEqual(4999)
+    expect(usePlayhead.getState().ms).toBe(4958)
+  })
+
   it('przełącza odtwarzanie', () => {
     usePlayhead.getState().toggle()
     expect(usePlayhead.getState().playing).toBe(true)
@@ -726,9 +732,17 @@ interface PlayheadState {
   reset: () => void
 }
 
-/** Playhead zawsze stoi na granicy klatki — tak samo jak czasy cięć w modelu. */
-const clampToFrame = (ms: number, durationMs: number): number =>
-  snapToFrame(Math.min(durationMs, Math.max(0, ms)))
+/**
+ * Playhead zawsze stoi na granicy klatki — tak samo jak czasy cięć w modelu —
+ * i nigdy nie wychodzi poza materiał. Kolejność ma znaczenie: przyciąganie po
+ * przycięciu potrafiłoby wypchnąć wartość z powrotem za koniec, bo długość
+ * wideo rzadko wypada dokładnie na granicy klatki. Górnym ograniczeniem jest
+ * więc ostatnia pełna klatka mieszcząca się w materiale.
+ */
+const clampToFrame = (ms: number, durationMs: number): number => {
+  const lastFrameMs = Math.round(Math.floor(durationMs / MS_PER_FRAME) * MS_PER_FRAME)
+  return Math.min(lastFrameMs, Math.max(0, snapToFrame(ms)))
+}
 
 export const usePlayhead = create<PlayheadState>((set, get) => ({
   ms: 0,
