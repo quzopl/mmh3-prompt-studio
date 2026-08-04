@@ -94,6 +94,13 @@ export function AnchorBadges({
               event.stopPropagation()
               toggle(anchor)
             }}
+            onKeyDown={event => {
+              // Przycisk aktywuje się natywnie na Enter/Spację (to zwykły <button>),
+              // ale samo zdarzenie keydown bez zatrzymania i tak poleciałoby dalej do
+              // globalnego `useTimelineShortcuts` na `window` — tam spacja przełącza
+              // odtwarzanie. Nie wołamy `preventDefault`: natywna aktywacja ma zajść.
+              if (event.key === 'Enter' || event.key === ' ') event.stopPropagation()
+            }}
             className={`rounded px-1 text-[9px] leading-4 ${
               active ? 'bg-amber-500 text-neutral-950' : 'bg-neutral-800 text-neutral-400'
             }`}

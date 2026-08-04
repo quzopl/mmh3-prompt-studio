@@ -6,7 +6,9 @@ import { anchorsForShot } from '../../src/timeline/AnchorBadges.js'
 import { ShotTrack } from '../../src/timeline/ShotTrack.js'
 import { createScale } from '../../src/timeline/scale.js'
 import { useProject } from '../../src/store/projectStore.js'
+import { usePlayhead } from '../../src/store/playheadStore.js'
 import { useSelection } from '../../src/store/selectionStore.js'
+import { useTimelineShortcuts } from '../../src/timeline/useTimelineShortcuts.js'
 import { useLang } from '../../src/i18n/useT.js'
 
 const shot = (id: string, index: number, startMs: number) => ({
@@ -30,9 +32,16 @@ const project = (mode: Project['mode']): Project => ({
   ref: { taskTypes: [], summaryText: '', retention: [] },
 })
 
+/** Jedyny sposób, żeby zamontować globalny skrót klawiszowy obok `ShotTrack` w teście. */
+function ShortcutsHarness() {
+  useTimelineShortcuts()
+  return null
+}
+
 beforeEach(() => {
   useLang.setState({ lang: 'pl' })
   useSelection.setState({ selected: [] })
+  usePlayhead.setState({ ms: 0, playing: false })
 })
 
 describe('anchorsForShot', () => {
@@ -151,5 +160,20 @@ describe('kotwice na klipie', () => {
 
     useProject.getState().undo()
     expect(useProject.getState().project!.shots[0]!.anchors).toEqual(['picture-first'])
+  })
+
+  it('spacja na sfokusowanej odznace przełącza kotwicę i nie rusza odtwarzania', async () => {
+    useProject.getState().load('test', project('I2VA'))
+    render(
+      <>
+        <ShotTrack scale={createScale(8000, 800, 1)} />
+        <ShortcutsHarness />
+      </>,
+    )
+    const badge = screen.getByRole('button', { name: /przełącz kotwicę: pierwsza klatka/i })
+    badge.focus()
+    await userEvent.keyboard(' ')
+    expect(useProject.getState().project!.shots[0]!.anchors).toEqual(['picture-first'])
+    expect(usePlayhead.getState().playing).toBe(false)
   })
 })

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useProject } from '../store/projectStore.js'
 import { usePlayhead } from '../store/playheadStore.js'
 import { useT } from '../i18n/useT.js'
@@ -9,9 +9,26 @@ import { Playhead } from './Playhead.js'
 import { usePlayback } from './usePlayback.js'
 import { splitAtMs } from './shotOperations.js'
 
-/** Szerokość osi przy zoomie 1. Stała, więc nic nie musi mierzyć DOM-u. */
+/**
+ * Szerokość osi przy zoomie 1. Baza do przeliczeń zoomu (przybliż/oddal
+ * mnożą tę wartość) i wartość zastępcza, dopóki kontener nie zdążył się
+ * jeszcze zmierzyć — pierwsza klatka renderu, a w testach jsdom, które
+ * `ResizeObserver` w ogóle nie zna.
+ */
 const BASE_WIDTH_PX = 900
 const ZOOM_STEP = 2
+
+/**
+ * Zoom, przy którym cały materiał zajmuje dokładnie zmierzoną szerokość
+ * kontenera — `widthPx * zoom` w `createScale` to całkowita szerokość osi
+ * w pikselach, więc odwrócenie tego równania daje zoom docelowy. Bez pomiaru
+ * (jeszcze nie zaobserwowany albo `ResizeObserver` niedostępny) wraca do
+ * zoomu bazowego zamiast zgadywać.
+ */
+function fitZoom(measuredWidthPx: number | null): number {
+  if (measuredWidthPx === null || measuredWidthPx <= 0) return 1
+  return clampZoom(measuredWidthPx / BASE_WIDTH_PX)
+}
 
 export function Timeline() {
   const t = useT()
@@ -21,9 +38,26 @@ export function Timeline() {
   const playing = usePlayhead(state => state.playing)
   const toggle = usePlayhead(state => state.toggle)
   const [zoom, setZoom] = useState(1)
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null)
 
   const durationMs = project?.video.durationMs ?? 0
   usePlayback(durationMs)
+
+  // Callback-ref (`setContainer`) zamiast `useRef` + efekt z pustą tablicą
+  // zależności: gdyby projekt nie był jeszcze załadowany przy pierwszym
+  // montowaniu, węzeł kontenera pojawiłby się dopiero w kolejnym commit-cie,
+  // a efekt z `[]` już by nie zadziałał. Zależność `[container]` obserwuje
+  // węzeł, gdy tylko faktycznie istnieje.
+  useEffect(() => {
+    if (!container || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0]
+      if (entry) setMeasuredWidth(entry.contentRect.width)
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [container])
 
   if (!project) return null
   const scale = createScale(durationMs, BASE_WIDTH_PX, zoom)
@@ -56,7 +90,7 @@ export function Timeline() {
           </button>
           <button
             type="button"
-            onClick={() => setZoom(1)}
+            onClick={() => setZoom(fitZoom(measuredWidth))}
             className="rounded border border-neutral-700 px-2 py-0.5 hover:border-neutral-500"
           >
             {t('timeline.zoomFit')}
@@ -71,7 +105,7 @@ export function Timeline() {
         </span>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div ref={setContainer} className="flex-1 overflow-auto">
         <div className="relative" style={{ width: scale.widthPx * scale.zoom }}>
           <Ruler scale={scale} />
           <ShotTrack scale={scale} />

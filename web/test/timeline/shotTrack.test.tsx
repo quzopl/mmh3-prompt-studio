@@ -5,7 +5,9 @@ import type { Project } from '@mmh3/shared'
 import { ShotTrack } from '../../src/timeline/ShotTrack.js'
 import { createScale } from '../../src/timeline/scale.js'
 import { useProject } from '../../src/store/projectStore.js'
+import { usePlayhead } from '../../src/store/playheadStore.js'
 import { useSelection } from '../../src/store/selectionStore.js'
+import { useTimelineShortcuts } from '../../src/timeline/useTimelineShortcuts.js'
 import { useLang } from '../../src/i18n/useT.js'
 
 const shot = (id: string, index: number, startMs: number) => ({
@@ -23,9 +25,16 @@ const project: Project = {
   ref: { taskTypes: [], summaryText: '', retention: [] },
 }
 
+/** Jedyny sposób, żeby zamontować globalny skrót klawiszowy obok `ShotTrack` w teście. */
+function ShortcutsHarness() {
+  useTimelineShortcuts()
+  return null
+}
+
 beforeEach(() => {
   useLang.setState({ lang: 'pl' })
   useSelection.setState({ selected: [] })
+  usePlayhead.setState({ ms: 0, playing: false })
   useProject.getState().load('test', project)
 })
 
@@ -76,5 +85,31 @@ describe('ShotTrack', () => {
     render(<ShotTrack scale={createScale(8000, 800, 1)} />)
     await userEvent.click(screen.getByRole('button', { name: /ujęcie 1/i }))
     expect(screen.getByRole('button', { name: /ujęcie 1/i })).toHaveAttribute('aria-pressed', 'true')
+  })
+})
+
+describe('kolizja klawiatury z globalnym skrótem', () => {
+  it('spacja na sfokusowanym klipie aktywuje klip i nie rusza odtwarzania', async () => {
+    render(
+      <>
+        <ShotTrack scale={createScale(8000, 800, 1)} />
+        <ShortcutsHarness />
+      </>,
+    )
+    screen.getByRole('button', { name: /ujęcie 1/i }).focus()
+    await userEvent.keyboard(' ')
+    expect(useSelection.getState().selected).toEqual([{ kind: 'shot', id: 'a' }])
+    expect(usePlayhead.getState().playing).toBe(false)
+  })
+
+  it('spacja z fokusem gdzie indziej nadal przełącza odtwarzanie', async () => {
+    render(
+      <>
+        <ShotTrack scale={createScale(8000, 800, 1)} />
+        <ShortcutsHarness />
+      </>,
+    )
+    await userEvent.keyboard(' ')
+    expect(usePlayhead.getState().playing).toBe(true)
   })
 })

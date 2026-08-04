@@ -60,6 +60,11 @@ export function ShotTrack({ scale }: { scale: Scale }) {
               onKeyDown={event => {
                 if (event.key !== 'Enter' && event.key !== ' ') return
                 event.preventDefault()
+                // Klip obsłużył ten klawisz — nie może polecieć dalej do globalnego
+                // `useTimelineShortcuts` na `window`, bo tam sama spacja przełącza
+                // odtwarzanie. Bez tego aktywacja klipu klawiaturą uruchamiałaby
+                // playback jako efekt uboczny.
+                event.stopPropagation()
                 select(ref)
               }}
               className={`absolute top-1 h-8 rounded border px-2 text-left text-xs ${

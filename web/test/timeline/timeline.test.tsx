@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Project } from '@mmh3/shared'
 import { Timeline } from '../../src/timeline/Timeline.js'
@@ -79,5 +79,84 @@ describe('Timeline', () => {
     render(<Timeline />)
     await userEvent.click(screen.getByRole('button', { name: /^odtwarzaj$/i }))
     expect(screen.getByRole('button', { name: /^zatrzymaj$/i })).toBeInTheDocument()
+  })
+})
+
+/**
+ * Zastępuje `ResizeObserver`, którego jsdom w ogóle nie zna — tak samo jak
+ * `requestAnimationFrame` w testach pętli odtwarzania (`playback.test.tsx`).
+ * Trzyma ostatnio utworzoną instancję, żeby test mógł ręcznie odpalić jej
+ * callback z wybraną szerokością, symulując realny pomiar kontenera.
+ */
+class FakeResizeObserver {
+  static last: FakeResizeObserver | null = null
+  private readonly callback: ResizeObserverCallback
+  readonly disconnect = vi.fn()
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback
+    FakeResizeObserver.last = this
+  }
+
+  observe(): void {}
+  unobserve(): void {}
+
+  fire(width: number): void {
+    this.callback(
+      [{ contentRect: { width } } as unknown as ResizeObserverEntry],
+      this as unknown as ResizeObserver,
+    )
+  }
+}
+
+describe('dopasowanie do zmierzonej szerokości kontenera', () => {
+  beforeEach(() => {
+    FakeResizeObserver.last = null
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('dopasowanie przy różnych szerokościach kontenera daje różne zoomy', async () => {
+    const first = render(<Timeline />)
+    const firstObserver = FakeResizeObserver.last
+    if (!firstObserver) throw new Error('ResizeObserver nie został utworzony')
+    act(() => firstObserver.fire(1800))
+    await userEvent.click(screen.getByRole('button', { name: /dopasuj/i }))
+    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('1800px')
+    first.unmount()
+
+    render(<Timeline />)
+    const secondObserver = FakeResizeObserver.last
+    if (!secondObserver) throw new Error('ResizeObserver nie został utworzony')
+    act(() => secondObserver.fire(3600))
+    await userEvent.click(screen.getByRole('button', { name: /dopasuj/i }))
+    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('3600px')
+  })
+
+  it('zmiana rozmiaru kontenera po zamontowaniu aktualizuje dopasowanie', async () => {
+    render(<Timeline />)
+    const observer = FakeResizeObserver.last
+    if (!observer) throw new Error('ResizeObserver nie został utworzony')
+
+    act(() => observer.fire(1800))
+    await userEvent.click(screen.getByRole('button', { name: /dopasuj/i }))
+    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('1800px')
+
+    // Ten sam obserwator odpala się ponownie — symuluje zmianę rozmiaru okna
+    // po tym, jak komponent już stoi zamontowany, a nie tylko pierwszy pomiar.
+    act(() => observer.fire(2700))
+    await userEvent.click(screen.getByRole('button', { name: /dopasuj/i }))
+    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('2700px')
+  })
+
+  it('odmontowanie rozłącza obserwator', () => {
+    const view = render(<Timeline />)
+    const observer = FakeResizeObserver.last
+    if (!observer) throw new Error('ResizeObserver nie został utworzony')
+    view.unmount()
+    expect(observer.disconnect).toHaveBeenCalledOnce()
   })
 })
