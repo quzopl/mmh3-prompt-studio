@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ExportPanel } from '../../src/panels/ExportPanel.js'
 import { useProject } from '../../src/store/projectStore.js'
 import { useLang } from '../../src/i18n/useT.js'
@@ -34,5 +35,14 @@ describe('ExportPanel', () => {
     useProject.setState({ diagnostics: [{ ...diagnostic, severity: 'hint' }] })
     render(<ExportPanel slug="test" />)
     expect(screen.queryByText(/eksport zablokowany/i)).not.toBeInTheDocument()
+  })
+
+  it('komunikat o niepoprawnym pliku jest tłumaczony', async () => {
+    useLang.setState({ lang: 'en' })
+    render(<ExportPanel slug="test" />)
+    const input = screen.getByLabelText(/upload workflow/i)
+    const file = new File(['{ to nie jest json'], 'workflow.json', { type: 'application/json' })
+    await userEvent.upload(input, file)
+    expect(await screen.findByText(/not valid JSON/i)).toBeInTheDocument()
   })
 })

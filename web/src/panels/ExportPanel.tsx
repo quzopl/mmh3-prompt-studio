@@ -23,7 +23,7 @@ export function ExportPanel({ slug }: { slug: string }) {
       })
       const body = await response.json()
       if (!response.ok) {
-        setError(body.error ?? `Serwer odpowiedział kodem ${response.status}`)
+        setError(body.error ?? t('export.serverError', { status: response.status }))
         return
       }
       setError(null)
@@ -64,7 +64,7 @@ export function ExportPanel({ slug }: { slug: string }) {
               setWorkflow(JSON.parse(await file.text()))
               setError(null)
             } catch {
-              setError('Plik nie jest poprawnym JSON-em')
+              setError(t('export.invalidJson'))
             }
           }}
         />
