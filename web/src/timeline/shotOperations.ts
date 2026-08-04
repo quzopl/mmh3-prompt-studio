@@ -1,5 +1,24 @@
 import { snapToFrame, type Project, type Shot } from '@mmh3/shared'
-import { MIN_SHOT_MS } from './useDragBoundary.js'
+import { boundaryTargetMs, MIN_SHOT_MS } from './useDragBoundary.js'
+import { shotSpans } from './spans.js'
+
+/**
+ * Numer w identyfikatorze nowego ujęcia — po maksimum już zajętych, nie po
+ * liczbie wpisów. `shots.length + 1` wraca do przebytej już wartości za każdym
+ * razem, gdy jakieś ujęcie zniknie, więc drugie cięcie postawione w tym samym
+ * czasie co kiedyś dostawało identyfikator żywego ujęcia. Skutek nie jest
+ * kosmetyczny: `useDragBoundary`, `AnchorBadges.toggle`, `removeShots` i
+ * zaznaczenie dopasowują ujęcie po `shot.id`, a `ProjectSchema` nie wymusza
+ * unikalności, więc autozapis utrwalał uszkodzony projekt na dysku. Maksimum
+ * powiększone o jeden jest zawsze większe od każdego zajętego numeru, więc
+ * kolizja jest niemożliwa niezależnie od historii usunięć — ten sam idiom, co
+ * numerowanie etykiet i mówców w `AssetBin`.
+ */
+const nextShotNumber = (shots: Shot[]): number =>
+  Math.max(0, ...shots.map(shot => {
+    const parsed = Number(/-(\d+)$/.exec(shot.id)?.[1])
+    return Number.isFinite(parsed) ? parsed : 0
+  })) + 1
 
 const renumber = (shots: Shot[]): Shot[] =>
   [...shots]
@@ -21,7 +40,7 @@ export function splitAtMs(project: Project, ms: number): Project {
   if (project.video.durationMs - at < MIN_SHOT_MS) return project
 
   const shot: Shot = {
-    id: `shot-${at}-${project.shots.length + 1}`,
+    id: `shot-${at}-${nextShotNumber(project.shots)}`,
     index: 0,
     startMs: at,
     cutType: 'cut',
@@ -37,6 +56,43 @@ export function splitAtMs(project: Project, ms: number): Project {
   }
 
   return { ...project, shots: renumber([...project.shots, shot]) }
+}
+
+/**
+ * Ustawia czas cięcia ujęcia — droga dla wpisu z inspektora, równoważna
+ * przeciągnięciu granicy. Ta sama polityka co w geście myszą, bo wyraża ją ta
+ * sama funkcja `boundaryTargetMs`: przyciągnięcie do siatki klatek i
+ * ograniczenie sąsiadami o minimalną długość ujęcia (dla ostatniego ujęcia
+ * sąsiadem jest koniec materiału). Bez tego pole inspektora było jedynym
+ * pisarzem ujęć, który nie trzymał żadnego z tych niezmienników: wpisanie
+ * czasu większego niż następne cięcie rozjeżdżało porządek `index` z porządkiem
+ * `startMs`, a `spans.ts` i `useDragBoundary` zakładają, że oba są zgodne.
+ *
+ * Bez punktów przyciągania (`snapPoints: []`) i z zerową tolerancją: wpisana
+ * liczba jest deklaracją użytkownika, a nie pozycją kursora, więc nie ma czego
+ * przyciągać do sąsiednich cięć. Zwraca ten sam projekt, gdy nic się nie
+ * zmienia — `projectStore.apply` nie dokłada wtedy wpisu do historii.
+ */
+export function setShotStartMs(project: Project, shotId: string, ms: number): Project {
+  const spans = shotSpans(project.shots, project.video.durationMs)
+  const position = spans.findIndex(span => span.shot.id === shotId)
+  // Pierwsze ujęcie zaczyna się w zerze z definicji i nie ma granicy do ruszenia.
+  if (position <= 0) return project
+
+  const startMs = boundaryTargetMs({
+    desiredMs: ms,
+    previousMs: spans[position - 1]?.startMs ?? 0,
+    nextMs: spans[position + 1]?.startMs ?? project.video.durationMs,
+    snapPoints: [],
+    toleranceMs: 0,
+  })
+  if (startMs === spans[position]?.startMs) return project
+
+  return {
+    ...project,
+    shots: renumber(project.shots.map(shot =>
+      shot.id === shotId ? { ...shot, startMs } : shot)),
+  }
 }
 
 /**

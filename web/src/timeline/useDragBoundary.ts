@@ -40,12 +40,23 @@ export interface BoundaryArgs {
  * Docelowy czas cięcia: najpierw przyciąganie do punktów, potem do klatki,
  * na końcu ograniczenia sąsiadów. Kolejność ma znaczenie — ograniczenie
  * postawione na końcu nie da się obejść żadnym przyciąganiem.
+ *
+ * Ograniczenia potrafią się przeciąć: kiedy sąsiedzi stoją bliżej niż cztery
+ * klatki, `highest` wypada poniżej `lowest` i trzeba rozstrzygnąć, które z nich
+ * wygrywa. Wygrywa dolne — granica nigdy nie może stanąć przed swoim
+ * poprzednikiem. Odwrotna kolejność (`Math.min(Math.max(...), highest)`)
+ * oddawała w tej sytuacji wartość mniejszą od poprzednika, a przy poprzedniku
+ * bliskim zera wręcz ujemną; `ShotSchema` odrzuca ujemny `startMs`, więc każdy
+ * kolejny autozapis wracał z kodem 400 i projekt przestawał się zapisywać.
+ * Przecięcie oznacza, że żaden czas nie spełnia obu warunków naraz — wtedy
+ * lepiej zostawić ujęcie następne za krótkie (walidator to zgłosi) niż
+ * wyprodukować model, którego schemat w ogóle nie przyjmuje.
  */
 export function boundaryTargetMs(args: BoundaryArgs): number {
   const snapped = snapToFrame(snapMs(args.desiredMs, args.snapPoints, args.toleranceMs))
   const lowest = msOfFrameIndex(frameIndexOf(args.previousMs) + MIN_SHOT_FRAMES)
   const highest = msOfFrameIndex(frameIndexOf(args.nextMs) - MIN_SHOT_FRAMES)
-  return Math.min(Math.max(snapped, lowest), highest)
+  return Math.max(lowest, Math.min(snapped, highest))
 }
 
 /**

@@ -23,9 +23,35 @@ describe('splitAtMs', () => {
     expect(out.shots.map(s => [s.index, s.startMs])).toEqual([[0, 0], [1, 2000], [2, 4000]])
   })
 
-  it('nadaje nowemu ujęciu unikalny identyfikator', () => {
-    const out = splitAtMs(project, 2000)
-    expect(new Set(out.shots.map(s => s.id)).size).toBe(3)
+  it('nadaje unikalny identyfikator także wtedy, gdy liczba ujęć wraca do wcześniejszej wartości', () => {
+    // Sufiks liczony po `shots.length + 1` powtarza się, kiedy licznik ujęć
+    // wróci do przebytej już wartości, a playhead stoi w tym samym miejscu co
+    // poprzednio. Dwa ujęcia o tym samym identyfikatorze to nie kosmetyka:
+    // `useDragBoundary` dopasowuje ujęcie po `shot.id`, więc jedno
+    // przeciągnięcie granicy przestawia oba czasy cięcia naraz i kasuje ten,
+    // który był ustawiony wcześniej.
+    const three: Project = {
+      ...project,
+      shots: [shot('a', 0, 0), shot('b', 1, 2000), shot('c', 2, 6000)],
+    }
+
+    const afterSplit = splitAtMs(three, 4000)
+    const created = afterSplit.shots.find(s => s.startMs === 4000)
+    if (!created) throw new Error('podział nie utworzył ujęcia')
+
+    // Przeciągnięcie świeżej granicy z 4000 na 5000 — playhead zostaje tam,
+    // gdzie był, więc kolejne cięcie w tym samym miejscu jest dozwolone.
+    const moved: Project = {
+      ...afterSplit,
+      shots: afterSplit.shots.map(s => (s.id === created.id ? { ...s, startMs: 5000 } : s)),
+    }
+    // Usunięcie ostatniego ujęcia sprowadza licznik z powrotem do trzech.
+    const afterRemove = removeShots(moved, ['c'])
+    expect(afterRemove.shots).toHaveLength(3)
+
+    const afterSecondSplit = splitAtMs(afterRemove, 4000)
+    expect(afterSecondSplit.shots).toHaveLength(4)
+    expect(new Set(afterSecondSplit.shots.map(s => s.id)).size).toBe(4)
   })
 
   it('nie dzieli na istniejącym cięciu', () => {

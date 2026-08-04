@@ -46,6 +46,21 @@ describe('boundaryTargetMs', () => {
     expect(result).toBe(292)
   })
 
+  it('gdy sąsiedzi są bliżej niż dwie minimalne długości ujęcia, wygrywa dolne ograniczenie', () => {
+    // Sąsiedzi bliżsi niż cztery klatki dają `highest < lowest` — przecięcie
+    // ograniczeń. Przy `Math.min(Math.max(...), highest)` wygrywa wtedy zewnętrzne
+    // `min`, więc granica ląduje PRZED poprzednikiem: pierwszy przypadek dawał
+    // -42 ms, a ujemny `startMs` nie przechodzi przez `ShotSchema`, więc każdy
+    // kolejny autozapis odpowiadał 400 i projektu nie dało się już zapisać.
+    // Granica nie może stanąć przed swoim poprzednikiem, cokolwiek robią sąsiedzi.
+    expect(boundaryTargetMs({ ...base, desiredMs: 35, previousMs: 0, nextMs: 40 }))
+      .toBe(MIN_SHOT_MS)
+    expect(boundaryTargetMs({ ...base, desiredMs: 5000, previousMs: 4000, nextMs: 4050 }))
+      .toBe(4083)
+    // 4083 to klatka 98, czyli dokładnie poprzednik (klatka 96) plus minimum.
+    expect(isFrameAligned(4083)).toBe(true)
+  })
+
   it('korzysta z rzeczywistej tolerancji przyciągania (SNAP_TOLERANCE_MS), nie tylko wartości 40 z reszty testów', () => {
     const justInside = 4000 + SNAP_TOLERANCE_MS - 1
     const justOutside = 4000 + SNAP_TOLERANCE_MS + 1

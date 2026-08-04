@@ -1,7 +1,8 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { Project, Shot } from '@mmh3/shared'
 import { useProject } from '../store/projectStore.js'
 import { useSelection } from '../store/selectionStore.js'
+import { setShotStartMs } from '../timeline/shotOperations.js'
 import { useT, type Translate } from '../i18n/useT.js'
 
 export function Inspector() {
@@ -109,15 +110,45 @@ function ShotFields({ t, shot, apply }: { t: Translate; shot: Shot; apply: Apply
       </Field>
       {shot.index > 0 && (
         <Field label={t('shot.startMs')}>
-          <input
-            type="number"
-            value={shot.startMs}
-            onChange={event => patch({ startMs: toMs(event.target.value, shot.startMs) })}
-            className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm"
-          />
+          {/*
+            `key` na identyfikatorze ujęcia: bez niego zaznaczenie innego ujęcia
+            zostawiłoby w polu brudnopis z poprzedniego.
+          */}
+          <CutTimeField key={shot.id} shot={shot} apply={apply} />
         </Field>
       )}
     </div>
+  )
+}
+
+/**
+ * Czas cięcia zatwierdza się przy opuszczeniu pola albo Enterem, a nie po
+ * każdym znaku. Powód jest wymuszony przez samą politykę czasu cięcia:
+ * `setShotStartMs` przyciąga wpis do siatki klatek i podnosi go do minimalnej
+ * długości ujęcia, więc zapis na każdą literę poprawiłby już pierwszą cyfrę
+ * (z „5" zrobiłby 83) i kolejne dopisywałyby się do poprawionej liczby — pola
+ * nie dałoby się wypełnić żadną liczbą wielocyfrową. Brudnopis trzyma surowy
+ * tekst tylko na czas pisania; `null` znaczy „pokaż wartość z modelu".
+ */
+function CutTimeField({ shot, apply }: { shot: Shot; apply: Apply }) {
+  const [draft, setDraft] = useState<string | null>(null)
+
+  const commit = (raw: string) => {
+    apply(current => setShotStartMs(current, shot.id, toMs(raw, shot.startMs)))
+    setDraft(null)
+  }
+
+  return (
+    <input
+      type="number"
+      value={draft ?? shot.startMs}
+      onChange={event => setDraft(event.target.value)}
+      onBlur={event => commit(event.target.value)}
+      onKeyDown={event => {
+        if (event.key === 'Enter') commit(event.currentTarget.value)
+      }}
+      className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm"
+    />
   )
 }
 
