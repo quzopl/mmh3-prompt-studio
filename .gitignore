@@ -2,3 +2,5 @@ node_modules/
 dist/
 .env
 projects/
+web/test-results/
+web/playwright-report/

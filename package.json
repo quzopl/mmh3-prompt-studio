@@ -8,6 +8,7 @@
     "test": "npm test --workspace @mmh3/shared && npm test --workspace @mmh3/server && npm test --workspace @mmh3/web",
     "typecheck": "npm run typecheck --workspace @mmh3/shared && npm run typecheck --workspace @mmh3/server && npm run typecheck --workspace @mmh3/web",
     "dev:api": "npm run dev --workspace @mmh3/server",
-    "dev:web": "npm run dev --workspace @mmh3/web"
+    "dev:web": "npm run dev --workspace @mmh3/web",
+    "e2e": "npm run e2e --workspace @mmh3/web"
   }
 }
