@@ -88,4 +88,36 @@ describe('useTimelineShortcuts', () => {
     expect(useProject.getState().project!.shots).toHaveLength(2)
     expect(field).toHaveValue('s')
   })
+
+  it('spacja i End odwołują domyślną akcję przeglądarki nawet przy autopowtórzeniu', () => {
+    render(<Harness />)
+    const spaceRepeat = new KeyboardEvent('keydown', {
+      key: ' ', repeat: true, bubbles: true, cancelable: true,
+    })
+    window.dispatchEvent(spaceRepeat)
+    expect(spaceRepeat.defaultPrevented).toBe(true)
+
+    const endRepeat = new KeyboardEvent('keydown', {
+      key: 'End', repeat: true, bubbles: true, cancelable: true,
+    })
+    window.dispatchEvent(endRepeat)
+    expect(endRepeat.defaultPrevented).toBe(true)
+  })
+
+  it('strzałka też odwołuje domyślną akcję przy autopowtórzeniu', () => {
+    render(<Harness />)
+    const arrowRepeat = new KeyboardEvent('keydown', {
+      key: 'ArrowRight', repeat: true, bubbles: true, cancelable: true,
+    })
+    window.dispatchEvent(arrowRepeat)
+    expect(arrowRepeat.defaultPrevented).toBe(true)
+  })
+
+  it('trzy naciśnięcia S na istniejącym cięciu nie zostawiają śladu w historii', async () => {
+    usePlayhead.setState({ ms: 4000, playing: false }) // 'b' już zaczyna się w tym miejscu
+    render(<Harness />)
+    await userEvent.keyboard('sss')
+    expect(useProject.getState().project!.shots).toHaveLength(2)
+    expect(useProject.getState().past).toHaveLength(0)
+  })
 })

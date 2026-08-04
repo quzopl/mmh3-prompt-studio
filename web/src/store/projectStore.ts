@@ -66,6 +66,13 @@ export const useProject = create<ProjectState>((set, get) => ({
     const { project, past, lastCoalesceKey } = get()
     if (!project) return
     const next = mutate(project)
+    // Odmowa mutacji (np. `splitAtMs` na już istniejącym cięciu) oddaje z
+    // powrotem tę samą referencję projektu — porównanie referencyjne, nie
+    // głębokie, bo tylko taka odmowa jest tania i pewna. Nic się nie
+    // zmieniło, więc nie ma czego cofać: wpis do historii by nie odpowiadał
+    // żadnej realnej zmianie, a trzymanie klawisza wywołującego odmawianą
+    // akcję zapychałoby stos cofania identycznymi migawkami.
+    if (next === project) return
     const key = options?.coalesceKey ?? null
     const continues = key !== null && key === lastCoalesceKey
     set({

@@ -40,7 +40,7 @@ export function splitAtMs(project: Project, ms: number): Project {
 }
 
 /**
- * Projekt bez ujęć nie skompilowałby się, więc ostatnie zawsze zostaje. Brief
+ * Projekt bez ujęć nie skompilowałby się, więc jedno zawsze zostaje. Brief
  * tego zadania proponował tu inny kod: gdy usunięcie obejmowało wszystkie
  * ujęcia, cofał operację w całości i oddawał `project` bez zmian — dla
  * `removeShots(project, ['a', 'b'])` zwracał więc dwa ujęcia, choć własny
@@ -48,7 +48,12 @@ export function splitAtMs(project: Project, ms: number): Project {
  * między testem a implementacją w briefie, nie literówka: „ostatnie zostaje”
  * ma sens tylko jako „zachowaj jedno ujęcie”, nigdy jako „nie usuwaj niczego”.
  * Implementacja poniżej usuwa więc wszystko, co się da, i dopiero gdyby lista
- * ocalałych była pusta, zostawia jedno — ostatnie w kolejności ujęć.
+ * ocalałych była pusta, zostawia jedno — pierwsze w kolejności ujęć, czyli to,
+ * które już stało przy lewej krawędzi osi czasu. Ocalałe zawsze ląduje po
+ * `renumber` na indeksie 0 i czasie 0, więc ten niezmiennik nie rozstrzyga,
+ * które ujęcie wybrać — rozstrzyga to, że jego treść jest tam, gdzie
+ * użytkownik ją ostatnio widział; ostatnie w kolejności podmieniłoby ją na
+ * treść z drugiego końca materiału.
  */
 export function removeShots(project: Project, ids: string[]): Project {
   if (ids.length === 0) return project
@@ -56,7 +61,7 @@ export function removeShots(project: Project, ids: string[]): Project {
   if (survivors.length > 0) return { ...project, shots: renumber(survivors) }
 
   const ordered = [...project.shots].sort((a, b) => a.index - b.index)
-  const last = ordered[ordered.length - 1]
-  if (!last) return project
-  return { ...project, shots: renumber([last]) }
+  const first = ordered[0]
+  if (!first) return project
+  return { ...project, shots: renumber([first]) }
 }

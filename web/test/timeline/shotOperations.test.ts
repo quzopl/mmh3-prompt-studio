@@ -41,6 +41,16 @@ describe('splitAtMs', () => {
     expect(splitAtMs(project, 20).shots).toHaveLength(2)
     expect(splitAtMs(project, 3990).shots).toHaveLength(2)
   })
+
+  it('nie tworzy ostatniego ujęcia krótszego niż dozwolone przy końcu materiału', () => {
+    // Jedno ujęcie na cały materiał — 7960 nie jest blisko żadnego
+    // istniejącego cięcia (jedyne to 0), więc jedyną przeszkodą jest
+    // odległość do końca wideo: 8000 - 7958 (po przyciągnięciu do klatki)
+    // = 42 ms, mniej niż MIN_SHOT_MS. Bez tej gałęzi w splitAtMs ten test
+    // czerwienieje — sprawdzone ręcznie przez usunięcie warunku.
+    const singleShot: Project = { ...project, shots: [shot('only', 0, 0)] }
+    expect(splitAtMs(singleShot, 7960).shots).toHaveLength(1)
+  })
 })
 
 describe('removeShots', () => {
@@ -49,8 +59,9 @@ describe('removeShots', () => {
     expect(out.shots.map(s => [s.id, s.index, s.startMs])).toEqual([['b', 0, 0]])
   })
 
-  it('nigdy nie usuwa ostatniego ujęcia', () => {
-    expect(removeShots(project, ['a', 'b']).shots).toHaveLength(1)
+  it('nigdy nie usuwa ostatniego ujęcia — zostaje pierwsze w kolejności', () => {
+    const out = removeShots(project, ['a', 'b'])
+    expect(out.shots.map(s => s.id)).toEqual(['a'])
   })
 
   it('pusta lista nic nie zmienia', () => {

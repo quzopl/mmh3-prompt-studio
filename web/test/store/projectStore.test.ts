@@ -55,6 +55,13 @@ describe('apply', () => {
     expect(useProject.getState().past).toHaveLength(2)
   })
 
+  it('recepta zwracająca ten sam obiekt nie zostawia śladu w historii', () => {
+    useProject.getState().load('test', base)
+    useProject.getState().apply(p => p)
+    expect(useProject.getState().past).toEqual([])
+    expect(useProject.getState().dirty).toBe(false)
+  })
+
   it('nie wywraca się na modelu, którego nie da się skompilować', () => {
     useProject.getState().load('test', base)
     useProject.getState().apply(p => ({

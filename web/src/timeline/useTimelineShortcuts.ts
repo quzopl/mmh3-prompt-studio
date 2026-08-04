@@ -41,25 +41,32 @@ export function useTimelineShortcuts(): void {
       if (!project) return
       const durationMs = project.video.durationMs
 
+      /**
+       * `preventDefault`/`stopPropagation` muszą polecieć na każdym zdarzeniu
+       * pasującym do skrótu — łącznie z autopowtórzeniami — zanim w ogóle
+       * zapadnie decyzja, czy ten konkretny event coś wykona. Klawisz albo
+       * jest nasz, albo nie; to, że akcja nie powtarza się przy trzymaniu, to
+       * osobna decyzja podjęta NIŻEJ, nie wcześniej. Odwrotna kolejność (jak
+       * poprzednio: `if (event.repeat) return` przed `handled()`) oddawała
+       * powtórzone zdarzenie przeglądarce nietknięte — trzymana spacja
+       * przewijała stronę, bo tylko pierwszy `keydown` dostawał `preventDefault`.
+       */
       const handled = (): void => {
         event.preventDefault()
         event.stopPropagation()
       }
 
-      // Klawisze skokowe (spacja, S, Delete, Home/End, cofanie) są
-      // jednorazowe — trzymanie ich nie ma sensu i przy autopowtórzeniu
-      // zapychałoby historię cofania powtórzonymi, identycznymi wpisami.
-      // Strzałki są wyjątkiem: przytrzymanie ma przewijać w kółko, tak jak
-      // przy scrubowaniu myszą.
       const isArrow = event.key === 'ArrowLeft' || event.key === 'ArrowRight'
-      if (event.repeat && !isArrow) return
 
       if (event.key === ' ' && isBareKey(event)) {
         handled()
+        if (event.repeat) return
         usePlayhead.getState().toggle()
         return
       }
 
+      // Strzałki są jedynym skrótem, który ma reagować na trzymanie —
+      // przewijanie klatka po klatce działa tak samo jak scrub myszą.
       if (isArrow && isBareOrShiftKey(event)) {
         handled()
         const direction = event.key === 'ArrowRight' ? 1 : -1
@@ -70,18 +77,21 @@ export function useTimelineShortcuts(): void {
 
       if (event.key === 'Home' && isBareKey(event)) {
         handled()
+        if (event.repeat) return
         usePlayhead.getState().setMs(0, durationMs)
         return
       }
 
       if (event.key === 'End' && isBareKey(event)) {
         handled()
+        if (event.repeat) return
         usePlayhead.getState().setMs(durationMs, durationMs)
         return
       }
 
       if ((event.key === 's' || event.key === 'S') && isBareKey(event)) {
         handled()
+        if (event.repeat) return
         useProject.getState().apply(current => splitAtMs(current, usePlayhead.getState().ms))
         return
       }
@@ -92,6 +102,7 @@ export function useTimelineShortcuts(): void {
           .map(ref => ref.id)
         if (ids.length === 0) return
         handled()
+        if (event.repeat) return
         useProject.getState().apply(current => removeShots(current, ids))
         useSelection.getState().clear()
         return
@@ -99,6 +110,7 @@ export function useTimelineShortcuts(): void {
 
       if ((event.key === 'z' || event.key === 'Z') && (event.ctrlKey || event.metaKey) && !event.altKey) {
         handled()
+        if (event.repeat) return
         if (event.shiftKey) useProject.getState().redo()
         else useProject.getState().undo()
       }
