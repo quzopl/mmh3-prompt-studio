@@ -8,7 +8,7 @@ import { useLang } from '../../src/i18n/useT.js'
 
 beforeEach(() => {
   useLang.setState({ lang: 'pl' })
-  useSelection.setState({ selected: null })
+  useSelection.setState({ selected: [] })
   useProject.setState({
     slug: 'test', project: null, past: [], future: [], dirty: false,
     prompt: 'integrated_multimodal_description: [Shot 1] Live-action, cinematic, a shot.',
@@ -26,11 +26,11 @@ describe('PromptPanel', () => {
   it('zaznacza obiekt po kliknięciu w token', async () => {
     render(<PromptPanel />)
     await userEvent.click(screen.getByRole('button', { name: '[Shot 1]' }))
-    expect(useSelection.getState().selected).toEqual({ kind: 'shot', id: 'shot-1' })
+    expect(useSelection.getState().selected).toEqual([{ kind: 'shot', id: 'shot-1' }])
   })
 
   it('wyróżnia token odpowiadający zaznaczeniu', () => {
-    useSelection.setState({ selected: { kind: 'shot', id: 'shot-1' } })
+    useSelection.setState({ selected: [{ kind: 'shot', id: 'shot-1' }] })
     render(<PromptPanel />)
     expect(screen.getByRole('button', { name: '[Shot 1]' })).toHaveAttribute('aria-current', 'true')
   })

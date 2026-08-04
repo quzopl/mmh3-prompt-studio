@@ -22,7 +22,7 @@ const project: Project = {
 
 beforeEach(() => {
   useLang.setState({ lang: 'pl' })
-  useSelection.setState({ selected: null })
+  useSelection.setState({ selected: [] })
   useProject.getState().load('test', project)
 })
 
@@ -40,7 +40,7 @@ describe('Inspector', () => {
   })
 
   it('po zaznaczeniu ujęcia pokazuje jego pola', () => {
-    useSelection.setState({ selected: { kind: 'shot', id: 'shot-1' } })
+    useSelection.setState({ selected: [{ kind: 'shot', id: 'shot-1' }] })
     render(<Inspector />)
     expect(screen.getByLabelText(/kompozycja/i)).toBeInTheDocument()
   })
@@ -50,7 +50,7 @@ describe('Inspector', () => {
       ...p,
       shots: [...p.shots, { ...p.shots[0]!, id: 'shot-2', index: 1, startMs: 4000 }],
     }))
-    useSelection.setState({ selected: { kind: 'shot', id: 'shot-2' } })
+    useSelection.setState({ selected: [{ kind: 'shot', id: 'shot-2' }] })
     render(<Inspector />)
     const field = screen.getByLabelText(/czas cięcia/i)
     await userEvent.clear(field)
@@ -66,7 +66,7 @@ describe('Inspector', () => {
   })
 
   it('pokazuje komunikat, gdy zaznaczony obiekt zniknął', () => {
-    useSelection.setState({ selected: { kind: 'shot', id: 'nie-ma' } })
+    useSelection.setState({ selected: [{ kind: 'shot', id: 'nie-ma' }] })
     render(<Inspector />)
     expect(screen.getByRole('region', { name: /inspektor/i })).toBeInTheDocument()
   })

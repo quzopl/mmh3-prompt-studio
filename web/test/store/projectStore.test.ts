@@ -109,3 +109,45 @@ describe('undo i redo', () => {
     expect(useProject.getState().canRedo()).toBe(true)
   })
 })
+
+describe('apply z kluczem koalescencji', () => {
+  it('zbija serię zmian z tym samym kluczem w jeden wpis historii', () => {
+    useProject.getState().load('test', base)
+    useProject.getState().apply(p => ({ ...p, style: 'A' }), { coalesceKey: 'drag:shot-1' })
+    useProject.getState().apply(p => ({ ...p, style: 'AB' }), { coalesceKey: 'drag:shot-1' })
+    useProject.getState().apply(p => ({ ...p, style: 'ABC' }), { coalesceKey: 'drag:shot-1' })
+    expect(useProject.getState().past).toHaveLength(1)
+    expect(useProject.getState().project!.style).toBe('ABC')
+  })
+
+  it('cofnięcie po serii wraca do stanu sprzed całego gestu', () => {
+    useProject.getState().load('test', base)
+    useProject.getState().apply(p => ({ ...p, style: 'A' }), { coalesceKey: 'drag:shot-1' })
+    useProject.getState().apply(p => ({ ...p, style: 'AB' }), { coalesceKey: 'drag:shot-1' })
+    useProject.getState().undo()
+    expect(useProject.getState().project!.style).toBe('')
+  })
+
+  it('inny klucz zaczyna nowy wpis', () => {
+    useProject.getState().load('test', base)
+    useProject.getState().apply(p => ({ ...p, style: 'A' }), { coalesceKey: 'drag:shot-1' })
+    useProject.getState().apply(p => ({ ...p, style: 'B' }), { coalesceKey: 'drag:shot-2' })
+    expect(useProject.getState().past).toHaveLength(2)
+  })
+
+  it('zmiana bez klucza przerywa serię', () => {
+    useProject.getState().load('test', base)
+    useProject.getState().apply(p => ({ ...p, style: 'A' }), { coalesceKey: 'drag:shot-1' })
+    useProject.getState().apply(p => ({ ...p, style: 'B' }))
+    useProject.getState().apply(p => ({ ...p, style: 'C' }), { coalesceKey: 'drag:shot-1' })
+    expect(useProject.getState().past).toHaveLength(3)
+  })
+
+  it('load czyści pamięć ostatniego klucza', () => {
+    useProject.getState().load('test', base)
+    useProject.getState().apply(p => ({ ...p, style: 'A' }), { coalesceKey: 'drag:shot-1' })
+    useProject.getState().load('test', base)
+    useProject.getState().apply(p => ({ ...p, style: 'B' }), { coalesceKey: 'drag:shot-1' })
+    expect(useProject.getState().past).toHaveLength(1)
+  })
+})

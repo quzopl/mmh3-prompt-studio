@@ -57,6 +57,20 @@ describe('AssetBin', () => {
     expect(labels.find(l => l.kind === 'audio')!.index).toBe(1)
   })
 
+  it('numeruje etykietę po najwyższym numerze, nie po liczbie wpisów', async () => {
+    useProject.getState().apply(p => ({
+      ...p,
+      labels: [{
+        id: 'l9', kind: 'picture', index: 9, assetIds: [],
+        definition: '', role: '', standalone: true,
+      }],
+    }))
+    render(<AssetBin slug="test" />)
+    await userEvent.click(screen.getAllByRole('button', { name: /utwórz etykietę/i })[0]!)
+    const labels = useProject.getState().project!.labels
+    expect(labels.find(l => l.id !== 'l9')!.index).toBe(10)
+  })
+
   it('dodaje mówcę z kolejnym kodem', async () => {
     render(<AssetBin slug="test" />)
     await userEvent.click(screen.getByRole('button', { name: /dodaj mówcę/i }))

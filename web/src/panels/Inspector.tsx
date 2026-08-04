@@ -12,9 +12,8 @@ export function Inspector() {
 
   if (!project) return null
 
-  const shot = selected?.kind === 'shot'
-    ? project.shots.find(candidate => candidate.id === selected.id)
-    : undefined
+  const shotRef = selected.find(ref => ref.kind === 'shot')
+  const shot = shotRef ? project.shots.find(candidate => candidate.id === shotRef.id) : undefined
 
   return (
     <section aria-label={t('editor.inspector')} className="h-full overflow-auto p-3">

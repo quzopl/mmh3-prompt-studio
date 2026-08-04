@@ -89,13 +89,15 @@ describe('GET /api/projects/:slug/assets/:assetId/raw', () => {
   })
 })
 
-describe('GET /api/projects/:slug/assets/:assetId/raw — przejście po ścieżce', () => {
-  it('odmawia odczytu pliku spoza katalogu projektu', async () => {
+describe('PUT /api/projects/:slug — przejście po ścieżce assetu', () => {
+  it('odrzuca projekt, którego asset.path wychodzi poza katalog projektu', async () => {
+    // Schemat współdzielony (`shared/src/model/schema.ts`) ogranicza teraz
+    // `asset.path` do postaci wyliczanej przez serwer, więc próba przemycenia
+    // przejścia po ścieżce ginie już na walidacji ciała żądania — nigdy nie
+    // dociera do zapisu ani do trasy oddającej surowe bajty.
     const created = await app.inject({ method: 'GET', url: '/api/projects/assety' })
     const project = {
       ...created.json().project,
-      // Identyfikator ma prawidłowy kształt, więc 400 nie może pochodzić
-      // z walidacji parametru — jedyną przyczyną jest straż ścieżki.
       assets: [{
         id: SPOOFED_ID, kind: 'image', path: '../../../../etc/passwd', fileName: 'x.png',
       }],
@@ -103,12 +105,9 @@ describe('GET /api/projects/:slug/assets/:assetId/raw — przejście po ścieżc
     const put = await app.inject({
       method: 'PUT', url: '/api/projects/assety', payload: { project },
     })
-    expect(put.statusCode).toBe(200)
-    const res = await app.inject({
-      method: 'GET', url: `/api/projects/assety/assets/${SPOOFED_ID}/raw`,
-    })
-    expect(res.statusCode).toBe(400)
-    expect(res.rawPayload.toString()).not.toContain('root:x:0:0')
+    expect(put.statusCode).toBe(400)
+    const after = await app.inject({ method: 'GET', url: '/api/projects/assety' })
+    expect(after.json().project.assets).toEqual([])
   })
 })
 

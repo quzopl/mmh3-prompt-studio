@@ -135,7 +135,9 @@ export const ProjectSchema = z.object({
   assets: z.array(z.object({
     id: z.string(),
     kind: z.enum(['image', 'video', 'audio']),
-    path: z.string(),
+    // Ścieżka assetu jest wyliczana przez serwer i zawsze ma tę postać.
+    // Nieograniczony string pozwalał wskazać plik spoza katalogu projektu.
+    path: z.string().regex(/^assets\/[A-Za-z0-9._-]+$/),
     fileName: z.string(),
   })),
   labels: z.array(LabelSchema),

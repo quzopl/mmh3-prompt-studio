@@ -41,12 +41,28 @@ export async function createProject(
   return { slug, project }
 }
 
-export async function writeProject(
-  root: string,
-  slug: string,
-  project: Project,
-): Promise<void> {
+/**
+ * Zapisy tego samego projektu ustawiają się w kolejkę. Bez tego dwaj piszący
+ * dzielą jeden plik tymczasowy: pierwszy zdąży z rename, a drugi dostanie
+ * ENOENT. Kolejka jest per slug, więc różne projekty nadal zapisują się równolegle.
+ */
+const writeQueues = new Map<string, Promise<void>>()
+
+export async function writeProject(root: string, slug: string, project: Project): Promise<void> {
   assertInsideRoot(root, projectDir(root, slug))
+  const previous = writeQueues.get(slug) ?? Promise.resolve()
+  const current = previous
+    .catch(() => undefined)
+    .then(() => writeProjectNow(root, slug, project))
+  writeQueues.set(slug, current)
+  try {
+    await current
+  } finally {
+    if (writeQueues.get(slug) === current) writeQueues.delete(slug)
+  }
+}
+
+async function writeProjectNow(root: string, slug: string, project: Project): Promise<void> {
   await mkdir(projectDir(root, slug), { recursive: true })
   // Zapis przez plik tymczasowy i rename: `writeFile` najpierw obcina plik, więc
   // przerwanie procesu w trakcie któregokolwiek z zapisów co 800 ms zostawiłoby

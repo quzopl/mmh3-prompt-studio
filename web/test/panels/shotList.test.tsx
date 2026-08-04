@@ -22,7 +22,7 @@ const project: Project = {
 
 beforeEach(() => {
   useLang.setState({ lang: 'pl' })
-  useSelection.setState({ selected: null })
+  useSelection.setState({ selected: [] })
   useProject.getState().load('test', project)
 })
 
@@ -45,7 +45,7 @@ describe('ShotList', () => {
   it('zaznacza ujęcie po kliknięciu', async () => {
     render(<ShotList />)
     await userEvent.click(screen.getByRole('button', { name: /ujęcie 1/i }))
-    expect(useSelection.getState().selected).toEqual({ kind: 'shot', id: 'shot-1' })
+    expect(useSelection.getState().selected).toEqual([{ kind: 'shot', id: 'shot-1' }])
   })
 
   it('usuwa ujęcie i przenumerowuje pozostałe', async () => {

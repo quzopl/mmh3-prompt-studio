@@ -112,6 +112,17 @@ describe('writeProject', () => {
     expect(files.filter(f => f.endsWith('.tmp'))).toEqual([])
     expect((await readProject(root, slug)).name).toBe('Atomowo 2')
   })
+
+  it('równoległe zapisy tego samego projektu nie wywracają się nawzajem', async () => {
+    const { slug, project } = await createProject(root, 'Rownolegle', 'T2VA')
+    const writes = Array.from({ length: 20 }, (_, index) =>
+      writeProject(root, slug, { ...project, name: `Rownolegle ${index}` }))
+    await expect(Promise.all(writes)).resolves.toBeDefined()
+    const reloaded = await readProject(root, slug)
+    expect(reloaded.name).toMatch(/^Rownolegle \d+$/)
+    const files = await readdir(projectDir(root, slug))
+    expect(files.filter(f => f.endsWith('.tmp'))).toEqual([])
+  })
 })
 
 describe('deleteProject', () => {

@@ -62,4 +62,20 @@ describe('ProjectSchema', () => {
     }
     expect(ProjectSchema.safeParse(bad).success).toBe(false)
   })
+
+  it('odrzuca ścieżkę assetu wychodzącą poza katalog projektu', () => {
+    const bad = {
+      ...minimal,
+      assets: [{ id: 'a1', kind: 'image', path: '../../../etc/passwd', fileName: 'x.png' }],
+    }
+    expect(ProjectSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('przyjmuje ścieżkę w postaci, jaką generuje serwer', () => {
+    const good = {
+      ...minimal,
+      assets: [{ id: 'a1', kind: 'image', path: 'assets/asset-1.img', fileName: 'x.png' }],
+    }
+    expect(ProjectSchema.safeParse(good).success).toBe(true)
+  })
 })

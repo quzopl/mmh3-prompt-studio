@@ -9,14 +9,25 @@ interface Compiled {
   diagnostics: Diagnostic[]
 }
 
+export interface ApplyOptions {
+  /**
+   * Kolejne wywołania z tym samym kluczem nadpisują wierzchołek historii
+   * zamiast dokładać nowy wpis. Bez tego jeden gest przeciągnięcia zostawiłby
+   * po jednej migawce całego projektu na każdy ruch myszy, a Ctrl+Z cofałby
+   * klip o jeden piksel.
+   */
+  coalesceKey?: string
+}
+
 interface ProjectState extends Compiled {
   slug: string | null
   project: Project | null
   past: Project[]
   future: Project[]
   dirty: boolean
+  lastCoalesceKey: string | null
   load: (slug: string, project: Project) => void
-  apply: (mutate: (project: Project) => Project) => void
+  apply: (mutate: (project: Project) => Project, options?: ApplyOptions) => void
   undo: () => void
   redo: () => void
   markSaved: () => void
@@ -43,19 +54,26 @@ export const useProject = create<ProjectState>((set, get) => ({
   past: [],
   future: [],
   dirty: false,
+  lastCoalesceKey: null,
 
   load: (slug, project) =>
-    set({ slug, project, past: [], future: [], dirty: false, ...compile(project) }),
+    set({
+      slug, project, past: [], future: [], dirty: false,
+      lastCoalesceKey: null, ...compile(project),
+    }),
 
-  apply: mutate => {
-    const { project, past } = get()
+  apply: (mutate, options) => {
+    const { project, past, lastCoalesceKey } = get()
     if (!project) return
     const next = mutate(project)
+    const key = options?.coalesceKey ?? null
+    const continues = key !== null && key === lastCoalesceKey
     set({
       project: next,
-      past: [...past, project].slice(-HISTORY_LIMIT),
+      past: continues ? past : [...past, project].slice(-HISTORY_LIMIT),
       future: [],
       dirty: true,
+      lastCoalesceKey: key,
       ...compile(next),
     })
   },
@@ -69,6 +87,7 @@ export const useProject = create<ProjectState>((set, get) => ({
       past: past.slice(0, -1),
       future: [project, ...future],
       dirty: true,
+      lastCoalesceKey: null,
       ...compile(previous),
     })
   },
@@ -82,6 +101,7 @@ export const useProject = create<ProjectState>((set, get) => ({
       past: [...past, project],
       future: future.slice(1),
       dirty: true,
+      lastCoalesceKey: null,
       ...compile(next),
     })
   },

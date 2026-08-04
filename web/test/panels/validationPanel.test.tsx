@@ -18,7 +18,7 @@ const diagnostic = (over: Partial<Parameters<typeof Object>[0]> = {}) => ({
 
 beforeEach(() => {
   useLang.setState({ lang: 'pl' })
-  useSelection.setState({ selected: null })
+  useSelection.setState({ selected: [] })
   useProject.setState({ diagnostics: [], prompt: '', tokens: [] })
 })
 
@@ -47,7 +47,7 @@ describe('ValidationPanel', () => {
     useProject.setState({ diagnostics: [diagnostic({ ref: { kind: 'shot', id: 'shot-2' } })] })
     render(<ValidationPanel />)
     await userEvent.click(screen.getByRole('button', { name: /wymaga podania stylu/i }))
-    expect(useSelection.getState().selected).toEqual({ kind: 'shot', id: 'shot-2' })
+    expect(useSelection.getState().selected).toEqual([{ kind: 'shot', id: 'shot-2' }])
   })
 
   it('nie ogłasza gotowości, gdy jest choć jeden błąd', () => {

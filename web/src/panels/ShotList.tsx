@@ -13,7 +13,7 @@ export function ShotList() {
   const t = useT()
   const project = useProject(state => state.project)
   const apply = useProject(state => state.apply)
-  const selected = useSelection(state => state.selected)
+  const isSelected = useSelection(state => state.isSelected)
   const select = useSelection(state => state.select)
 
   if (!project) return null
@@ -64,9 +64,9 @@ export function ShotList() {
             <button
               type="button"
               onClick={() => select({ kind: 'shot', id: shot.id })}
-              aria-current={selected?.kind === 'shot' && selected.id === shot.id ? 'true' : undefined}
+              aria-current={isSelected({ kind: 'shot', id: shot.id }) ? 'true' : undefined}
               className={`flex-1 rounded border px-2 py-1 text-left text-sm ${
-                selected?.kind === 'shot' && selected.id === shot.id
+                isSelected({ kind: 'shot', id: shot.id })
                   ? 'border-sky-700 bg-neutral-900'
                   : 'border-neutral-800 hover:border-neutral-600'
               }`}

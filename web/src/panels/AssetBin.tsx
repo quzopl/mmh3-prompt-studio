@@ -39,7 +39,9 @@ export function AssetBin({ slug }: { slug: string }) {
 
   const addLabel = (asset: Asset) => apply(current => {
     const kind = LABEL_KIND_BY_ASSET[asset.kind]
-    const nextIndex = current.labels.filter(label => label.kind === kind).length + 1
+    const nextIndex = Math.max(0, ...current.labels
+      .filter(label => label.kind === kind)
+      .map(label => label.index)) + 1
     const label: Label = {
       id: `label-${kind}-${nextIndex}`,
       kind,
@@ -53,7 +55,10 @@ export function AssetBin({ slug }: { slug: string }) {
   })
 
   const addSpeaker = () => apply(current => {
-    const code = `S${current.speakers.length + 1}`
+    const nextNumber = Math.max(0, ...current.speakers
+      .map(speaker => Number(speaker.code.slice(1)))
+      .filter(Number.isFinite)) + 1
+    const code = `S${nextNumber}`
     const speaker: Speaker = {
       id: `speaker-${code}`,
       code,

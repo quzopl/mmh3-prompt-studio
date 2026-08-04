@@ -1,17 +1,13 @@
 import type { ReactNode } from 'react'
-import type { ObjectRef } from '@mmh3/shared'
 import { useProject } from '../store/projectStore.js'
 import { useSelection } from '../store/selectionStore.js'
 import { useT } from '../i18n/useT.js'
-
-const sameRef = (a: ObjectRef | null, b: ObjectRef): boolean =>
-  a !== null && a.kind === b.kind && a.id === b.id
 
 export function PromptPanel() {
   const t = useT()
   const prompt = useProject(state => state.prompt)
   const tokens = useProject(state => state.tokens)
-  const selected = useSelection(state => state.selected)
+  const isSelected = useSelection(state => state.isSelected)
   const select = useSelection(state => state.select)
 
   const ordered = [...tokens].sort((a, b) => a.start - b.start)
@@ -29,9 +25,9 @@ export function PromptPanel() {
         key={`k${index}`}
         type="button"
         onClick={() => select(token.ref)}
-        aria-current={sameRef(selected, token.ref) ? 'true' : undefined}
+        aria-current={isSelected(token.ref) ? 'true' : undefined}
         className={`rounded px-0.5 ${
-          sameRef(selected, token.ref) ? 'bg-sky-700 text-white' : 'hover:bg-neutral-700'
+          isSelected(token.ref) ? 'bg-sky-700 text-white' : 'hover:bg-neutral-700'
         }`}
       >
         {label}
