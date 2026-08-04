@@ -2,6 +2,7 @@ import { Fragment } from 'react'
 import { useProject } from '../store/projectStore.js'
 import { same, useSelection } from '../store/selectionStore.js'
 import { useT } from '../i18n/useT.js'
+import { AnchorBadges } from './AnchorBadges.js'
 import { msToPx, type Scale } from './scale.js'
 import { shotSpans, type ShotSpan } from './spans.js'
 import { useDragBoundary } from './useDragBoundary.js'
@@ -45,25 +46,41 @@ export function ShotTrack({ scale }: { scale: Scale }) {
         const isSelected = selected.some(candidate => same(candidate, ref))
         return (
           <Fragment key={span.shot.id}>
-            <button
-              type="button"
+            <div
+              role="button"
+              tabIndex={0}
               aria-pressed={isSelected}
               aria-label={t('timeline.clipLabel', {
                 number: span.shot.index + 1, start: span.startMs, end: span.endMs,
               })}
               onClick={event => (event.shiftKey ? toggle(ref) : select(ref))}
-              className={`absolute top-1 h-8 overflow-hidden rounded border px-2 text-left text-xs ${
+              onKeyDown={event => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                select(ref)
+              }}
+              className={`absolute top-1 h-8 rounded border px-2 text-left text-xs ${
                 isSelected
                   ? 'border-sky-600 bg-sky-950 text-sky-100'
                   : 'border-neutral-700 bg-neutral-900 hover:border-neutral-500'
               }`}
               style={clipBox(scale, span)}
             >
-              <span className="font-mono">{span.shot.index + 1}</span>
-              {span.shot.composition && (
-                <span className="ml-2 text-neutral-400">{span.shot.composition}</span>
-              )}
-            </button>
+              {/*
+                Etykieta ujęcia ma własny overflow-hidden, a nie cały klip —
+                gdyby obcinał całą zawartość, odznaki kotwic byłyby nieklikalne
+                na klipach przyciętych do MIN_CLIP_PX (8px). `position: absolute`
+                na tym elemencie już samo w sobie tworzy kontekst pozycjonowania
+                dla dzieci — nie trzeba dokładać `relative`.
+              */}
+              <span className="block h-full overflow-hidden">
+                <span className="font-mono">{span.shot.index + 1}</span>
+                {span.shot.composition && (
+                  <span className="ml-2 text-neutral-400">{span.shot.composition}</span>
+                )}
+              </span>
+              <AnchorBadges shotId={span.shot.id} anchors={span.shot.anchors} />
+            </div>
             {span.shot.index > 0 && (
               <div
                 role="separator"

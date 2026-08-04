@@ -45,6 +45,11 @@ const pl = {
   'timeline.clipLabel': 'Ujęcie {number}, od {start} ms do {end} ms',
   'timeline.boundaryHandle': 'Ujęcie {number} — przeciągnij granicę, aby zmienić czas cięcia',
 
+  'anchor.picture-first': 'Pierwsza klatka',
+  'anchor.picture-last': 'Ostatnia klatka',
+  'anchor.keyframe': 'Klatka kluczowa',
+  'anchor.toggle': 'Przełącz kotwicę: {name}',
+
   'validation.ready': 'Gotowy do eksportu',
   'validation.count': 'Problemy: {count}',
   'validation.none': 'Walidator nie zgłasza uwag.',
@@ -134,6 +139,11 @@ const en: Record<TKey, string> = {
   'timeline.trackShots': 'Shots',
   'timeline.clipLabel': 'Shot {number}, from {start} ms to {end} ms',
   'timeline.boundaryHandle': 'Shot {number} — drag the boundary to change the cut time',
+
+  'anchor.picture-first': 'First frame',
+  'anchor.picture-last': 'Last frame',
+  'anchor.keyframe': 'Keyframe',
+  'anchor.toggle': 'Toggle anchor: {name}',
 
   'validation.ready': 'Ready to export',
   'validation.count': 'Issues: {count}',
