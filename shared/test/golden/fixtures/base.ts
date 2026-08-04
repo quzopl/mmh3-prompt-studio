@@ -13,7 +13,7 @@ const emptyProject = (over: Partial<Project>): Project => ({
 const emptyShot = (over: Partial<Shot>): Shot => ({
   id: 's1', index: 0, startMs: 0, cutType: 'cut', cutPhrase: 'the camera cuts to',
   composition: '', body: [], cameraMoves: [], dialogue: [], screenText: [],
-  diegeticSfx: [], labelRefs: [], anchor: 'none', ...over,
+  diegeticSfx: [], labelRefs: [], anchors: [], ...over,
 })
 
 const picture1: Label = {
@@ -85,7 +85,7 @@ export const i2vaProject: Project = emptyProject({
         sceneTransBefore: false, sceneTransAfter: false, cutoff: false,
         startMs: 4000, endMs: 6000,
       }],
-      anchor: 'picture-first',
+      anchors: ['picture-first'],
       body: [
         { kind: 'text', text: 'the young woman shown in ' },
         { kind: 'label', labelId: 'pic1', bracketed: true },
@@ -115,7 +115,7 @@ export const fl2vaProject: Project = emptyProject({
   shots: [
     emptyShot({
       cameraMoves: [{ id: 'c1', type: 'pull-out', amplitude: 'small', speed: 'slow', startMs: 0, endMs: 8000 }],
-      anchor: 'picture-first',
+      anchors: ['picture-first', 'picture-last'],
       body: [
         { kind: 'text', text: 'a rain-soaked cyclist begins in the position and framing established by ' },
         { kind: 'label', labelId: 'pic1', bracketed: false },
@@ -142,7 +142,7 @@ export const l2vaProject: Project = emptyProject({
   shots: [
     emptyShot({
       cameraMoves: [{ id: 'c1', type: 'push-in', amplitude: 'small', speed: 'slow', startMs: 0, endMs: 6000 }],
-      anchor: 'picture-last',
+      anchors: ['picture-last'],
       body: [
         { kind: 'text', text: 'a close shot begins with an intact drinking glass near the edge of a dark wooden table, while the same hand and sleeve visible in ' },
         { kind: 'label', labelId: 'pic1', bracketed: true },

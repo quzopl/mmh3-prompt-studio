@@ -112,7 +112,7 @@ export type CutPhrase =
   | 'the shot changes to'
   | 'the shot switches to'
 
-export type Anchor = 'none' | 'picture-first' | 'picture-last' | 'keyframe'
+export type Anchor = 'picture-first' | 'picture-last' | 'keyframe'
 
 export interface Shot {
   id: string
@@ -127,7 +127,12 @@ export interface Shot {
   screenText: ScreenText[]
   diegeticSfx: DiegeticSfx[]
   labelRefs: string[]
-  anchor: Anchor
+  /**
+   * Kotwice klatek referencyjnych tego ujęcia. Tryb FL2VA w swoim głównym
+   * przypadku to jedno ujęcie zakotwiczone jednocześnie na pierwszej
+   * i ostatniej klatce, czego pojedyncza wartość nie wyrażała.
+   */
+  anchors: Anchor[]
 }
 
 export interface Asset {

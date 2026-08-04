@@ -96,7 +96,7 @@ export const ShotSchema = z.object({
     endMs: z.number().int().nonnegative(),
   })),
   labelRefs: z.array(z.string()),
-  anchor: z.enum(['none', 'picture-first', 'picture-last', 'keyframe']),
+  anchors: z.array(z.enum(['picture-first', 'picture-last', 'keyframe'])),
 })
 
 export const LabelSchema = z.object({

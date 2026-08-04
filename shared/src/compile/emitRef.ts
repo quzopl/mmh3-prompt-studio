@@ -36,8 +36,11 @@ export function renderDetailedDescription(project: Project): string {
   return lines.join('\n')
 }
 
-export function emitRef(project: Project): string {
-  const sections: Array<[string, string]> = [
+const SECTION_SEPARATOR = '\n\n'
+
+/** Sekcje trybu REF w kolejności, jako pary nazwa/treść. */
+export function composeRefSections(project: Project): Array<[string, string]> {
+  return [
     ['subject_definitions', renderSubjectDefinitions(project)],
     ['summary', renderSummary(project)],
     ['retention_analysis', renderRetention(project)],
@@ -45,5 +48,31 @@ export function emitRef(project: Project): string {
     ['overall_soundscape', project.audio.overallSoundscape],
     ['non_diegetic_music', project.audio.nonDiegeticMusic],
   ]
-  return sections.map(([name, body]) => `${name}:\n${body}`).join('\n\n')
+}
+
+export function emitRef(project: Project): string {
+  return composeRefSections(project)
+    .map(([name, body]) => `${name}:\n${body}`)
+    .join(SECTION_SEPARATOR)
+}
+
+/**
+ * Granice sekcji wyliczone z długości składanych fragmentów.
+ * Wcześniej mapa tokenów szukała literału "detailed_description:" w gotowym
+ * tekście, co dawało zły wynik, gdy ten sam ciąg pojawił się wcześniej
+ * w treści innej sekcji.
+ */
+export function refSectionOffsets(
+  project: Project,
+): Array<{ name: string; start: number; end: number }> {
+  const out: Array<{ name: string; start: number; end: number }> = []
+  let cursor = 0
+  const sections = composeRefSections(project)
+  sections.forEach(([name, body], index) => {
+    const rendered = `${name}:\n${body}`
+    out.push({ name, start: cursor, end: cursor + rendered.length })
+    cursor += rendered.length
+    if (index < sections.length - 1) cursor += SECTION_SEPARATOR.length
+  })
+  return out
 }

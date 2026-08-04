@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { compile } from '../../src/compile/compile.js'
+import { refSectionOffsets } from '../../src/compile/emitRef.js'
 import { t2vaProject } from '../golden/fixtures/base.js'
 import { refProject } from '../golden/fixtures/ref.js'
 
@@ -51,5 +52,30 @@ describe('compile', () => {
     const { tokens } = compile(refProject)
     const starts = tokens.map(t => t.start)
     expect(starts).toEqual([...starts].sort((a, b) => a - b))
+  })
+
+  it('offsety sekcji REF liczone są z długości, nie z wyszukiwania tekstu', () => {
+    const sections = refSectionOffsets(refProject)
+    const { text } = compile(refProject)
+    for (const section of sections) {
+      expect(text.slice(section.start, section.start + section.name.length + 1))
+        .toBe(`${section.name}:`)
+    }
+    const detailed = sections.find(s => s.name === 'detailed_description')
+    expect(detailed).toBeDefined()
+    expect(text.slice(detailed!.start, detailed!.end)).toContain('[Shot 1]')
+  })
+
+  it('token ujęcia 1 w REF nie daje się zwieść literałowi w treści sekcji', () => {
+    const ref = {
+      ...refProject.ref,
+      summaryText: `detailed_description: ${refProject.ref.summaryText}`,
+    }
+    const project = { ...refProject, ref }
+    const { text, tokens } = compile(project)
+    const shot1 = tokens.find(t => t.ref.kind === 'shot' && t.ref.id === 's1')
+    expect(shot1).toBeDefined()
+    expect(text.slice(shot1!.start, shot1!.end)).toBe('[Shot 1]')
+    expect(shot1!.start).toBeGreaterThan(text.lastIndexOf('detailed_description:'))
   })
 })

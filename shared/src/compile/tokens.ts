@@ -4,6 +4,7 @@ import { renderCameraMove } from './renderCamera.js'
 import { renderDialogue } from './renderDialogue.js'
 import { renderSpeakerSegment } from './renderSpeaker.js'
 import { renderLabelSegment } from './renderLabel.js'
+import { refSectionOffsets } from './emitRef.js'
 
 /**
  * Lokalizuje wyrenderowane fragmenty w gotowym tekście, skanując w przód.
@@ -13,10 +14,14 @@ import { renderLabelSegment } from './renderLabel.js'
  */
 export function buildTokens(project: Project, text: string): Token[] {
   const tokens: Token[] = []
-  // W trybie REF etykiety ujęć pojawiają się wcześniej, w retention_analysis.
-  // Tokeny opisują tylko treść opisu szczegółowego, więc zaczynamy od niego.
-  const descriptionStart = text.indexOf('detailed_description:')
-  let cursor = descriptionStart === -1 ? 0 : descriptionStart
+  // W trybie REF etykiety ujęć pojawiają się także wcześniej, w retention_analysis.
+  // Start liczymy z długości sekcji, a nie z wyszukiwania tekstu, żeby treść
+  // wpisana przez użytkownika nie mogła przesunąć kotwicy.
+  let cursor = 0
+  if (project.mode === 'REF') {
+    const detailed = refSectionOffsets(project).find(s => s.name === 'detailed_description')
+    if (detailed) cursor = detailed.start
+  }
 
   const locate = (fragment: string, ref: ObjectRef): void => {
     if (!fragment) return

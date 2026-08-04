@@ -2,7 +2,8 @@ import type { Project } from './model/types.js'
 import type { Token } from './model/refs.js'
 import { compile, type CompiledPrompt } from './compile/compile.js'
 import { validate } from './validate/validate.js'
-import { registerAllRules } from './validate/rules/index.js'
+import { compileFailedRule, registerAllRules } from './validate/rules/index.js'
+import { makeDiagnostic } from './validate/types.js'
 import type { Diagnostic } from './validate/types.js'
 
 export { registerAllRules }
@@ -28,14 +29,12 @@ export function buildPrompt(project: Project): PromptResult {
   }
   const diagnostics = validate(project, compiled)
   if (compileFailure) {
-    diagnostics.unshift({
-      ruleId: 'COMPILE_FAILED',
-      severity: 'error',
-      message: `Kompilacja przerwana: ${compileFailure}`,
-      messageEn: `Compilation aborted: ${compileFailure}`,
-      ref: { kind: 'project', id: project.id },
-      guideRef: 'spójność modelu',
-    })
+    diagnostics.unshift(makeDiagnostic(
+      compileFailedRule,
+      { kind: 'project', id: project.id },
+      `Kompilacja przerwana: ${compileFailure}`,
+      `Compilation aborted: ${compileFailure}`,
+    ))
   }
   return { ...compiled, diagnostics }
 }

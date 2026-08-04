@@ -19,7 +19,7 @@ const project: Project = {
   shots: [{
     id: 's1', index: 0, startMs: 0, cutType: 'cut', cutPhrase: 'the shot cuts to',
     composition: '', body: [{ kind: 'text', text: 'A medium shot establishes the room.' }],
-    cameraMoves: [], dialogue: [], screenText: [], diegeticSfx: [], labelRefs: [], anchor: 'none',
+    cameraMoves: [], dialogue: [], screenText: [], diegeticSfx: [], labelRefs: [], anchors: [],
   }],
   audio: { overallSoundscape: 'Soft indoor room tone.', nonDiegeticMusic: 'N/A' },
   ref: {

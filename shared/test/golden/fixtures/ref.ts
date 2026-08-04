@@ -24,7 +24,7 @@ const speakers: Speaker[] = [
 const emptyShot = (over: Partial<Shot>): Shot => ({
   id: 'x', index: 0, startMs: 0, cutType: 'cut', cutPhrase: 'the shot cuts to',
   composition: '', body: [], cameraMoves: [], dialogue: [], screenText: [],
-  diegeticSfx: [], labelRefs: [], anchor: 'none', ...over,
+  diegeticSfx: [], labelRefs: [], anchors: [], ...over,
 })
 
 const shot1: Shot = emptyShot({

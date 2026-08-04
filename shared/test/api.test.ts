@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildPrompt, isExportReady, registerAllRules } from '../src/api.js'
+import { allRules } from '../src/validate/registry.js'
 import { t2vaProject, l2vaProject } from './golden/fixtures/base.js'
 import { refProject } from './golden/fixtures/ref.js'
 
@@ -51,5 +52,10 @@ describe('buildPrompt', () => {
     }
     const ids = buildPrompt({ ...t2vaProject, shots }).diagnostics.map(d => d.ruleId)
     expect(ids).toContain('CAM_VOCAB')
+  })
+
+  it('COMPILE_FAILED jest regułą z rejestru, nie identyfikatorem znikąd', () => {
+    registerAllRules()
+    expect(allRules().map(r => r.id)).toContain('COMPILE_FAILED')
   })
 })

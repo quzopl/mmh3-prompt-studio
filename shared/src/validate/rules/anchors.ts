@@ -1,4 +1,4 @@
-import type { Mode, Project } from '../../model/types.js'
+import type { Anchor, Mode, Project } from '../../model/types.js'
 import { defineRule, makeDiagnostic, type Diagnostic, type Rule } from '../types.js'
 
 const REQUIRED_PICTURES: Partial<Record<Mode, number>> = {
@@ -17,9 +17,11 @@ const anchorRequired = defineRule({
   run: ({ project }) => {
     const required = REQUIRED_PICTURES[project.mode]
     const out: Diagnostic[] = []
+    const pictures = pictureCount(project)
+    const allAnchors = project.shots.flatMap(s => s.anchors)
 
     if (required === undefined) {
-      if (project.mode === 'T2VA' && pictureCount(project) > 0) {
+      if (project.mode === 'T2VA' && pictures > 0) {
         out.push(makeDiagnostic(
           anchorRequired, { kind: 'project', id: project.id },
           'Tryb T2VA nie korzysta z obrazów referencyjnych.',
@@ -29,19 +31,26 @@ const anchorRequired = defineRule({
       return out
     }
 
-    if (pictureCount(project) !== required) {
+    if (pictures !== required) {
       out.push(makeDiagnostic(
         anchorRequired, { kind: 'project', id: project.id },
-        `Tryb ${project.mode} wymaga dokładnie ${required} obrazów referencyjnych, a jest ich ${pictureCount(project)}.`,
-        `Mode ${project.mode} requires exactly ${required} reference image(s), but there are ${pictureCount(project)}.`,
+        `Tryb ${project.mode} wymaga dokładnie ${required} obrazów referencyjnych, a jest ich ${pictures}.`,
+        `Mode ${project.mode} requires exactly ${required} reference image(s), but there are ${pictures}.`,
       ))
     }
 
-    if (!project.shots.some(s => s.anchor !== 'none')) {
+    const needed: Anchor[] = project.mode === 'FL2VA'
+      ? ['picture-first', 'picture-last']
+      : project.mode === 'I2VA'
+        ? ['picture-first']
+        : ['picture-last']
+
+    for (const anchor of needed) {
+      if (allAnchors.includes(anchor)) continue
       out.push(makeDiagnostic(
         anchorRequired, { kind: 'project', id: project.id },
-        `Tryb ${project.mode} wymaga wskazania ujęcia zakotwiczonego na klatce referencyjnej.`,
-        `Mode ${project.mode} requires a shot anchored to a reference frame.`,
+        `Tryb ${project.mode} wymaga kotwicy "${anchor}" na którymś z ujęć.`,
+        `Mode ${project.mode} requires a "${anchor}" anchor on one of the shots.`,
       ))
     }
 
@@ -72,7 +81,7 @@ const l2vaAnchorLastShot = defineRule({
     const shots = [...project.shots].sort((a, b) => a.index - b.index)
     const last = shots[shots.length - 1]
     if (!last) return []
-    const anchored = shots.filter(s => s.anchor === 'picture-last')
+    const anchored = shots.filter(s => s.anchors.includes('picture-last'))
     if (anchored.length === 1 && anchored[0]!.id === last.id) return []
     return [makeDiagnostic(
       l2vaAnchorLastShot, { kind: 'project', id: project.id },

@@ -11,7 +11,7 @@ const base: Project = {
   shots: [{
     id: 's1', index: 0, startMs: 0, cutType: 'cut', cutPhrase: 'the camera cuts to',
     composition: '', body: [{ kind: 'text', text: 'a shot.' }],
-    cameraMoves: [], dialogue: [], screenText: [], diegeticSfx: [], labelRefs: [], anchor: 'none',
+    cameraMoves: [], dialogue: [], screenText: [], diegeticSfx: [], labelRefs: [], anchors: [],
   }],
   audio: { overallSoundscape: 'Rain.', nonDiegeticMusic: 'N/A' },
   ref: { taskTypes: [], summaryText: '', retention: [] },

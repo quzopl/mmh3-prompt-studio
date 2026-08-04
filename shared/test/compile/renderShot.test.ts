@@ -35,14 +35,14 @@ const shot1: Shot = {
     text: 'First batch of the morning.', voiceover: false,
     sceneTransBefore: false, sceneTransAfter: false, cutoff: false, startMs: 2000, endMs: 4000,
   }],
-  screenText: [], diegeticSfx: [], labelRefs: [], anchor: 'none',
+  screenText: [], diegeticSfx: [], labelRefs: [], anchors: [],
 }
 
 const shot2: Shot = {
   id: 's2', index: 1, startMs: 5000, cutType: 'cut', cutPhrase: 'the camera cuts to',
   composition: 'close-up',
   body: [{ kind: 'text', text: "a close-up of steam rising from the sliced bread while the baker's final words carry over from the previous shot." }],
-  cameraMoves: [], dialogue: [], screenText: [], diegeticSfx: [], labelRefs: [], anchor: 'none',
+  cameraMoves: [], dialogue: [], screenText: [], diegeticSfx: [], labelRefs: [], anchors: [],
 }
 
 describe('renderShot', () => {

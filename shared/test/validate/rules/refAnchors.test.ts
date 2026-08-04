@@ -116,6 +116,13 @@ describe('reguły trybu REF', () => {
   it('reguły REF milczą w trybach bazowych', () => {
     expect(runRef(t2vaProject)).toEqual([])
   })
+
+  it('REF_WORD_COUNT jest wskazówką, nie ostrzeżeniem', () => {
+    const diagnostics = validateWith(refRules, refProject, compile(refProject))
+    const found = diagnostics.find(d => d.ruleId === 'REF_WORD_COUNT')
+    expect(found).toBeDefined()
+    expect(found!.severity).toBe('hint')
+  })
 })
 
 describe('reguły kotwic', () => {
@@ -133,6 +140,15 @@ describe('reguły kotwic', () => {
   it('ANCHOR_REQUIRED — FL2VA z jednym obrazem', () => {
     expect(runAnchors({ ...fl2vaProject, labels: [fl2vaProject.labels[0]!] }))
       .toContain('ANCHOR_REQUIRED')
+  })
+
+  it('ANCHOR_REQUIRED — FL2VA bez kotwicy końcowej', () => {
+    const shots = fl2vaProject.shots.map(s => ({ ...s, anchors: ['picture-first' as const] }))
+    expect(runAnchors({ ...fl2vaProject, shots })).toContain('ANCHOR_REQUIRED')
+  })
+
+  it('ANCHOR_REQUIRED — FL2VA z obiema kotwicami w jednym ujęciu przechodzi', () => {
+    expect(runAnchors(fl2vaProject)).toEqual([])
   })
 
   it('FL2VA_PREFER_SINGLE_SHOT — dwa ujęcia', () => {
