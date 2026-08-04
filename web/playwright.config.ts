@@ -8,7 +8,11 @@ export default defineConfig({
     {
       command: 'npm run start --workspace @mmh3/server',
       url: 'http://127.0.0.1:8899/api/health',
-      reuseExistingServer: true,
+      // Świadomie NIE wolno tu ponownie użyć działającego serwera. Zmienna
+      // MMH3_DATA_ROOT dotyczy wyłącznie procesu, który Playwright sam startuje,
+      // więc podłączenie się pod uruchomione `npm run dev:api` oznaczałoby
+      // tworzenie projektów testowych w prawdziwym katalogu danych.
+      reuseExistingServer: false,
       env: { MMH3_DATA_ROOT: '/tmp/mmh3-e2e' },
       cwd: '..',
     },
