@@ -33,6 +33,15 @@ const pl = {
   'editor.copy': 'Kopiuj',
   'editor.copied': 'Skopiowano',
 
+  'timeline.ruler': 'Linijka czasu',
+  'timeline.title': 'Oś czasu',
+  'timeline.zoomIn': 'Przybliż',
+  'timeline.zoomOut': 'Oddal',
+  'timeline.zoomFit': 'Dopasuj',
+  'timeline.play': 'Odtwarzaj',
+  'timeline.pause': 'Zatrzymaj',
+  'timeline.playhead': 'Znacznik odtwarzania',
+
   'validation.ready': 'Gotowy do eksportu',
   'validation.count': 'Problemy: {count}',
   'validation.none': 'Walidator nie zgłasza uwag.',
@@ -110,6 +119,15 @@ const en: Record<TKey, string> = {
   'editor.redo': 'Redo',
   'editor.copy': 'Copy',
   'editor.copied': 'Copied',
+
+  'timeline.ruler': 'Time ruler',
+  'timeline.title': 'Timeline',
+  'timeline.zoomIn': 'Zoom in',
+  'timeline.zoomOut': 'Zoom out',
+  'timeline.zoomFit': 'Fit',
+  'timeline.play': 'Play',
+  'timeline.pause': 'Pause',
+  'timeline.playhead': 'Playhead',
 
   'validation.ready': 'Ready to export',
   'validation.count': 'Issues: {count}',
