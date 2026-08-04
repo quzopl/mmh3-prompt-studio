@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Project } from '@mmh3/shared'
-import { anchorsForShot } from '../../src/timeline/AnchorBadges.js'
+import { anchorBadges, anchorsForShot } from '../../src/timeline/AnchorBadges.js'
 import { ShotTrack } from '../../src/timeline/ShotTrack.js'
 import { createScale } from '../../src/timeline/scale.js'
 import { useProject } from '../../src/store/projectStore.js'
@@ -73,6 +73,29 @@ describe('anchorsForShot', () => {
   })
 })
 
+describe('anchorBadges', () => {
+  it('pokazuje kotwice oferowane przez tryb', () => {
+    expect(anchorBadges('I2VA', true, [])).toEqual([{ anchor: 'picture-first', offered: true }])
+  })
+
+  it('kotwica ustawiona na ujęciu zostaje widoczna, choć tryb jej nie oferuje', () => {
+    expect(anchorBadges('L2VA', false, ['picture-last']))
+      .toEqual([{ anchor: 'picture-last', offered: false }])
+  })
+
+  it('nie dubluje kotwicy, którą tryb i tak oferuje', () => {
+    expect(anchorBadges('L2VA', true, ['picture-last']))
+      .toEqual([{ anchor: 'picture-last', offered: true }])
+  })
+
+  it('oferowane idą przed pozostałościami', () => {
+    expect(anchorBadges('I2VA', true, ['keyframe'])).toEqual([
+      { anchor: 'picture-first', offered: true },
+      { anchor: 'keyframe', offered: false },
+    ])
+  })
+})
+
 describe('kotwice na klipie', () => {
   it('tryb tekstowy nie pokazuje żadnych przełączników', () => {
     useProject.getState().load('test', project('T2VA'))
@@ -135,6 +158,64 @@ describe('kotwice na klipie', () => {
     const badges = screen.getAllByRole('button', { name: /przełącz kotwicę: ostatnia klatka/i })
     expect(badges).toHaveLength(1)
     expect(badges[0]).toHaveAccessibleName(/ujęcie 2/i)
+  })
+
+  it('kotwicy, której tryb już nie oferuje, wciąż da się zdjąć', async () => {
+    // Dokładna droga zgłoszona w recenzji: L2VA z jednym ujęciem, ustawiona
+    // kotwica ostatniej klatki, a potem podział ujęcia klawiszem S. Ujęcie 1
+    // przestaje być ostatnie, więc `anchorsForShot` nic już na nim nie oferuje
+    // — a kotwica siedzi w modelu, blokuje eksport regułą L2VA_ANCHOR_LAST_SHOT
+    // i przed tą poprawką nie było w całej aplikacji kontrolki, która by ją
+    // zdjęła (inspektor nie ma pola kotwic). Użytkownik musi móc cofnąć własne
+    // kliknięcie — to samo rozstrzygnięcie, co przy zdejmowaniu ostatniej
+    // wymaganej kotwicy w zadaniu 8.
+    useProject.getState().load('test', {
+      ...project('L2VA'),
+      shots: [{ ...shot('a', 0, 0), anchors: ['picture-last' as const] }],
+    })
+    render(
+      <>
+        <ShotTrack scale={createScale(8000, 800, 1)} />
+        <ShortcutsHarness />
+      </>,
+    )
+
+    usePlayhead.setState({ ms: 4000, playing: false })
+    await userEvent.keyboard('s')
+    expect(useProject.getState().project!.shots).toHaveLength(2)
+    expect(useProject.getState().diagnostics.map(d => d.ruleId))
+      .toContain('L2VA_ANCHOR_LAST_SHOT')
+
+    const stale = screen.getByRole('button', { name: /kotwica spoza trybu: ostatnia klatka — ujęcie 1/i })
+    expect(stale).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.click(stale)
+
+    expect(useProject.getState().project!.shots[0]!.anchors).toEqual([])
+
+    // Ślepy zaułek jest realnie do opuszczenia: kotwica zdjęta z ujęcia 1
+    // daje się teraz postawić tam, gdzie reguła jej wymaga, i błąd gaśnie.
+    // (ANCHOR_REQUIRED zostaje, bo fixture ma dwa obrazy referencyjne przy
+    // jednym wymaganym — to inna, niezależna reguła.)
+    await userEvent.click(
+      screen.getByRole('button', { name: /przełącz kotwicę: ostatnia klatka — ujęcie 2/i }))
+    expect(useProject.getState().diagnostics.map(d => d.ruleId))
+      .not.toContain('L2VA_ANCHOR_LAST_SHOT')
+  })
+
+  it('kotwica spoza trybu nie wygląda jak poprawny wybór', async () => {
+    // Odróżnienie jest po nazwie dostępności i po stylu: pozostałość nie może
+    // udawać kotwicy, którą tryb proponuje, bo wtedy zapraszałaby do kliknięcia
+    // w stan, który walidator i tak odrzuci.
+    useProject.getState().load('test', {
+      ...project('L2VA'),
+      shots: [{ ...shot('a', 0, 0), anchors: ['picture-last' as const] }, shot('b', 1, 4000)],
+    })
+    render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+
+    const stale = screen.getByRole('button', { name: /kotwica spoza trybu/i })
+    const offered = screen.getByRole('button', { name: /przełącz kotwicę/i })
+    expect(stale).not.toBe(offered)
+    expect(stale.className).not.toBe(offered.className)
   })
 
   it('kliknięcie odznaki nie zmienia zaznaczenia klipu', async () => {

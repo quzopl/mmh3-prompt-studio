@@ -33,6 +33,36 @@ export function anchorsForShot(mode: Mode, isLastShot: boolean): Anchor[] {
   return BY_MODE[mode]
 }
 
+/** Odznaka do wyrysowania: kotwica plus to, czy tryb ją na tym ujęciu proponuje. */
+export interface AnchorBadge {
+  anchor: Anchor
+  offered: boolean
+}
+
+/**
+ * Suma kotwic, które tryb oferuje na tym ujęciu, i tych, które ujęcie
+ * faktycznie niesie. Sama lista oferowanych nie wystarczy: kotwicę wolno
+ * ustawić, a potem zmienić warunki, na których była oferowana — wystarczy
+ * podzielić jedyne ujęcie w L2VA, żeby `picture-last` została na ujęciu, które
+ * przestało być ostatnie. Wtedy kotwica dalej siedzi w modelu, blokuje eksport
+ * regułą L2VA_ANCHOR_LAST_SHOT, a żadna kontrolka w aplikacji jej nie zdejmie
+ * — inspektor pola kotwic nie ma. Zasada z zadania 8 jest w tym miejscu ta
+ * sama: użytkownik zawsze musi móc cofnąć własne kliknięcie. Tryb nadal nie
+ * PROPONUJE kotwicy, która do niego nie należy — pozostałość jest oznaczona
+ * `offered: false` i wygląda inaczej, żeby nie udawała poprawnego wyboru.
+ */
+export function anchorBadges(mode: Mode, isLastShot: boolean, anchors: Anchor[]): AnchorBadge[] {
+  const offered = anchorsForShot(mode, isLastShot)
+  return [
+    ...offered.map(anchor => ({ anchor, offered: true })),
+    // `Set` na wypadek powtórzeń w modelu — schemat ich nie zabrania, a dwie
+    // odznaki o tym samym kluczu byłyby błędem Reacta.
+    ...[...new Set(anchors)]
+      .filter(anchor => !offered.includes(anchor))
+      .map(anchor => ({ anchor, offered: false })),
+  ]
+}
+
 const LABEL_KEY: Record<Anchor, 'anchor.picture-first' | 'anchor.picture-last' | 'anchor.keyframe'> = {
   'picture-first': 'anchor.picture-first',
   'picture-last': 'anchor.picture-last',
@@ -61,8 +91,8 @@ export function AnchorBadges({
   const apply = useProject(state => state.apply)
 
   if (!mode) return null
-  const available = anchorsForShot(mode, isLastShot)
-  if (available.length === 0) return null
+  const badges = anchorBadges(mode, isLastShot, anchors)
+  if (badges.length === 0) return null
 
   const toggle = (anchor: Anchor) => apply(current => ({
     ...current,
@@ -80,16 +110,17 @@ export function AnchorBadges({
 
   return (
     <span className="absolute bottom-0 right-1 z-10 flex gap-1">
-      {available.map(anchor => {
+      {badges.map(({ anchor, offered }) => {
         const active = anchors.includes(anchor)
         const name = t(LABEL_KEY[anchor])
+        const label = t(offered ? 'anchor.toggle' : 'anchor.stale', { name, number: shotNumber })
         return (
           <button
             key={anchor}
             type="button"
             aria-pressed={active}
-            aria-label={t('anchor.toggle', { name, number: shotNumber })}
-            title={name}
+            aria-label={label}
+            title={label}
             onClick={event => {
               event.stopPropagation()
               toggle(anchor)
@@ -101,8 +132,12 @@ export function AnchorBadges({
               // odtwarzanie. Nie wołamy `preventDefault`: natywna aktywacja ma zajść.
               if (event.key === 'Enter' || event.key === ' ') event.stopPropagation()
             }}
+            // Pozostałość po trybie ma własny kolor ostrzegawczy — ustawiona
+            // kotwica spoza trybu nie może wyglądać jak poprawny wybór.
             className={`rounded px-1 text-[9px] leading-4 ${
-              active ? 'bg-amber-500 text-neutral-950' : 'bg-neutral-800 text-neutral-400'
+              !offered
+                ? 'bg-rose-800 text-rose-100 line-through'
+                : active ? 'bg-amber-500 text-neutral-950' : 'bg-neutral-800 text-neutral-400'
             }`}
           >
             {anchor === 'picture-last' ? '⇥' : anchor === 'picture-first' ? '⇤' : '◆'}

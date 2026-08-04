@@ -54,6 +54,7 @@ const pl = {
   'anchor.picture-last': 'Ostatnia klatka',
   'anchor.keyframe': 'Klatka kluczowa',
   'anchor.toggle': 'Przełącz kotwicę: {name} — ujęcie {number}',
+  'anchor.stale': 'Kotwica spoza trybu: {name} — ujęcie {number}, kliknij, aby zdjąć',
 
   'validation.ready': 'Gotowy do eksportu',
   'validation.count': 'Problemy: {count}',
@@ -151,6 +152,7 @@ const en: Record<TKey, string> = {
   'anchor.picture-last': 'Last frame',
   'anchor.keyframe': 'Keyframe',
   'anchor.toggle': 'Toggle anchor: {name} — shot {number}',
+  'anchor.stale': 'Anchor outside this mode: {name} — shot {number}, click to remove',
 
   'validation.ready': 'Ready to export',
   'validation.count': 'Issues: {count}',
