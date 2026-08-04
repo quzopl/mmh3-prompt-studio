@@ -3988,10 +3988,10 @@ describe('ShotList', () => {
 
 ```tsx
 import { describe, it, expect, beforeEach } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Project } from '@mmh3/shared'
-import { Inspector } from '../../src/panels/Inspector.js'
+import { Inspector, toMs } from '../../src/panels/Inspector.js'
 import { useProject } from '../../src/store/projectStore.js'
 import { useSelection } from '../../src/store/selectionStore.js'
 import { useLang } from '../../src/i18n/useT.js'
@@ -4047,11 +4047,11 @@ describe('Inspector', () => {
     expect(useProject.getState().project!.shots[1]!.startMs).toBe(5000)
   })
 
-  it('nie wpuszcza NaN do modelu przy nieliczbowym wpisie', () => {
-    render(<Inspector />)
-    const field = screen.getByLabelText(/długość wideo/i)
-    fireEvent.change(field, { target: { value: 'abc' } })
-    expect(useProject.getState().project!.video.durationMs).toBe(8000)
+  it('toMs odrzuca wartość nieliczbową i zachowuje poprzednią', () => {
+    expect(toMs('abc', 8000)).toBe(8000)
+    expect(toMs('Infinity', 8000)).toBe(8000)
+    expect(toMs('', 8000)).toBe(0)
+    expect(toMs('5000', 8000)).toBe(5000)
   })
 
   it('pokazuje komunikat, gdy zaznaczony obiekt zniknął', () => {
@@ -4205,8 +4205,13 @@ type Apply = (mutate: (project: Project) => Project) => void
  * Puste pole daje zero i walidator to zgłosi — taka jest pętla zwrotna.
  * NaN natomiast przechodzi przez typy i po cichu wyłącza część reguł
  * czasowych, bo każde porównanie z NaN jest fałszem, więc go nie wpuszczamy.
+ *
+ * Przez samo pole `type="number"` NaN nie przyjdzie — HTML sanityzuje wpis
+ * nieliczbowy do pustego ciągu, zanim onChange go zobaczy. To zabezpieczenie
+ * na inne drogi do modelu: import projektu, łatkę od modelu językowego,
+ * zmianę programową. Dlatego testujemy je wprost, a nie przez DOM.
  */
-const toMs = (raw: string, previous: number): number => {
+export const toMs = (raw: string, previous: number): number => {
   const parsed = Number(raw)
   return Number.isFinite(parsed) ? parsed : previous
 }
