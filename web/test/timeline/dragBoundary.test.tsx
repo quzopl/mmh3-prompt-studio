@@ -167,12 +167,15 @@ describe('przeciąganie granicy w ścieżce ujęć', () => {
     expect(useProject.getState().past).toHaveLength(2)
   })
 
-  it('granica ujęcia środkowego dogania bieżące położenie sąsiada, nie to sprzed gestu', () => {
-    // Trzy ujęcia; najpierw osobnym, zakończonym gestem przesuwamy granicę
-    // trzeciego ujęcia bliżej drugiego, a dopiero potem ciągniemy granicę
-    // drugiego mocno w stronę (starego) położenia trzeciego. Ogranicznik musi
-    // odzwierciedlać bieżący stan sklepu w chwili przeciągania, a nie wartość
-    // sprzed przesunięcia sąsiada.
+  it('granica ujęcia środkowego dogania sąsiada przesuniętego w trakcie już otwartego gestu', () => {
+    // Model potrafi się zmienić spoza gestu, kiedy gest jest już otwarty —
+    // cofnięcie, skrót klawiszowy, przeładowanie z dysku. Dlatego `move`
+    // odczytuje sąsiadów na nowo przy każdym ruchu, zamiast zamykać ich w
+    // domknięciu z chwili `pointerdown`. Żeby to sprawdzić naprawdę, sąsiad
+    // (ujęcie c) musi się przesunąć MIĘDZY `pointerdown` a `pointermove` tego
+    // samego gestu — nie jako osobne, wcześniej zakończone przeciągnięcie
+    // (użytkownik ma jeden wskaźnik; dwa równoległe gesty to scenariusz,
+    // który w ogóle nie może się zdarzyć i niczego by nie odróżnił).
     const threeShots: Project = {
       ...project,
       video: { ...project.video, durationMs: 9000 },
@@ -181,28 +184,28 @@ describe('przeciąganie granicy w ścieżce ujęć', () => {
     useProject.getState().load('test', threeShots)
     render(<ShotTrack scale={createScale(9000, 900, 1)} />)
 
-    const dragHandle = (name: RegExp, from: number, to: number) => {
-      const handle = screen.getByRole('separator', { name })
-      handle.setPointerCapture = () => {}
-      handle.releasePointerCapture = () => {}
-      handle.parentElement!.getBoundingClientRect = () => ({ left: 0, width: 900 }) as DOMRect
-      firePointer(handle, 'pointerdown', from)
-      firePointer(handle, 'pointermove', to)
-      firePointer(handle, 'pointerup', to)
-    }
+    const handle = screen.getByRole('separator', { name: /ujęcie 2/i })
+    handle.setPointerCapture = () => {}
+    handle.releasePointerCapture = () => {}
+    handle.parentElement!.getBoundingClientRect = () => ({ left: 0, width: 900 }) as DOMRect
 
-    // Ujęcie 3 (900 px szerokości, 0,1 px/ms): 6000 ms = 600 px, przesuwamy do 400 px = 4000 ms.
-    dragHandle(/ujęcie 3/i, 600, 400)
-    const movedC = useProject.getState().project!.shots.find(s => s.id === 'c')!.startMs
-    expect(movedC).toBeLessThan(6000)
+    firePointer(handle, 'pointerdown', 300)
 
-    // Teraz ciągniemy granicę ujęcia 2 mocno w prawo, w stronę starego (już nieaktualnego) położenia ujęcia 3.
-    dragHandle(/ujęcie 2/i, 300, 900)
+    // Sąsiad przesuwa się spoza gestu, podczas gdy gest ujęcia 2 jest już otwarty.
+    useProject.getState().apply(p => ({
+      ...p,
+      shots: p.shots.map(s => (s.id === 'c' ? { ...s, startMs: 4000 } : s)),
+    }))
+
+    // Dopiero teraz ciągniemy granicę ujęcia 2 mocno w prawo, w stronę nowego położenia ujęcia 3.
+    firePointer(handle, 'pointermove', 900)
+    firePointer(handle, 'pointerup', 900)
 
     const shots = useProject.getState().project!.shots
     const b = shots.find(s => s.id === 'b')!
     const c = shots.find(s => s.id === 'c')!
-    expect(b.startMs).toBe(movedC - MIN_SHOT_MS)
+    expect(c.startMs).toBe(4000)
+    expect(b.startMs).toBe(4000 - MIN_SHOT_MS)
     expect(b.startMs).toBeLessThan(c.startMs)
     // Kolejność cięć (indeksy) pozostaje nienaruszona.
     expect(shots.map(s => s.index)).toEqual([0, 1, 2])
