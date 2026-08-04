@@ -58,7 +58,7 @@ export const SegmentSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('camera'), moveId: z.string() }),
   z.object({
     kind: z.literal('speaker'),
-    speakerId: z.string(),
+    speakerIds: z.array(z.string()).min(1),
     descriptor: z.string().optional(),
     form: z.enum(['full', 'short', 'idOnly']),
   }),

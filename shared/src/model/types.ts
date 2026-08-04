@@ -98,7 +98,7 @@ export interface Label {
 export type Segment =
   | { kind: 'text'; text: string }
   | { kind: 'camera'; moveId: string }
-  | { kind: 'speaker'; speakerId: string; descriptor?: string; form: 'full' | 'short' | 'idOnly' }
+  | { kind: 'speaker'; speakerIds: string[]; descriptor?: string; form: 'full' | 'short' | 'idOnly' }
   | { kind: 'dialogue'; eventId: string }
   | { kind: 'label'; labelId: string; speakerId?: string; bracketed: boolean }
   | { kind: 'screenText'; id: string }

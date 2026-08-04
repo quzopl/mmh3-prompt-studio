@@ -3,12 +3,16 @@ import type { Segment, Speaker } from '../model/types.js'
 type SpeakerSegment = Extract<Segment, { kind: 'speaker' }>
 
 export function renderSpeakerSegment(seg: SpeakerSegment, speakers: Speaker[]): string {
-  const speaker = speakers.find(s => s.id === seg.speakerId)
-  if (!speaker) throw new Error(`Brak mówcy o id ${seg.speakerId}`)
-  const ids = `(${speaker.code})`
+  const resolved = seg.speakerIds.map(id => {
+    const speaker = speakers.find(s => s.id === id)
+    if (!speaker) throw new Error(`Brak mówcy o id ${id}`)
+    return speaker
+  })
+  const first = resolved[0]!
+  const ids = renderSpeakerGroup(resolved.map(s => s.code))
   if (seg.form === 'idOnly') return ids
   const descriptor = seg.descriptor
-    ?? (seg.form === 'full' ? speaker.fullDescriptor : speaker.shortDescriptor)
+    ?? (seg.form === 'full' ? first.fullDescriptor : first.shortDescriptor)
   return `${descriptor} ${ids}`
 }
 

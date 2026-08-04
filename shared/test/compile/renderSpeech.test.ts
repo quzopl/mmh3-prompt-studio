@@ -20,25 +20,33 @@ const dlg = (over: Partial<DialogueEvent>): DialogueEvent => ({
 
 describe('renderSpeakerSegment', () => {
   it('renderuje pełny opis z ID', () => {
-    expect(renderSpeakerSegment({ kind: 'speaker', speakerId: 'sp1', form: 'full' }, [speaker]))
+    expect(renderSpeakerSegment({ kind: 'speaker', speakerIds: ['sp1'], form: 'full' }, [speaker]))
       .toBe('the middle-aged baker with a calm, slightly raspy voice (S1)')
   })
 
   it('renderuje skrócony opis z ID', () => {
-    expect(renderSpeakerSegment({ kind: 'speaker', speakerId: 'sp1', form: 'short' }, [speaker]))
+    expect(renderSpeakerSegment({ kind: 'speaker', speakerIds: ['sp1'], form: 'short' }, [speaker]))
       .toBe('the baker (S1)')
   })
 
   it('renderuje samo ID', () => {
-    expect(renderSpeakerSegment({ kind: 'speaker', speakerId: 'sp1', form: 'idOnly' }, [speaker]))
+    expect(renderSpeakerSegment({ kind: 'speaker', speakerIds: ['sp1'], form: 'idOnly' }, [speaker]))
       .toBe('(S1)')
   })
 
   it('nadpisanie descriptor ma pierwszeństwo', () => {
     expect(renderSpeakerSegment(
-      { kind: 'speaker', speakerId: 'sp1', form: 'full', descriptor: 'the young woman with a quiet, breathy voice' },
+      { kind: 'speaker', speakerIds: ['sp1'], form: 'full', descriptor: 'the young woman with a quiet, breathy voice' },
       [speaker],
     )).toBe('the young woman with a quiet, breathy voice (S1)')
+  })
+
+  it('składa złożone ID dla grupy mówiącej jednocześnie', () => {
+    const child2: Speaker = { ...speaker, id: 'sp2', code: 'S2' }
+    expect(renderSpeakerSegment(
+      { kind: 'speaker', speakerIds: ['sp1', 'sp2'], form: 'full', descriptor: 'The two children' },
+      [speaker, child2],
+    )).toBe('The two children (S1,S2)')
   })
 })
 
