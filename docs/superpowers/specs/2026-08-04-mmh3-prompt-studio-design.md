@@ -360,7 +360,7 @@ Eksport:
 ```
 ~/mmh3-studio/
     shared/    model domeny, kompilator, walidator, słowniki — czysty TypeScript
-    src/       frontend
+    web/       frontend
     server/    backend
     docs/      guide'y źródłowe i specyfikacje
 ```

@@ -3,10 +3,11 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "workspaces": ["shared", "server"],
+  "workspaces": ["shared", "server", "web"],
   "scripts": {
-    "test": "npm test --workspace @mmh3/shared && npm test --workspace @mmh3/server",
-    "typecheck": "npm run typecheck --workspace @mmh3/shared && npm run typecheck --workspace @mmh3/server",
-    "dev:api": "npm run dev --workspace @mmh3/server"
+    "test": "npm test --workspace @mmh3/shared && npm test --workspace @mmh3/server && npm test --workspace @mmh3/web",
+    "typecheck": "npm run typecheck --workspace @mmh3/shared && npm run typecheck --workspace @mmh3/server && npm run typecheck --workspace @mmh3/web",
+    "dev:api": "npm run dev --workspace @mmh3/server",
+    "dev:web": "npm run dev --workspace @mmh3/web"
   }
 }
