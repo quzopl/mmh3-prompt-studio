@@ -6,7 +6,7 @@ test('od utworzenia projektu do gotowego promptu', async ({ page }) => {
 
   await page.getByRole('button', { name: /nowy projekt/i }).click()
   await page.getByLabel(/nazwa projektu/i).fill(name)
-  await page.getByRole('button', { name: /T2VA/ }).click()
+  await page.getByRole('button', { name: /^T2VA/ }).click()
   await page.getByRole('button', { name: /^utwórz$/i }).click()
 
   // Świeży projekt nie ma stylu, więc walidator musi to zgłosić.
