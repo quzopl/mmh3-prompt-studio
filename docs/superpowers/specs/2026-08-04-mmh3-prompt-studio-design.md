@@ -74,7 +74,8 @@ Shot
   screenText[]   tekst widoczny w kadrze
   diegeticSfx[]  dźwięk zsynchronizowany z ujęciem
   labelRefs[]    pierwsze wystąpienia etykiet
-  anchor         picture-first | picture-last | keyframe | none
+  anchors[]      picture-first | picture-last | keyframe — tryb FL2VA potrzebuje
+                 pierwszej i ostatniej klatki naraz, więc to lista, nie pojedyncza wartość
 
 Segment — jednostka prozy w ciele ujęcia. Konkatenacja wyrenderowanych
 segmentów daje dokładny tekst ujęcia, dzięki czemu ruch kamery, opis mówcy
