@@ -3,9 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "workspaces": ["shared"],
+  "workspaces": ["shared", "server"],
   "scripts": {
-    "test": "npm test --workspace @mmh3/shared",
-    "typecheck": "npm run typecheck --workspace @mmh3/shared"
+    "test": "npm test --workspace @mmh3/shared && npm test --workspace @mmh3/server",
+    "typecheck": "npm run typecheck --workspace @mmh3/shared && npm run typecheck --workspace @mmh3/server",
+    "dev:api": "npm run dev --workspace @mmh3/server"
   }
 }
