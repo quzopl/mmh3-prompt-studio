@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify'
+import { registerProjectRoutes } from './routes/projects.js'
 
 export const VERSION = '0.1.0'
 
@@ -13,7 +14,7 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
 
   app.get('/api/health', async () => ({ status: 'ok', version: VERSION }))
 
-  // Kolejne zadania rejestrują tu swoje trasy i wtyczki.
+  registerProjectRoutes(app)
 
   app.setNotFoundHandler(async (request, reply) => {
     await reply.status(404).send({ error: `Nie znaleziono ścieżki ${request.url}` })
