@@ -9,15 +9,22 @@ const scale = createScale(8000, 800, 1)
 
 let clips: TimeClip[] = []
 let commits = 0
+// Trzeci argument `write` — klucz sklejania historii. Cały powód, dla
+// którego licznik gestów w `useDragClip.ts` jest modułowy, a nie `useRef`:
+// bez tego dwa osobne przeciągnięcia wpadłyby do jednego wpisu cofania.
+// Harness ze szkicu ten argument odrzucał, więc żaden test nie mógł tego
+// sprawdzić — zapisujemy go tutaj, żeby móc go przeczytać w testach.
+let coalesceKeys: string[] = []
 
 function Harness() {
   const startDrag = useDragClip(scale, {
     read: id => clips.find(clip => clip.id === id),
     bounds: () => ({ lowestMs: 0, highestMs: 8000 }),
     snapPoints: () => [],
-    write: (id, next) => {
+    write: (id, next, coalesceKey) => {
       clips = clips.map(clip => clip.id === id ? { ...clip, ...next } : clip)
       commits += 1
+      coalesceKeys.push(coalesceKey)
     },
   })
 
@@ -62,6 +69,7 @@ const rect = (left: number, width: number): DOMRect => ({
 beforeEach(() => {
   clips = [{ id: 'a', startMs: 2000, endMs: 3000 }]
   commits = 0
+  coalesceKeys = []
 })
 
 describe('useDragClip', () => {
@@ -96,7 +104,24 @@ describe('useDragClip', () => {
     expect(commits).toBe(2)
   })
 
-  it('zwolnienie i anulowanie odpinają nasłuch', () => {
+  it('zwolnienie odpina nasłuch', () => {
+    // Osobny test od anulowania celowo — `pointerup` i `pointercancel`
+    // odpinają się dwoma osobnymi wywołaniami `removeEventListener` w
+    // `finish`, więc test pokrywający tylko jedno z nich nie broni drugiego.
+    // Usunięcie samej rejestracji `pointerup` (przy zachowanej `pointercancel`)
+    // zostawiłoby zielony komplet testów, gdyby ten przypadek nie istniał —
+    // nasłuch zostałby podpięty na stałe i każdy kolejny gest dokładałby
+    // kolejną kopię `move` do tego samego elementu.
+    render(<Harness />)
+    const handle = grab('move-a')
+    firePointer(handle, 'pointerdown', 200)
+    firePointer(handle, 'pointerup', 200)
+    const before = commits
+    firePointer(handle, 'pointermove', 700)
+    expect(commits).toBe(before)
+  })
+
+  it('anulowanie odpina nasłuch', () => {
     render(<Harness />)
     const handle = grab('move-a')
     firePointer(handle, 'pointerdown', 200)
@@ -131,5 +156,80 @@ describe('useDragClip', () => {
     firePointer(handle, 'pointerup', 500)
     expect(commits).toBe(0)
     expect(clips[0]?.startMs).toBe(2000)
+  })
+
+  it('brak `data-track` zostawia ostrzeżenie w konsoli, żeby cichy no-op dało się zdiagnozować', () => {
+    render(<Harness />)
+    screen.getByTestId('track').removeAttribute('data-track')
+    const handle = grab('move-a')
+    const warnings: unknown[][] = []
+    const original = console.warn
+    console.warn = (...args: unknown[]) => { warnings.push(args) }
+    try {
+      firePointer(handle, 'pointerdown', 200)
+    } finally {
+      console.warn = original
+    }
+    expect(warnings).toHaveLength(1)
+    expect(String(warnings[0]?.[0])).toContain('data-track')
+    expect(String(warnings[0]?.[0])).toContain('useDragClip')
+  })
+
+  // Klucz koalescencji to trzeci argument `write` i cały powód, dla którego
+  // licznik gestów w `useDragClip.ts` jest zmienną modułową, a nie `useRef`
+  // — patrz komentarz tam. Żaden test do tej pory go nie czytał, więc
+  // regresja opisana w tamtym komentarzu (dwa gesty scalone w jeden wpis
+  // historii) mogła przejść niezauważona przy zielonym komplecie testów.
+  it('jeden gest z kilkoma ruchami zapisuje pod jednym, niepowtarzalnym kluczem koalescencji', () => {
+    render(<Harness />)
+    const handle = grab('move-a')
+    firePointer(handle, 'pointerdown', 200)
+    firePointer(handle, 'pointermove', 300)
+    firePointer(handle, 'pointermove', 400)
+    firePointer(handle, 'pointerup', 400)
+    expect(coalesceKeys).toHaveLength(2)
+    expect(new Set(coalesceKeys).size).toBe(1)
+  })
+
+  it('dwa gesty pod rząd zapisują pod dwoma różnymi kluczami', () => {
+    render(<Harness />)
+    const handle = grab('move-a')
+    firePointer(handle, 'pointerdown', 200)
+    firePointer(handle, 'pointermove', 300)
+    firePointer(handle, 'pointerup', 300)
+    const firstKey = coalesceKeys[coalesceKeys.length - 1]
+
+    firePointer(handle, 'pointerdown', 300)
+    firePointer(handle, 'pointermove', 400)
+    firePointer(handle, 'pointerup', 400)
+    const secondKey = coalesceKeys[coalesceKeys.length - 1]
+
+    expect(firstKey).toBeDefined()
+    expect(secondKey).toBeDefined()
+    expect(firstKey).not.toBe(secondKey)
+  })
+
+  it('odmontowanie i ponowne zamontowanie ściezki między gestami nadal daje dwa różne klucze', () => {
+    // Licznik gestów w `useRef` restartowałby się dokładnie tutaj — po
+    // odmontowaniu i ponownym zamontowaniu komponentu — i drugi gest
+    // odtworzyłby ten sam klucz co pierwszy.
+    const first = render(<Harness />)
+    const handle1 = grab('move-a')
+    firePointer(handle1, 'pointerdown', 200)
+    firePointer(handle1, 'pointermove', 300)
+    firePointer(handle1, 'pointerup', 300)
+    const firstKey = coalesceKeys[coalesceKeys.length - 1]
+    first.unmount()
+
+    render(<Harness />)
+    const handle2 = grab('move-a')
+    firePointer(handle2, 'pointerdown', 300)
+    firePointer(handle2, 'pointermove', 400)
+    firePointer(handle2, 'pointerup', 400)
+    const secondKey = coalesceKeys[coalesceKeys.length - 1]
+
+    expect(firstKey).toBeDefined()
+    expect(secondKey).toBeDefined()
+    expect(firstKey).not.toBe(secondKey)
   })
 })

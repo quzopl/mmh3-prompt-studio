@@ -34,7 +34,17 @@ export function useDragClip(scale: Scale, options: DragClipOptions) {
      * który się nie zaczyna.
      */
     const track = event.currentTarget.closest('[data-track]')
-    if (!clip || !track) return
+    if (!track) {
+      // Nie tylko cichy powrót: sześć kolejnych torów (kamera, dialog, SFX…)
+      // dopiero powstanie na tym hooku, a „przeciąganie nic nie robi" jest
+      // drogie do zdiagnozowania z samego zrzutu ekranu. Zachowanie zostaje
+      // no-opem — ostrzeżenie tylko zostawia ślad w konsoli.
+      console.warn(
+        `useDragClip: brak elementu z atrybutem "data-track" wśród przodków uchwytu (klip ${clipId}) — gest się nie zaczyna.`,
+      )
+      return
+    }
+    if (!clip) return
 
     event.preventDefault()
     event.stopPropagation()
