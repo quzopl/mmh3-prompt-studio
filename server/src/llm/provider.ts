@@ -1,5 +1,6 @@
 import type { LlmSettings } from './settings.js'
 import { createOpenAiProvider } from './openai.js'
+import { managedState } from './managed.js'
 
 export interface ChatMessage {
   role: 'system' | 'user'
@@ -32,6 +33,19 @@ export interface Provider {
 export function createProvider(settings: LlmSettings): Provider | null {
   if (settings.mode === 'endpoint' && settings.endpoint.baseUrl !== '') {
     return createOpenAiProvider(settings.endpoint)
+  }
+  if (settings.mode === 'managed') {
+    const managed = managedState()
+    // Serwer, który jeszcze się nie wystartował albo padł, to dla wołającego
+    // to samo co brak dostawcy — `null` już umie obsłużyć.
+    if (managed.status !== 'ready') return null
+    return createOpenAiProvider({
+      baseUrl: `http://127.0.0.1:${managed.port}/v1`,
+      apiKey: '',
+      // `llama-server` serwuje jeden, już wczytany model i nie waliduje pola
+      // "model" w żądaniu, więc nie ma czego tu wpisać.
+      model: '',
+    })
   }
   return null
 }

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { LlmSettingsSchema, readSettings, redactSettings, writeSettings } from '../llm/settings.js'
 import { createProvider } from '../llm/provider.js'
+import { startManaged, stopManaged, managedState } from '../llm/managed.js'
 
 // Ciało PUT ma inny kształt klucza niż to, co trafia na dysk: `apiKey` w
 // zapisanych ustawieniach jest zawsze stringiem, ale w żądaniu potrzebujemy
@@ -53,4 +54,25 @@ export function registerLlmRoutes(app: FastifyInstance): void {
       return reply.status(502).send({ error: error instanceof Error ? error.message : 'Błąd modelu' })
     }
   })
+
+  app.post('/api/llm/managed/start', async (_request, reply) => {
+    const settings = await readSettings(app.dataRoot)
+    if (settings.mode !== 'managed') {
+      return reply.status(409).send({ error: 'Tryb zarządzanego serwera nie jest ustawiony w konfiguracji' })
+    }
+    try {
+      return await startManaged(settings.managed)
+    } catch (error) {
+      return reply.status(400).send({
+        error: error instanceof Error ? error.message : 'Nie udało się uruchomić zarządzanego serwera',
+      })
+    }
+  })
+
+  app.post('/api/llm/managed/stop', async () => {
+    await stopManaged()
+    return managedState()
+  })
+
+  app.get('/api/llm/managed/state', async () => managedState())
 }
