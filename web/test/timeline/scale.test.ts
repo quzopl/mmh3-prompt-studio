@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   clampZoom, createScale, frameTicks, msToPx, pxToMs, secondTicks, snapMs,
-  MAX_ZOOM, MIN_ZOOM,
+  MAX_ZOOM, MIN_ZOOM, MIN_SECOND_GAP_PX,
 } from '../../src/timeline/scale.js'
 
 const scale = (zoom = 1) => createScale(8000, 800, zoom)
@@ -72,9 +72,36 @@ describe('secondTicks', () => {
 
   it('rzedzenie zachowuje stały krok, a nie przypadkowe kreski', () => {
     const narrow = createScale(15000, 900, 0.25)
-    const ticks = secondTicks(narrow).filter(ms => ms !== 15000)
-    const steps = ticks.slice(1).map((ms, i) => ms - (ticks[i] ?? 0))
+    const ticks = secondTicks(narrow)
+    // Ostatnia kreska to kotwica długości, nie krok — może nie być jego
+    // wielokrotnością. Krok sprawdzamy tylko na kreskach przed nią.
+    const stepped = ticks.slice(0, -1)
+    const steps = stepped.slice(1).map((ms, i) => ms - (stepped[i] ?? 0))
     expect(new Set(steps).size).toBe(1)
+  })
+
+  it('każda para sąsiednich kresek ma odstęp co najmniej progowy, chyba że to jedyna para (zero i koniec ciasno obok siebie)', () => {
+    const durationsMs: number[] = []
+    for (let d = 1000; d <= 15000; d += 250) durationsMs.push(d)
+    const zooms = [0.25, 0.5, 1, 2]
+
+    const violations: string[] = []
+    for (const durationMs of durationsMs) {
+      for (const zoom of zooms) {
+        const s = createScale(durationMs, 900, zoom)
+        const ticks = secondTicks(s)
+        if (ticks.length <= 2) continue // jedyna para śmie się ścisnąć
+        for (let i = 1; i < ticks.length; i++) {
+          const prev = ticks[i - 1] ?? 0
+          const curr = ticks[i] ?? 0
+          const gapPx = msToPx(s, curr - prev)
+          if (gapPx < MIN_SECOND_GAP_PX) {
+            violations.push(`duration=${durationMs} zoom=${zoom} gap=${gapPx.toFixed(2)}px`)
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([])
   })
 })
 

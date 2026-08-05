@@ -39,7 +39,7 @@ export function pxToMs(scale: Scale, px: number): number {
  * ma trzy znaki („15s") w foncie 10 px, czyli około 18 px, plus 4 px odsunięcia
  * od kreski.
  */
-const MIN_SECOND_GAP_PX = 24
+export const MIN_SECOND_GAP_PX = 24
 
 /** Kroki rzedzenia w sekundach. Stały krok czyta się lepiej niż nierówne odstępy. */
 const SECOND_STEPS = [1, 2, 5, 10]
@@ -51,8 +51,18 @@ export function secondTicks(scale: Scale): number[] {
 
   const ticks: number[] = []
   for (let ms = 0; ms <= scale.durationMs; ms += step * 1000) ticks.push(ms)
-  const last = ticks[ticks.length - 1]
-  if (last !== undefined && last !== scale.durationMs) ticks.push(scale.durationMs)
+
+  const lastStep = ticks[ticks.length - 1]
+  if (lastStep !== undefined && lastStep !== scale.durationMs) {
+    // Ostatnia kreska kroku i kotwica długości potrafią się ścisnąć (reszta
+    // z dzielenia bywa krótsza niż próg). Koniec ma pierwszeństwo przed
+    // krokiem, więc kreskę kroku wtedy pomijamy — ale nie wtedy, gdy to
+    // jedyna kreska (zero). Zero i długość muszą zostać nawet ciasno obok
+    // siebie, bo nie ma czego więcej odrzucić.
+    const crowdsEnd = ticks.length > 1 && msToPx(scale, scale.durationMs - lastStep) < MIN_SECOND_GAP_PX
+    if (crowdsEnd) ticks.pop()
+    ticks.push(scale.durationMs)
+  }
   return ticks
 }
 
