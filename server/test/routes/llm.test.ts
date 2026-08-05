@@ -56,10 +56,16 @@ const mockFetch = (handler: (callIndex: number) => Response) => {
   }))
 }
 
-const chatResponse = (content: string) => new Response(JSON.stringify({
-  choices: [{ message: { content } }],
-  usage: { prompt_tokens: 11, completion_tokens: 22 },
-}))
+// Zadanie 9: trasa zawsze rozmawia z modelem przez `Provider.stream` (patrz
+// `toChunkForwardingProvider` w `routes/llm.ts`), więc odpowiedź zaślepki
+// musi mieć kształt SSE żądania `stream: true` (kawałki `delta.content`,
+// końcowy kawałek z `usage`, zamknięcie `[DONE]`) — nie płaski JSON
+// `choices[0].message.content` sprzed tego zadania.
+const chatResponse = (content: string) => new Response([
+  `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`,
+  `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 11, completion_tokens: 22 } })}`,
+  'data: [DONE]',
+].join('\n\n') + '\n\n')
 
 const validStructureJson = JSON.stringify({
   shots: [{ startSeconds: 0, composition: 'a wide shot of an empty platform', action: 'a woman waits alone' }],
@@ -105,6 +111,41 @@ const validCriticJson = (slug: string) => JSON.stringify({
   notes: [{ ref: { kind: 'project', id: slug }, message: 'Rozważ dodanie ujęcia ustanawiającego.', severity: 'hint' }],
 })
 
+/**
+ * Zadanie 9: trasa strumieniuje `text/event-stream` zamiast pojedynczego
+ * ciała JSON — `app.inject()` (light-my-request) i tak buforuje wszystko, co
+ * trafia na `reply.raw`, niezależnie od `reply.hijack()`, więc dla testów na
+ * tym poziomie wystarczy poczekać na całą odpowiedź i rozciąć ją na zdarzenia
+ * po fakcie. Rozcina po pustej linii (`\n\n`), tak jak przepisuje to RFC SSE —
+ * każdy blok niesie co najwyżej jedną linię `event:` i jedną `data:`.
+ */
+interface SseEvent { event: string; data: unknown }
+
+function parseSse(payload: string): SseEvent[] {
+  return payload
+    .split('\n\n')
+    .filter(block => block.trim() !== '')
+    .map(block => {
+      const lines = block.split('\n')
+      const eventLine = lines.find(line => line.startsWith('event:'))
+      const dataLine = lines.find(line => line.startsWith('data:'))
+      return {
+        event: eventLine ? eventLine.slice('event:'.length).trim() : 'message',
+        data: dataLine ? JSON.parse(dataLine.slice('data:'.length).trim()) : undefined,
+      }
+    })
+}
+
+/** Zdarzenie `done` niesie wynik zadania — dokładnie jedno na odpowiedź w
+ * ścieżce szczęśliwej. Rzuca, jeśli go nie ma, żeby błąd testu wskazywał na
+ * przyczynę, a nie na `undefined` gdzieś głębiej w asercji. */
+function doneData(payload: string): Record<string, unknown> {
+  const events = parseSse(payload)
+  const done = events.find(e => e.event === 'done')
+  if (!done) throw new Error(`brak zdarzenia "done" w odpowiedzi: ${payload}`)
+  return done.data as Record<string, unknown>
+}
+
 describe('POST /api/llm/run', () => {
   it('zwraca 400 przy ciele niezgodnym ze schematem (brakujące pole)', async () => {
     const slug = await createProject('Test projekt')
@@ -145,7 +186,7 @@ describe('POST /api/llm/run', () => {
     expect(res.statusCode).toBe(404)
   })
 
-  it('zwraca 502, gdy model odpowiada błędem po obu próbach', async () => {
+  it('kończy się zdarzeniem "error", gdy model odpowiada błędem po obu próbach — odpowiedź HTTP jest już strumieniem (200)', async () => {
     const slug = await createProject('Test projekt')
     await enableProvider()
     mockFetch(() => chatResponse('to nie jest poprawny JSON'))
@@ -153,8 +194,15 @@ describe('POST /api/llm/run', () => {
       method: 'POST', url: '/api/llm/run',
       payload: runBody({ projectSlug: slug }),
     })
-    expect(res.statusCode).toBe(502)
-    expect(res.json().error).toBeTypeOf('string')
+    // Kod 200 i nagłówki idą, zanim wiadomo, czy model w ogóle odpowie
+    // poprawnie — błąd trafia w treść strumienia jako zdarzenie, nie w kod
+    // statusu, którego po `reply.hijack()` nie da się już zmienić.
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('text/event-stream')
+    const events = parseSse(res.payload)
+    expect(events.some(e => e.event === 'done')).toBe(false)
+    const error = events.find(e => e.event === 'error')
+    expect(error?.data).toMatchObject({ error: expect.any(String) })
   })
 
   it('ścieżka szczęśliwa: zwraca łatkę i liczniki tokenów, sumowane, gdy naprawa nie była potrzebna', async () => {
@@ -166,13 +214,14 @@ describe('POST /api/llm/run', () => {
       payload: runBody({ projectSlug: slug }),
     })
     expect(res.statusCode).toBe(200)
-    const body = res.json()
+    const body = doneData(res.payload)
     expect(body.repaired).toBe(false)
     expect(body.promptTokens).toBe(11)
     expect(body.completionTokens).toBe(22)
-    expect(body.patch.ops).toHaveLength(1)
-    expect(body.patch.ops[0].kind).toBe('replaceShots')
-    expect(body.patch.ops[0].shots[0].composition).toBe('a wide shot of an empty platform')
+    const patch = body.patch as { ops: Array<{ kind: string; shots: Array<{ composition: string }> }> }
+    expect(patch.ops).toHaveLength(1)
+    expect(patch.ops[0]?.kind).toBe('replaceShots')
+    expect(patch.ops[0]?.shots[0]?.composition).toBe('a wide shot of an empty platform')
   })
 
   it('naprawa po jednym błędnym wywołaniu sumuje tokeny z obu prób i zgłasza repaired: true', async () => {
@@ -184,10 +233,28 @@ describe('POST /api/llm/run', () => {
       payload: runBody({ projectSlug: slug }),
     })
     expect(res.statusCode).toBe(200)
-    const body = res.json()
+    const body = doneData(res.payload)
     expect(body.repaired).toBe(true)
     expect(body.promptTokens).toBe(22)
     expect(body.completionTokens).toBe(44)
+  })
+
+  it('strumieniuje kawałki odpowiedzi jako zdarzenia "chunk" przed zdarzeniem "done"', async () => {
+    const slug = await createProject('Test projekt')
+    await enableProvider()
+    mockFetch(() => chatResponse(validStructureJson))
+    const res = await app.inject({
+      method: 'POST', url: '/api/llm/run',
+      payload: runBody({ projectSlug: slug }),
+    })
+    const events = parseSse(res.payload)
+    const doneIndex = events.findIndex(e => e.event === 'done')
+    const chunkEvents = events.filter(e => e.event === 'chunk')
+    expect(chunkEvents.length).toBeGreaterThan(0)
+    // "done" niesie łatkę i musi przyjść PO wszystkich kawałkach — łatka
+    // budowana jest dopiero po zamknięciu strumienia (brief zadania 9), nie
+    // wcześniej.
+    expect(events.indexOf(chunkEvents[0] as SseEvent)).toBeLessThan(doneIndex)
   })
 
   /**
@@ -265,8 +332,8 @@ describe('POST /api/llm/run — kształt odpowiedzi zależny od zadania', () => 
     mockFetch(() => chatResponse(validStructureJson))
     const res = await app.inject({ method: 'POST', url: '/api/llm/run', payload: structureBody(slug) })
     expect(res.statusCode).toBe(200)
-    const body = res.json()
-    expect(Array.isArray(body.patch.ops)).toBe(true)
+    const body = doneData(res.payload)
+    expect(Array.isArray((body.patch as { ops: unknown[] }).ops)).toBe(true)
     expect(body.notes).toBeUndefined()
   })
 
@@ -276,8 +343,8 @@ describe('POST /api/llm/run — kształt odpowiedzi zależny od zadania', () => 
     mockFetch(() => chatResponse(validRedactJson))
     const res = await app.inject({ method: 'POST', url: '/api/llm/run', payload: redactBody(slug) })
     expect(res.statusCode).toBe(200)
-    const body = res.json()
-    expect(Array.isArray(body.patch.ops)).toBe(true)
+    const body = doneData(res.payload)
+    expect(Array.isArray((body.patch as { ops: unknown[] }).ops)).toBe(true)
     expect(body.notes).toBeUndefined()
   })
 
@@ -287,9 +354,10 @@ describe('POST /api/llm/run — kształt odpowiedzi zależny od zadania', () => 
     mockFetch(() => chatResponse(validAudioJson))
     const res = await app.inject({ method: 'POST', url: '/api/llm/run', payload: audioBody(slug) })
     expect(res.statusCode).toBe(200)
-    const body = res.json()
-    expect(Array.isArray(body.patch.ops)).toBe(true)
-    expect(body.patch.ops).toHaveLength(2)
+    const body = doneData(res.payload)
+    const patch = body.patch as { ops: unknown[] }
+    expect(Array.isArray(patch.ops)).toBe(true)
+    expect(patch.ops).toHaveLength(2)
     expect(body.notes).toBeUndefined()
   })
 
@@ -299,10 +367,11 @@ describe('POST /api/llm/run — kształt odpowiedzi zależny od zadania', () => 
     mockFetch(() => chatResponse(validCriticJson(slug)))
     const res = await app.inject({ method: 'POST', url: '/api/llm/run', payload: criticBody(slug) })
     expect(res.statusCode).toBe(200)
-    const body = res.json()
-    expect(Array.isArray(body.notes)).toBe(true)
-    expect(body.notes).toHaveLength(1)
-    expect(body.notes[0].ref).toEqual({ kind: 'project', id: slug })
+    const body = doneData(res.payload)
+    const notes = body.notes as Array<{ ref: unknown }>
+    expect(Array.isArray(notes)).toBe(true)
+    expect(notes).toHaveLength(1)
+    expect(notes[0]?.ref).toEqual({ kind: 'project', id: slug })
     expect(body.patch).toBeUndefined()
   })
 })

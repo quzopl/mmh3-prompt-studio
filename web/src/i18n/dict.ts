@@ -161,6 +161,13 @@ const pl = {
   'common.close': 'Zamknij',
   'common.loading': 'Wczytywanie…',
   'common.error': 'Coś poszło nie tak: {message}',
+
+  // Hak `useLlmRun` (zadanie 9) — komunikaty, których serwer nie dostarcza
+  // gotowych po polsku, bo do niego w ogóle nie dotarliśmy (sieć) albo
+  // odpowiedział bez treści JSON do odczytania (błąd HTTP bez ciała `error`).
+  'llm.networkError': 'Nie udało się połączyć z serwerem.',
+  'llm.httpError': 'Serwer odpowiedział kodem {status}.',
+  'llm.unknownError': 'Błąd modelu.',
 } as const
 
 export type TKey = keyof typeof pl
@@ -304,6 +311,10 @@ const en: Record<TKey, string> = {
   'common.close': 'Close',
   'common.loading': 'Loading…',
   'common.error': 'Something went wrong: {message}',
+
+  'llm.networkError': 'Could not connect to the server.',
+  'llm.httpError': 'The server responded with status {status}.',
+  'llm.unknownError': 'Model error.',
 }
 
 export const DICT: Record<Lang, Record<TKey, string>> = { pl, en }

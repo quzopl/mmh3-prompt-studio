@@ -11,6 +11,12 @@ const task = {
   maxTokens: 100,
 }
 
+// `runTask` woła wyłącznie `complete` — `stream` jest tu tylko po to, żeby
+// obiekt nadal spełniał `Provider` (zadanie 9 dodało tę metodę do interfejsu).
+const notUsedByRunTask: Provider['stream'] = () => {
+  throw new Error('runTask nie powinien wołać stream()')
+}
+
 const providerReturning = (...texts: string[]): Provider => {
   let call = 0
   return {
@@ -20,6 +26,7 @@ const providerReturning = (...texts: string[]): Provider => {
       call += 1
       return { text, promptTokens: 1, completionTokens: 2 }
     }),
+    stream: notUsedByRunTask,
   }
 }
 
@@ -44,6 +51,7 @@ describe('runTask', () => {
           ? { text: '{"liczba":"nie"}', promptTokens: 3, completionTokens: 5 }
           : { text: '{"liczba":5}', promptTokens: 7, completionTokens: 11 }
       }),
+      stream: notUsedByRunTask,
     }
     const result = await runTask(provider, task, {}, new AbortController().signal)
     expect(result.repaired).toBe(true)

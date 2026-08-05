@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { buildPrompt } from '@mmh3/shared'
 import { LlmSettingsSchema, readSettings, redactSettings, writeSettings } from '../llm/settings.js'
 import { createProvider } from '../llm/provider.js'
+import type { Provider } from '../llm/provider.js'
 import { startManaged, stopManaged, managedState } from '../llm/managed.js'
 import { runTask } from '../llm/run.js'
 import { structureTask, structureToPatch, type StructureInput } from '../llm/tasks/structure.js'
@@ -100,6 +101,30 @@ function abortSignalFor(request: FastifyRequest): { signal: AbortSignal; release
   }
 }
 
+/**
+ * Adapter podstawiany pod `runTask` (zadanie 6, `llm/run.ts`) zamiast
+ * prawdziwego dostawcy: ten sam interfejs `Provider`, ale `complete()` woła
+ * pod spodem `stream()` prawdziwego dostawcy i przekazuje każdy kawałek
+ * tekstu do `onChunk`, zanim zwróci pełny wynik, którego `runTask` oczekuje
+ * z `complete()`. Dzięki temu `runTask` — łącznie z jedną próbą naprawy —
+ * działa całkowicie bez zmian: nie wie, że rozmawia ze strumieniem, a obie
+ * próby (pierwsza i naprawcza, jeśli w ogóle do niej dojdzie) przechodzą
+ * przez ten sam kanał `onChunk`. To rozstrzyga pytanie „co widzi użytkownik
+ * w trakcie naprawy" z briefu zadania 9: kawałki lecą bez przerwy przez cały
+ * czas trwania zadania, więc naprawa nie wygląda jak zawieszenie — wygląda
+ * jak dalszy ciąg tej samej odpowiedzi.
+ *
+ * `listModels` i `stream` przechodzą bez zmian — `runTask` nigdy ich nie
+ * woła, ale muszą tu być, żeby obiekt nadal spełniał `Provider`.
+ */
+function toChunkForwardingProvider(provider: Provider, onChunk: (text: string) => void): Provider {
+  return {
+    listModels: provider.listModels,
+    complete: req => provider.stream(req, onChunk),
+    stream: provider.stream,
+  }
+}
+
 export function registerLlmRoutes(app: FastifyInstance): void {
   app.get('/api/llm/settings', async () =>
     redactSettings(await readSettings(app.dataRoot)))
@@ -179,8 +204,14 @@ export function registerLlmRoutes(app: FastifyInstance): void {
       return reply.status(404).send({ error: `Projekt "${parsed.data.projectSlug}" nie istnieje` })
     }
 
-    const { signal, release } = abortSignalFor(request)
-    try {
+    // Wejście każdego zadania — i sprawdzenia, które jeszcze mogą zwrócić
+    // zwykłą odpowiedź 4xx/5xx (np. puste pole do redakcji, nieobsłużony
+    // wariant zadania) — muszą się rozstrzygnąć TERAZ, zanim odpowiedź
+    // zostanie przejęta pod SSE (`reply.hijack()` niżej). Kod statusu i
+    // nagłówki da się ustawić tylko raz, przed pierwszym `write` na surowej
+    // odpowiedzi — po hijacku jest już za późno na `reply.status(...)`.
+    const resolved: { ok: true; run: (fwd: Provider, signal: AbortSignal) => Promise<Record<string, unknown>> }
+      | { ok: false; status: number; error: string } = (() => {
       switch (parsed.data.task) {
         case 'structure': {
           const input: StructureInput = {
@@ -190,12 +221,17 @@ export function registerLlmRoutes(app: FastifyInstance): void {
             durationSeconds: project.video.durationMs / 1000,
             speakers: project.speakers.map(s => ({ code: s.code, characterType: s.characterType })),
           }
-          const result = await runTask(provider, structureTask, input, signal)
           return {
-            patch: structureToPatch(result.value, project),
-            promptTokens: result.promptTokens,
-            completionTokens: result.completionTokens,
-            repaired: result.repaired,
+            ok: true,
+            run: async (fwd, signal) => {
+              const result = await runTask(fwd, structureTask, input, signal)
+              return {
+                patch: structureToPatch(result.value, project),
+                promptTokens: result.promptTokens,
+                completionTokens: result.completionTokens,
+                repaired: result.repaired,
+              }
+            },
           }
         }
         case 'redact': {
@@ -205,25 +241,36 @@ export function registerLlmRoutes(app: FastifyInstance): void {
           // patrz komentarz w `llm/tasks/redact.ts`.
           const source = redactSourceText(project, parsed.data.target)
           if (source === undefined || source.trim() === '') {
-            return reply.status(400).send({ error: 'Wskazane pole nie istnieje albo jest puste' })
+            return { ok: false, status: 400, error: 'Wskazane pole nie istnieje albo jest puste' }
           }
           const input: RedactInput = { text: source }
-          const result = await runTask(provider, redactTask, input, signal)
+          const target = parsed.data.target
           return {
-            patch: redactToPatch(result.value, parsed.data.target, project),
-            promptTokens: result.promptTokens,
-            completionTokens: result.completionTokens,
-            repaired: result.repaired,
+            ok: true,
+            run: async (fwd, signal) => {
+              const result = await runTask(fwd, redactTask, input, signal)
+              return {
+                patch: redactToPatch(result.value, target, project),
+                promptTokens: result.promptTokens,
+                completionTokens: result.completionTokens,
+                repaired: result.repaired,
+              }
+            },
           }
         }
         case 'audio': {
           const input = audioInputFromProject(project)
-          const result = await runTask(provider, audioTask, input, signal)
           return {
-            patch: audioToPatch(result.value, project),
-            promptTokens: result.promptTokens,
-            completionTokens: result.completionTokens,
-            repaired: result.repaired,
+            ok: true,
+            run: async (fwd, signal) => {
+              const result = await runTask(fwd, audioTask, input, signal)
+              return {
+                patch: audioToPatch(result.value, project),
+                promptTokens: result.promptTokens,
+                completionTokens: result.completionTokens,
+                repaired: result.repaired,
+              }
+            },
           }
         }
         case 'critic': {
@@ -233,12 +280,17 @@ export function registerLlmRoutes(app: FastifyInstance): void {
           // przyjęcia/odrzucenia.
           const allowedRefs = criticAllowedRefs(project)
           const input: CriticInput = { promptText: buildPrompt(project).text, allowedRefs }
-          const result = await runTask(provider, criticTask, input, signal)
           return {
-            notes: criticToNotes(result.value, allowedRefs),
-            promptTokens: result.promptTokens,
-            completionTokens: result.completionTokens,
-            repaired: result.repaired,
+            ok: true,
+            run: async (fwd, signal) => {
+              const result = await runTask(fwd, criticTask, input, signal)
+              return {
+                notes: criticToNotes(result.value, allowedRefs),
+                promptTokens: result.promptTokens,
+                completionTokens: result.completionTokens,
+                repaired: result.repaired,
+              }
+            },
           }
         }
         default: {
@@ -258,13 +310,56 @@ export function registerLlmRoutes(app: FastifyInstance): void {
           // `never` przez zwykłą analizę przepływu pola, nie przez zawężenie
           // całej unii.
           const exhaustive: never = parsed.data
-          return reply.status(500).send({ error: `Nieobsłużone zadanie: ${JSON.stringify(exhaustive)}` })
+          return { ok: false, status: 500, error: `Nieobsłużone zadanie: ${JSON.stringify(exhaustive)}` }
         }
       }
+    })()
+
+    if (!resolved.ok) return reply.status(resolved.status).send({ error: resolved.error })
+
+    const { signal, release } = abortSignalFor(request)
+
+    // Od tego miejsca odpowiedź jest w całości nasza — Fastify już nic do niej
+    // nie doda ani nie zamknie jej sam. `chunk` pokazuje, że coś się dzieje, i
+    // karmi licznik tokenów po stronie klienta; `done` niesie łatkę (albo
+    // uwagi krytyka), zbudowaną DOPIERO gdy `run()` się rozstrzygnie — czyli
+    // po zamknięciu strumienia, nigdy w jego trakcie (brief zadania 9:
+    // częściowego JSON-a nie da się zwalidować, a półgotowa łatka zaprasza do
+    // przyjęcia czegoś, co jeszcze nie istnieje).
+    reply.hijack()
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+    })
+    reply.raw.flushHeaders()
+
+    // Zerknięcie na `signal.aborted` przed każdym zapisem: gdy klient już
+    // zniknął (gniazdo padło — ten sam sygnał, który przerywa zapytanie do
+    // modelu, patrz `abortSignalFor`), pisanie na martwe gniazdo nie ma sensu
+    // i mogłoby rzucić. Przerwanie ma naprawdę zatrzymać pracę, nie tylko
+    // przestać ją pokazywać — dlatego to ten sam `signal`, który idzie niżej
+    // do `runTask` i do samego zapytania HTTP w `openai.ts`.
+    const send = (event: 'chunk' | 'done' | 'error', data: unknown): void => {
+      if (signal.aborted) return
+      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    }
+    const forwardingProvider = toChunkForwardingProvider(provider, text => send('chunk', { text }))
+
+    try {
+      const payload = await resolved.run(forwardingProvider, signal)
+      send('done', payload)
     } catch (error) {
-      return reply.status(502).send({ error: error instanceof Error ? error.message : 'Błąd modelu' })
+      // Przerwanie klienta nie jest błędem do zaraportowania — nie ma już
+      // komu go zaraportować. Każdy inny błąd (obie próby modelu zawiodły,
+      // padło połączenie z serwerem modelu) ma dać zdarzenie `error`, nie
+      // ciszę nie do odróżnienia od modelu, który wciąż myśli.
+      if (!signal.aborted) {
+        send('error', { error: error instanceof Error ? error.message : 'Błąd modelu' })
+      }
     } finally {
       release()
+      if (!signal.aborted) reply.raw.end()
     }
   })
 }

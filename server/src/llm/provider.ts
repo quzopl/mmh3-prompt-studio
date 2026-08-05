@@ -24,6 +24,15 @@ export interface CompletionResult {
 export interface Provider {
   listModels: () => Promise<string[]>
   complete: (req: CompletionRequest) => Promise<CompletionResult>
+  /**
+   * Jak `complete`, ale wynik przychodzi kawałkami — `onChunk` dostaje każdy
+   * kolejny fragment tekstu odpowiedzi, zanim strumień się zamknie. Obietnica
+   * rozstrzyga się dopiero na końcu, z tym samym kształtem wyniku co
+   * `complete` (pełny tekst i liczniki tokenów) — wywołujący, który
+   * potrzebuje tylko końcowego wyniku, może zignorować `onChunk` i użyć tej
+   * metody dokładnie tak samo jak `complete`.
+   */
+  stream: (req: CompletionRequest, onChunk: (text: string) => void) => Promise<CompletionResult>
 }
 
 /**
