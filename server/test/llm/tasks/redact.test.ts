@@ -116,7 +116,7 @@ describe('RedactTarget — bez wariantu dla kwestii dialogowej', () => {
     // @ts-expect-error — RedactTarget (unia z RedactTargetSchema) nie zna
     // wariantu 'dialogue'; jedynych czterech wariantów żaden nie adresuje
     // DialogueEvent.text.
-    const forbidden: RedactTarget = { kind: 'dialogue', shotId: project.shots[0]!.id, eventId: event.id }
+    const forbidden: RedactTarget = { kind: 'dialogue', shotId: baseShot.id, eventId: event.id }
 
     expect(forbidden).toBeDefined()
   })
