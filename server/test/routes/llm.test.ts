@@ -73,6 +73,38 @@ const runBody = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+// Ciała żądań dla pozostałych trzech zadań — używane tylko w bloku „kształt
+// odpowiedzi zależny od zadania" niżej. `redact` celuje w `nonDiegeticMusic`
+// (domyślnie 'N/A' w świeżym projekcie — patrz `storage/newProject.ts`), bo
+// to jedyne pole, które `newProject` zostawia niepuste; cel `style` albo
+// `overallSoundscape` dostałby 400 z trasy zanim model w ogóle by odpowiedział.
+const structureBody = (slug: string) => ({
+  task: 'structure',
+  projectSlug: slug,
+  ideaA: 'Kobieta czeka na pociąg.',
+  ideaB: 'Pociąg nigdy nie przyjeżdża.',
+})
+const redactBody = (slug: string) => ({
+  task: 'redact',
+  projectSlug: slug,
+  target: { kind: 'audio', field: 'nonDiegeticMusic' },
+})
+const audioBody = (slug: string) => ({ task: 'audio', projectSlug: slug })
+const criticBody = (slug: string) => ({ task: 'critic', projectSlug: slug })
+
+const validRedactJson = JSON.stringify({ english: 'Ambient silence, unscored.' })
+const validAudioJson = JSON.stringify({
+  soundscape: 'Wind creaks through a chain-link fence beyond the platform.',
+  music: 'A slow piano figure repeats over a soft, sustained drone.',
+})
+// `newProject` (`storage/newProject.ts`) ustawia `id: slug` — więc `slug`
+// jest tu jednocześnie identyfikatorem obiektu 'project', na który
+// `criticAllowedRefs` zawsze pozwala wskazać, niezależnie od tego, co
+// jeszcze projekt zawiera.
+const validCriticJson = (slug: string) => JSON.stringify({
+  notes: [{ ref: { kind: 'project', id: slug }, message: 'Rozważ dodanie ujęcia ustanawiającego.', severity: 'hint' }],
+})
+
 describe('POST /api/llm/run', () => {
   it('zwraca 400 przy ciele niezgodnym ze schematem (brakujące pole)', async () => {
     const slug = await createProject('Test projekt')
@@ -215,4 +247,62 @@ describe('POST /api/llm/run', () => {
     await new Promise(resolve => setTimeout(resolve, 300))
     expect(capturedSignal?.aborted).toBe(true)
   }, 10000)
+})
+
+/**
+ * Runda 1 fixów recenzji zadania 8: `POST /api/llm/run` odpowiada dwoma
+ * różnymi kształtami — `{ patch }` dla trzech zadań, `{ notes }` dla krytyka
+ * — i to jest jedyne miejsce, w którym ta różnica naprawdę dociera do
+ * klienta (panel walidacji rozdzieli uwagi od reguł na podstawie właśnie
+ * tego kształtu). Dotąd testowała to na tym poziomie tylko gałąź
+ * `structure` (patrz „ścieżka szczęśliwa" wyżej) — reszta trzech gałęzi
+ * `switch` w `routes/llm.ts` była sprawdzona tylko przez lekturę.
+ */
+describe('POST /api/llm/run — kształt odpowiedzi zależny od zadania', () => {
+  it('structure: odpowiedź niesie "patch" (z tablicą "ops"), nie niesie "notes"', async () => {
+    const slug = await createProject('Test structure ksztalt')
+    await enableProvider()
+    mockFetch(() => chatResponse(validStructureJson))
+    const res = await app.inject({ method: 'POST', url: '/api/llm/run', payload: structureBody(slug) })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(Array.isArray(body.patch.ops)).toBe(true)
+    expect(body.notes).toBeUndefined()
+  })
+
+  it('redact: odpowiedź niesie "patch" (z tablicą "ops"), nie niesie "notes"', async () => {
+    const slug = await createProject('Test redact ksztalt')
+    await enableProvider()
+    mockFetch(() => chatResponse(validRedactJson))
+    const res = await app.inject({ method: 'POST', url: '/api/llm/run', payload: redactBody(slug) })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(Array.isArray(body.patch.ops)).toBe(true)
+    expect(body.notes).toBeUndefined()
+  })
+
+  it('audio: odpowiedź niesie "patch" (z tablicą "ops"), nie niesie "notes"', async () => {
+    const slug = await createProject('Test audio ksztalt')
+    await enableProvider()
+    mockFetch(() => chatResponse(validAudioJson))
+    const res = await app.inject({ method: 'POST', url: '/api/llm/run', payload: audioBody(slug) })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(Array.isArray(body.patch.ops)).toBe(true)
+    expect(body.patch.ops).toHaveLength(2)
+    expect(body.notes).toBeUndefined()
+  })
+
+  it('critic: odpowiedź niesie "notes" (tablicę uwag), nie niesie "patch"', async () => {
+    const slug = await createProject('Test critic ksztalt')
+    await enableProvider()
+    mockFetch(() => chatResponse(validCriticJson(slug)))
+    const res = await app.inject({ method: 'POST', url: '/api/llm/run', payload: criticBody(slug) })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(Array.isArray(body.notes)).toBe(true)
+    expect(body.notes).toHaveLength(1)
+    expect(body.notes[0].ref).toEqual({ kind: 'project', id: slug })
+    expect(body.patch).toBeUndefined()
+  })
 })

@@ -7,7 +7,7 @@ import {
   type Project,
   type Speaker,
 } from '@mmh3/shared'
-import { audioToPatch, type AudioResult } from '../../../src/llm/tasks/audio.js'
+import { audioInputFromProject, audioToPatch, type AudioResult } from '../../../src/llm/tasks/audio.js'
 import { newProject } from '../../fixtures/newProject.js'
 
 /**
@@ -246,5 +246,47 @@ describe('audioToPatch — pejzaż N/A zamieniony na treść', () => {
     // rzeczywiście zniknęła, zamiast polegać na tym przypadkiem.
     expect(diagnosticsOf(after).some(d => d.ruleId === 'SOUNDSCAPE_NA_ONLY_IF_SILENT')).toBe(false)
     assertNoUnexpectedDiagnostics(before, after)
+  })
+})
+
+describe('audioInputFromProject — treść dla modelu pomija dialog i frazę ruchu kamery', () => {
+  /**
+   * Runda 1 fixów recenzji zadania 8: decyzja projektowa stała dotąd tylko w
+   * komentarzu przy `shotContent` (`llm/tasks/audio.ts`) — ten test nazywa ją
+   * wprost i dowodzi jej w runtime. Segmenty `camera` i `dialogue` w `body`
+   * niosą wyłącznie identyfikator (`moveId`/`eventId`), nigdy renderowaną
+   * treść, więc `shotContent` (filtrujący `kind === 'text'`) wyklucza je z
+   * definicji — model nie widzi ani frazy ruchu kamery („The camera pushes
+   * in"), ani kwestii dialogowej. Bez tego podpowiedź `soundscape` mogłaby po
+   * prostu odbić kwestię z powrotem, co łamie `SOUNDSCAPE_NO_DIALOGUE`
+   * (`shared/src/validate/rules/audio.ts`).
+   */
+  it('kwestia dialogowa i renderowana fraza ruchu kamery nie trafiają do treści ujęcia', () => {
+    const before = cleanProject()
+    const shot = before.shots[0]
+    if (shot === undefined) throw new Error('fixture bez ujęcia')
+    const line = shot.dialogue[0]
+    if (line === undefined) throw new Error('fixture bez kwestii')
+
+    const withCamera: Project = {
+      ...before,
+      shots: [{
+        ...shot,
+        cameraMoves: [{ id: 'move-1', type: 'push-in', startMs: 0, endMs: before.video.durationMs }],
+        // Ruch kamery dopisany jako DODATKOWY segment — obok tekstu i kwestii,
+        // które fixture już ma — żeby test dowodził pominięcia, nie tylko
+        // braku obecności z braku okazji.
+        body: [...shot.body, { kind: 'camera', moveId: 'move-1' }],
+      }],
+    }
+
+    const input = audioInputFromProject(withCamera)
+    const content = input.shots[0]?.content
+    // Równość, nie samo „nie zawiera" — dowodzi, że treść to DOKŁADNIE
+    // kompozycja plus tekstowy segment `body`, nic ponadto (ani frazy kamery,
+    // ani kwestii), a nie że akurat żadne z nich nie zawiera pasującego słowa.
+    expect(content).toBe(`${shot.composition} A woman stands alone at the edge of the platform.`)
+    expect(content).not.toContain(line.text)
+    expect(content).not.toContain('camera')
   })
 })
