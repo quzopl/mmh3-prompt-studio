@@ -1,6 +1,6 @@
 import { MS_PER_FRAME } from '@mmh3/shared'
 
-export const MIN_ZOOM = 1
+export const MIN_ZOOM = 0.25
 export const MAX_ZOOM = 64
 
 /**
@@ -34,9 +34,23 @@ export function pxToMs(scale: Scale, px: number): number {
   return Math.min(scale.durationMs, Math.max(0, ms))
 }
 
+/**
+ * Poniżej tego odstępu etykiety sekund zaczynają na siebie nachodzić. Etykieta
+ * ma trzy znaki („15s") w foncie 10 px, czyli około 18 px, plus 4 px odsunięcia
+ * od kreski.
+ */
+const MIN_SECOND_GAP_PX = 24
+
+/** Kroki rzedzenia w sekundach. Stały krok czyta się lepiej niż nierówne odstępy. */
+const SECOND_STEPS = [1, 2, 5, 10]
+
 export function secondTicks(scale: Scale): number[] {
+  const step = SECOND_STEPS.find(seconds => msToPx(scale, seconds * 1000) >= MIN_SECOND_GAP_PX)
+    ?? SECOND_STEPS[SECOND_STEPS.length - 1]
+    ?? 1
+
   const ticks: number[] = []
-  for (let ms = 0; ms <= scale.durationMs; ms += 1000) ticks.push(ms)
+  for (let ms = 0; ms <= scale.durationMs; ms += step * 1000) ticks.push(ms)
   const last = ticks[ticks.length - 1]
   if (last !== undefined && last !== scale.durationMs) ticks.push(scale.durationMs)
   return ticks

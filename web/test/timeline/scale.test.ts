@@ -53,6 +53,29 @@ describe('secondTicks', () => {
       [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 8500],
     )
   })
+
+  it('pozwala zejść poniżej jedności, bo inaczej Dopasuj nie zmieści się w wąskim oknie', () => {
+    expect(clampZoom(0.4)).toBe(0.4)
+    expect(clampZoom(0.01)).toBe(MIN_ZOOM)
+    expect(MIN_ZOOM).toBeLessThan(1)
+  })
+
+  it('rzedzi etykiety sekund, gdy zaczynają na siebie nachodzić', () => {
+    const wide = createScale(15000, 900, 1)
+    const narrow = createScale(15000, 900, 0.25)
+    expect(secondTicks(wide)).toHaveLength(16)
+    const thinned = secondTicks(narrow)
+    expect(thinned.length).toBeLessThan(16)
+    expect(thinned[0]).toBe(0)
+    expect(thinned[thinned.length - 1]).toBe(15000)
+  })
+
+  it('rzedzenie zachowuje stały krok, a nie przypadkowe kreski', () => {
+    const narrow = createScale(15000, 900, 0.25)
+    const ticks = secondTicks(narrow).filter(ms => ms !== 15000)
+    const steps = ticks.slice(1).map((ms, i) => ms - (ticks[i] ?? 0))
+    expect(new Set(steps).size).toBe(1)
+  })
 })
 
 describe('frameTicks', () => {
