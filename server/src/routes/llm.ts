@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { LlmSettingsSchema, readSettings, redactSettings, writeSettings } from '../llm/settings.js'
+import { createProvider } from '../llm/provider.js'
 
 // Ciało PUT ma inny kształt klucza niż to, co trafia na dysk: `apiKey` w
 // zapisanych ustawieniach jest zawsze stringiem, ale w żądaniu potrzebujemy
@@ -41,5 +42,15 @@ export function registerLlmRoutes(app: FastifyInstance): void {
       endpoint: { ...parsed.data.endpoint, apiKey },
     })
     return redactSettings(await readSettings(app.dataRoot))
+  })
+
+  app.get('/api/llm/models', async (_request, reply) => {
+    const provider = createProvider(await readSettings(app.dataRoot))
+    if (provider === null) return reply.status(409).send({ error: 'Model nie jest skonfigurowany' })
+    try {
+      return { models: await provider.listModels() }
+    } catch (error) {
+      return reply.status(502).send({ error: error instanceof Error ? error.message : 'Błąd modelu' })
+    }
   })
 }

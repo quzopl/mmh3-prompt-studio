@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtemp, rm, readFile, writeFile, mkdir, chmod, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -207,5 +207,52 @@ describe('trasy /api/llm/settings', () => {
     })
     expect(res.statusCode).toBe(400)
     expect(res.payload).not.toContain('sekret-w-bledzie')
+  })
+})
+
+describe('trasa /api/llm/models', () => {
+  let apiRoot: string
+  let app: FastifyInstance
+
+  beforeEach(async () => {
+    apiRoot = await mkdtemp(join(tmpdir(), 'mmh3-llm-models-'))
+    app = await buildApp({ dataRoot: apiRoot })
+  })
+
+  afterEach(async () => {
+    await app.close()
+    vi.restoreAllMocks()
+    await rm(apiRoot, { recursive: true, force: true })
+  })
+
+  it('bez skonfigurowanego modelu zwraca 409, nie 500 — brak konfiguracji to stan, nie awaria', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/llm/models' })
+    expect(res.statusCode).toBe(409)
+  })
+
+  it('gdy model skonfigurowany, listuje modele z endpointu', async () => {
+    await writeSettings(apiRoot, {
+      mode: 'endpoint',
+      endpoint: { baseUrl: 'http://model.local/v1', apiKey: '', model: 'qwen' },
+      managed: { serverBinary: '', modelPath: '', gpuLayers: 0, contextSize: 4096 },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response(JSON.stringify({ data: [{ id: 'qwen' }] }))))
+
+    const res = await app.inject({ method: 'GET', url: '/api/llm/models' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ models: ['qwen'] })
+  })
+
+  it('gdy serwer modelu nie odpowiada poprawnie, zwraca 502 — to błąd modelu, nie naszego serwera', async () => {
+    await writeSettings(apiRoot, {
+      mode: 'endpoint',
+      endpoint: { baseUrl: 'http://model.local/v1', apiKey: '', model: 'qwen' },
+      managed: { serverBinary: '', modelPath: '', gpuLayers: 0, contextSize: 4096 },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('padło', { status: 500 })))
+
+    const res = await app.inject({ method: 'GET', url: '/api/llm/models' })
+    expect(res.statusCode).toBe(502)
   })
 })
