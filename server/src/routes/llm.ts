@@ -5,6 +5,9 @@ import { createProvider } from '../llm/provider.js'
 import { startManaged, stopManaged, managedState } from '../llm/managed.js'
 import { runTask } from '../llm/run.js'
 import { structureTask, structureToPatch, type StructureInput } from '../llm/tasks/structure.js'
+import {
+  redactTask, redactToPatch, redactSourceText, RedactTargetSchema, type RedactInput,
+} from '../llm/tasks/redact.js'
 import { readProject } from '../storage/projectStore.js'
 import { SlugSchema } from './params.js'
 
@@ -32,6 +35,11 @@ const RunBody = z.discriminatedUnion('task', [
     projectSlug: SlugSchema,
     ideaA: z.string().min(1),
     ideaB: z.string().min(1),
+  }),
+  z.object({
+    task: z.literal('redact'),
+    projectSlug: SlugSchema,
+    target: RedactTargetSchema,
   }),
 ])
 
@@ -175,13 +183,42 @@ export function registerLlmRoutes(app: FastifyInstance): void {
             repaired: result.repaired,
           }
         }
+        case 'redact': {
+          // Treść wysyłana do modelu pochodzi WYŁĄCZNIE z projektu na dysku,
+          // odczytana tym samym `redactSourceText`, którego `redactToPatch`
+          // użyje potem do porównania „czy wynik faktycznie coś zmienia" —
+          // patrz komentarz w `llm/tasks/redact.ts`.
+          const source = redactSourceText(project, parsed.data.target)
+          if (source === undefined || source.trim() === '') {
+            return reply.status(400).send({ error: 'Wskazane pole nie istnieje albo jest puste' })
+          }
+          const input: RedactInput = { text: source }
+          const result = await runTask(provider, redactTask, input, signal)
+          return {
+            patch: redactToPatch(result.value, parsed.data.target, project),
+            promptTokens: result.promptTokens,
+            completionTokens: result.completionTokens,
+            repaired: result.repaired,
+          }
+        }
         default: {
           // Wyczerpujące dopasowanie: gdyby unia `RunBody` dostała kolejny
-          // wariant zadania (7–9) bez gałęzi tutaj, `parsed.data.task` przestałby
-          // się dać zawęzić do `never` i `tsc --noEmit` przerwałby build — a nie
+          // wariant zadania (8–9) bez gałęzi tutaj, `parsed.data` przestałby się
+          // dać zawęzić do `never` i `tsc --noEmit` przerwałby build — a nie
           // cichy `undefined` z handlera, jak przy `switch` bez `default`.
-          const exhaustive: never = parsed.data.task
-          return reply.status(500).send({ error: `Nieobsłużone zadanie: ${String(exhaustive)}` })
+          //
+          // Celowo `parsed.data`, NIE `parsed.data.task`: od dwóch wariantów
+          // wzwyż (od tego zadania) TypeScript zawęża w gałęzi `default` CAŁY
+          // obiekt dyskryminowanej unii do `never`, a odczyt pojedynczego pola
+          // z wartości już zawężonej do `never` sam jest błędem typów
+          // ("Property does not exist on type 'never'") — zmierzone wprost
+          // (`tsc --strict` na izolowanym przykładzie z jedną vs dwiema
+          // gałęziami `case`). Przy jednym wariancie (stan przed tym zadaniem)
+          // ten sam kod przechodził przypadkiem, bo `u.task` zawężało się do
+          // `never` przez zwykłą analizę przepływu pola, nie przez zawężenie
+          // całej unii.
+          const exhaustive: never = parsed.data
+          return reply.status(500).send({ error: `Nieobsłużone zadanie: ${JSON.stringify(exhaustive)}` })
         }
       }
     } catch (error) {
