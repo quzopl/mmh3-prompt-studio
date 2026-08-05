@@ -31,14 +31,6 @@ export const StructureShotSchema = z.object({
   cameraMove: CameraMotionSchema.optional(),
   speaker: z.string().min(1).optional(),
   line: z.string().min(1).optional(),
-  // Runda 1 recenzji: pomysł jest po polsku i model — mimo instrukcji, żeby
-  // opisy pisać po angielsku — może odpowiedzieć kwestią w tym samym języku,
-  // w którym dostał pomysł. Bez tego pola kompilator zawsze wypisywał
-  // `<d>[English] ...</d>` wokół kwestii, która wcale po angielsku nie była —
-  // kłamstwo wprost w prompcie dla modelu wideo. Opcjonalne: brak wartości
-  // znaczy „English", zgodnie z konwencją reszty promptów w tym repo
-  // (zob. `shared/test/golden/expected/*.txt`).
-  language: z.string().min(1).optional(),
 })
 
 export const StructureSchema = z.object({
@@ -48,7 +40,11 @@ export const StructureSchema = z.object({
 export type StructureShot = z.infer<typeof StructureShotSchema>
 export type StructureResult = z.infer<typeof StructureSchema>
 
-const DEFAULT_LANGUAGE = 'English'
+// Zadanie zawsze pisze po angielsku (patrz `SYSTEM_PROMPT` i brief zadania 16)
+// — model nie zgaduje języka mówionego, więc `DialogueEvent.language` dostaje
+// tu stałą wartość. Postać mówiąca po polsku w kadrze to decyzja użytkownika
+// podjęta później, w inspektorze, nie coś, co to zadanie ma odgadywać.
+const GENERATED_LANGUAGE = 'English'
 
 /**
  * Dane wejściowe zadania. Mówcy, tryb i długość pochodzą z projektu po
@@ -98,7 +94,6 @@ const structureJsonSchema = {
           cameraMove: { type: 'string', enum: [...CameraMotionSchema.options] },
           speaker: { type: 'string', minLength: 1 },
           line: { type: 'string', minLength: 1 },
-          language: { type: 'string', minLength: 1 },
         },
       },
     },
@@ -107,9 +102,10 @@ const structureJsonSchema = {
 
 const SYSTEM_PROMPT = [
   'You turn a short two-sentence idea into an initial shot structure for a '
-    + 'video-generation prompt. Work in English even though the idea itself may '
-    + 'be given in another language — do not translate the idea, just describe '
-    + 'shots for it.',
+    + 'video-generation prompt. Everything you generate — "composition", '
+    + '"action", and "line" — is written in English, no matter what language '
+    + 'the idea is given in. Do not translate the idea itself; it is input '
+    + 'only, and passes through untouched.',
   'Describe the image, not the mood: "composition" and "action" must name what '
     + 'the camera frames and what physically happens on screen. Never describe '
     + 'emotions, atmosphere, or intent directly — show them through action.',
@@ -121,10 +117,8 @@ const SYSTEM_PROMPT = [
   'A camera move, if any, must be chosen from the vocabulary enforced by the '
     + 'schema. Leave "cameraMove" out entirely when the shot is static or you '
     + 'are unsure.',
-  '"line" is the spoken dialogue verbatim. It may be in the same language as '
-    + 'the idea — do not translate it into English. If it is not in English, set '
-    + '"language" to name the language it is actually in (e.g. "Polish"); leave '
-    + '"language" out when the line is in English.',
+  '"line" is the spoken dialogue, written in English regardless of the '
+    + 'language of the idea.',
   '"startSeconds" is your best estimate of when the shot starts, in seconds '
     + 'from the beginning of the video — it will be snapped to the exact frame '
     + 'grid by the caller, so approximate values are fine.',
@@ -351,7 +345,7 @@ export function structureToPatch(result: StructureResult, project: Project): Pro
           speakerIds: [speaker.id],
           verb: 'says',
           punctuation: ':',
-          language: input.language ?? DEFAULT_LANGUAGE,
+          language: GENERATED_LANGUAGE,
           text: input.line,
           voiceover: false,
           sceneTransBefore: false,

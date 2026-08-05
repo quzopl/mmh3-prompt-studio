@@ -11,7 +11,7 @@ import {
   type Project,
   type Speaker,
 } from '@mmh3/shared'
-import { StructureShotSchema, structureToPatch, type StructureResult } from '../../../src/llm/tasks/structure.js'
+import { StructureShotSchema, structureTask, structureToPatch, type StructureResult } from '../../../src/llm/tasks/structure.js'
 import { newProject } from '../../fixtures/newProject.js'
 
 /**
@@ -59,6 +59,26 @@ function assertNoUnexpectedDiagnostics(before: Project, after: Project): void {
   const unexpected = added.filter(d => !ACCEPTED_NEW_DIAGNOSTICS.has(d.ruleId))
   expect(unexpected).toEqual([])
 }
+
+describe('structureTask — prompt systemowy', () => {
+  it('prompt systemowy wprost każe pisać po angielsku niezależnie od języka pomysłu', () => {
+    // To jedyna rzecz, która po stronie modelu wymusza angielski wynik — pole
+    // `language` zniknęło ze schematu (brief zadania 16), więc bez tego
+    // zdania w promptcie nic nie stoi na przeszkodzie, żeby model po prostu
+    // odpisał w języku pomysłu.
+    const validInput = {
+      ideaA: 'Kobieta stoi samotnie na pustym peronie o świcie.',
+      ideaB: 'Pociąg odjeżdża bez niej.',
+      mode: 'T2VA',
+      durationSeconds: 8,
+      speakers: [],
+    }
+    const messages = structureTask.buildMessages(validInput)
+    const system = messages.find(m => m.role === 'system')
+    expect(system?.content).toMatch(/is written in English/i)
+    expect(system?.content).not.toMatch(/set "language"/i)
+  })
+})
 
 describe('structureToPatch — puste ujęcia', () => {
   it('puste shots w odpowiedzi dają łatkę bez operacji, a nie ujęcie zerowej długości', () => {
@@ -305,7 +325,11 @@ describe('structureToPatch — mówca kwestii', () => {
     expect(shot.body.some(seg => seg.kind === 'speaker')).toBe(true)
   })
 
-  it('kwestia w innym języku niż angielski niesie ten język do DialogueEvent zamiast domyślnego "English"', () => {
+  it('pomysł podany po polsku i tak daje kwestię oznaczoną jako angielska — zadanie nie zgaduje języka mówionego z odpowiedzi modelu', () => {
+    // Odwrotność testu sprzed poprawki (patrz brief zadania 16): to zadanie
+    // ma PISAĆ po angielsku, a nie opisywać, że napisało po polsku. Model nie
+    // dostaje już pola `language` w schemacie, więc nie ma jak przemycić innej
+    // wartości niż stała `GENERATED_LANGUAGE` — nawet gdyby spróbował.
     const result: StructureResult = {
       shots: [{
         startSeconds: 0,
@@ -313,17 +337,16 @@ describe('structureToPatch — mówca kwestii', () => {
         action: 'kobieta odwraca się w stronę okna',
         speaker: 'S1',
         line: 'Jeszcze zdążę zmienić zdanie.',
-        language: 'Polish',
       }],
     }
     const patch = structureToPatch(result, projectWithSpeaker())
     const op = patch.ops[0]
     if (op === undefined || op.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
-    expect(op.shots[0]?.dialogue[0]?.language).toBe('Polish')
+    expect(op.shots[0]?.dialogue[0]?.language).toBe('English')
 
     const before = projectWithSpeaker()
     const after = applyOps(before, patch.ops)
-    expect(buildPrompt(after).text).toContain('<d>[Polish] Jeszcze zdążę zmienić zdanie.</d>')
+    expect(buildPrompt(after).text).toContain('<d>[English] Jeszcze zdążę zmienić zdanie.</d>')
   })
 
   it('kwestia bez pasującego mówcy nie tworzy DialogueEvent bez speakerIds i zostaje opisana w etykiecie operacji', () => {
