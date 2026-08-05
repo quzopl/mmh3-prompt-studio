@@ -48,13 +48,27 @@ describe('naturalna długość na klipie dialogowym', () => {
     }
     const [shadowD1, shadowD3] = shadows
     if (!shadowD1 || !shadowD3) throw new Error('oczekiwano dwóch cieni w pasie S1')
+    // Każdy cień porównany wprost do tej samej formuły, którą liczy produkcja
+    // (`naturalDurationMs` + `msToPx`), z KONKRETNYM tekstem swojej kwestii —
+    // to już dowodzi, że cień liczy się z właściwej kwestii, nie że dwa cienie
+    // przypadkiem wyszły tej samej szerokości.
     expect(shadowD1.style.width)
       .toBe(`${msToPx(scale, naturalDurationMs('jedno dwa', DEFAULT_WORDS_PER_MINUTE))}px`)
     expect(shadowD3.style.width)
       .toBe(`${msToPx(scale, naturalDurationMs('razem', DEFAULT_WORDS_PER_MINUTE))}px`)
-    // Dwa słowa w d1 kontra jedno w d3 — cień d1 musi być dwa razy szerszy,
-    // bo `naturalDurationMs` rośnie liniowo z liczbą słów przy stałym tempie.
-    expect(Number.parseFloat(shadowD1.style.width)).toBe(2 * Number.parseFloat(shadowD3.style.width))
+    // Była tu dodatkowo asercja „d1 to dokładnie 2× d3" (dwa słowa kontra
+    // jedno). Usunięta: po zmianie `DEFAULT_WORDS_PER_MINUTE` na
+    // `WORDS_PER_SECOND * 60` (162, nie okrągłe dawne 150) przestała być
+    // prawdziwa z przyczyn czysto arytmetycznych, nie przez błąd w
+    // `DialogueTracks` — `naturalDurationMs` zaokrągla NIEZALEŻNIE dla
+    // każdego tekstu (`Math.round`), a `round(2/162*60000) = 741` nie jest
+    // dokładnie `2 * round(1/162*60000) = 740`. Przy 150 oba dzielenia
+    // wychodziły całkowite (800 i 400), więc zbieżność była przypadkiem tej
+    // konkretnej stałej, nie właściwością wzoru. Nie była też jedyną obroną:
+    // asercje dwie linie wyżej już porównują każdy cień z DOKŁADNĄ
+    // oczekiwaną wartością tej samej formuły — silniejszy test niż
+    // przybliżona proporcja między nimi, i taki, który nie łamie się na
+    // zaokrągleniu.
   })
 
   it('ostrzega, gdy kwestia nie mieści się w klipie', () => {

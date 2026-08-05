@@ -1,8 +1,19 @@
+import { WORDS_PER_SECOND } from '@mmh3/shared'
+
 /**
- * Tempo mowy w słowach na minutę. Sto pięćdziesiąt to spokojna narracja —
- * wartość poglądowa, od której zaczyna suwak, a nie prawda o modelu.
+ * Tempo mowy w słowach na minutę, od którego zaczyna suwak — użytkownik może
+ * je zmienić, próbując szybszej albo wolniejszej wypowiedzi. Wartość
+ * początkowa liczy się WPROST z `WORDS_PER_SECOND` (`shared/src/validate/
+ * rules/speech.ts`), którym reguła walidatora `SPEECH_FITS` szacuje, czy
+ * kwestia mieści się w swoim oknie — nie z osobno wymyślonej liczby. Dwa
+ * miejsca liczące „czy kwestia się mieści" tym samym pytaniem muszą
+ * zaczynać od tej samej odpowiedzi: przy osobnych stałych (tu kiedyś 150,
+ * w walidatorze 2.7 słowa/s czyli 162/min) cień na osi czasu potrafił
+ * pokazywać komfortowe dopasowanie dokładnie wtedy, gdy walidator już
+ * zgłaszał błąd — żadna z dwóch liczb nie była przez to zła osobno, tylko
+ * niespójna z drugą.
  */
-export const DEFAULT_WORDS_PER_MINUTE = 150
+export const DEFAULT_WORDS_PER_MINUTE = WORDS_PER_SECOND * 60
 
 /** Najniższe tempo, jakie ma sens — poniżej wynik uciekłby w nieskończoność. */
 const MIN_WORDS_PER_MINUTE = 40

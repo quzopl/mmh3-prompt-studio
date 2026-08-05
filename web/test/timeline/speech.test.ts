@@ -18,8 +18,12 @@ describe('countWords', () => {
 })
 
 describe('naturalDurationMs', () => {
-  it('sto pięćdziesiąt słów przy stu pięćdziesięciu na minutę to minuta', () => {
-    const text = Array.from({ length: 150 }, () => 'słowo').join(' ')
+  it('liczba słów równa DEFAULT_WORDS_PER_MINUTE przy tym tempie to minuta', () => {
+    // Liczba słów pochodzi z samej stałej, nie z zapisanej na sztywno
+    // wartości — inaczej ten test przestałby cokolwiek sprawdzać w
+    // milczeniu, gdyby `DEFAULT_WORDS_PER_MINUTE` kiedyś znów się zmieniło
+    // (tak jak właśnie się zmieniło, ze 150 na `WORDS_PER_SECOND * 60`).
+    const text = Array.from({ length: DEFAULT_WORDS_PER_MINUTE }, () => 'słowo').join(' ')
     expect(naturalDurationMs(text, DEFAULT_WORDS_PER_MINUTE)).toBe(60000)
   })
 

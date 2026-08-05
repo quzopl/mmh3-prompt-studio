@@ -20,16 +20,25 @@ describe('propozycje na klipie dialogowym', () => {
     expect(screen.getByRole('button', { name: /przechodzi przez cięcie/i })).toBeTruthy()
   })
 
-  it('kliknięcie propozycji zmienia model i zostawia jeden wpis historii', async () => {
+  it('kliknięcie propozycji dzieli kwestię na cięciu i zostawia jeden wpis historii', async () => {
     const user = userEvent.setup()
     render(<DialogueTracks scale={scale} />)
     const before = useProject.getState().past.length
 
     await user.click(screen.getByRole('button', { name: /przechodzi przez cięcie/i }))
 
-    const event = useProject.getState().project?.shots.flatMap(s => s.dialogue).find(e => e.id === 'd1')
-    expect(event?.sceneTransBefore).toBe(true)
-    expect(event?.sceneTransAfter).toBe(true)
+    // Nie dwie flagi na tym samym obiekcie (odrzucona pierwsza wersja) —
+    // dwa obiekty, jeden po każdej stronie cięcia, patrz komentarz przy
+    // `splitAtSceneTrans` w `proposals.ts`.
+    const shots = useProject.getState().project?.shots ?? []
+    const original = shots.flatMap(s => s.dialogue).find(e => e.id === 'd1')
+    const shotB = shots.find(s => s.id === 'b')
+    const continuation = shotB?.dialogue[0]
+
+    expect(original?.sceneTransAfter).toBe(true)
+    expect(original?.sceneTransBefore).toBe(false)
+    expect(shotB?.dialogue).toHaveLength(1)
+    expect(continuation?.sceneTransBefore).toBe(true)
     expect(useProject.getState().past.length).toBe(before + 1)
   })
 
