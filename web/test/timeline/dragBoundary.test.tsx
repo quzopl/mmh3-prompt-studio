@@ -225,4 +225,26 @@ describe('przeciąganie granicy w ścieżce ujęć', () => {
     // Kolejność cięć (indeksy) pozostaje nienaruszona.
     expect(shots.map(s => s.index)).toEqual([0, 1, 2])
   })
+
+  it('przeciągnięcie granicy za sąsiada nie rozjeżdża indeksów z czasami', () => {
+    const threeShots: Project = {
+      ...project,
+      shots: [shot('a', 0, 0), shot('b', 1, 2000), shot('c', 2, 6000)],
+    }
+    useProject.getState().load('test', threeShots)
+    render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+
+    const handle = screen.getByRole('separator', { name: /ujęcie 2/i })
+    handle.setPointerCapture = () => {}
+    handle.releasePointerCapture = () => {}
+    handle.parentElement!.getBoundingClientRect = () => ({ left: 0, width: 800 }) as DOMRect
+
+    firePointer(handle, 'pointerdown', 200)
+    firePointer(handle, 'pointermove', 780)
+    firePointer(handle, 'pointerup', 780)
+
+    const shots = useProject.getState().project?.shots ?? []
+    const byIndex = [...shots].sort((x, y) => x.index - y.index).map(s => s.startMs)
+    expect(byIndex).toEqual([...byIndex].sort((x, y) => x - y))
+  })
 })

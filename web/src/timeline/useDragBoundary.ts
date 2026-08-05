@@ -1,5 +1,6 @@
 import { MS_PER_FRAME, snapToFrame } from '@mmh3/shared'
 import { useProject } from '../store/projectStore.js'
+import { normalizeShots } from './normalize.js'
 import { pxToMs, snapMs, type Scale } from './scale.js'
 import { shotSpans } from './spans.js'
 
@@ -107,7 +108,10 @@ export function useDragBoundary(scale: Scale) {
       useProject.getState().apply(
         candidate => ({
           ...candidate,
-          shots: candidate.shots.map(shot => shot.id === shotId ? { ...shot, startMs } : shot),
+          shots: normalizeShots(
+            candidate.shots.map(shot => shot.id === shotId ? { ...shot, startMs } : shot),
+            candidate.video.durationMs,
+          ),
         }),
         { coalesceKey },
       )

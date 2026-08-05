@@ -1,5 +1,6 @@
 import { snapToFrame, type Project, type Shot } from '@mmh3/shared'
 import { boundaryTargetMs, MIN_SHOT_MS } from './useDragBoundary.js'
+import { normalizeShots } from './normalize.js'
 import { shotSpans } from './spans.js'
 
 /**
@@ -19,11 +20,6 @@ const nextShotNumber = (shots: Shot[]): number =>
     const parsed = Number(/-(\d+)$/.exec(shot.id)?.[1])
     return Number.isFinite(parsed) ? parsed : 0
   })) + 1
-
-const renumber = (shots: Shot[]): Shot[] =>
-  [...shots]
-    .sort((a, b) => a.startMs - b.startMs)
-    .map((shot, index) => ({ ...shot, index, startMs: index === 0 ? 0 : shot.startMs }))
 
 /**
  * Wstawia cięcie na playheadzie. Odmawia, gdy nowe ujęcie byłoby krótsze niż
@@ -55,7 +51,7 @@ export function splitAtMs(project: Project, ms: number): Project {
     anchors: [],
   }
 
-  return { ...project, shots: renumber([...project.shots, shot]) }
+  return { ...project, shots: normalizeShots([...project.shots, shot], project.video.durationMs) }
 }
 
 /**
@@ -90,8 +86,10 @@ export function setShotStartMs(project: Project, shotId: string, ms: number): Pr
 
   return {
     ...project,
-    shots: renumber(project.shots.map(shot =>
-      shot.id === shotId ? { ...shot, startMs } : shot)),
+    shots: normalizeShots(
+      project.shots.map(shot => shot.id === shotId ? { ...shot, startMs } : shot),
+      project.video.durationMs,
+    ),
   }
 }
 
@@ -106,18 +104,20 @@ export function setShotStartMs(project: Project, shotId: string, ms: number): Pr
  * Implementacja poniżej usuwa więc wszystko, co się da, i dopiero gdyby lista
  * ocalałych była pusta, zostawia jedno — pierwsze w kolejności ujęć, czyli to,
  * które już stało przy lewej krawędzi osi czasu. Ocalałe zawsze ląduje po
- * `renumber` na indeksie 0 i czasie 0, więc ten niezmiennik nie rozstrzyga,
- * które ujęcie wybrać — rozstrzyga to, że jego treść jest tam, gdzie
- * użytkownik ją ostatnio widział; ostatnie w kolejności podmieniłoby ją na
- * treść z drugiego końca materiału.
+ * `normalizeShots` na indeksie 0 i czasie 0, więc ten niezmiennik nie
+ * rozstrzyga, które ujęcie wybrać — rozstrzyga to, że jego treść jest tam,
+ * gdzie użytkownik ją ostatnio widział; ostatnie w kolejności podmieniłoby ją
+ * na treść z drugiego końca materiału.
  */
 export function removeShots(project: Project, ids: string[]): Project {
   if (ids.length === 0) return project
   const survivors = project.shots.filter(shot => !ids.includes(shot.id))
-  if (survivors.length > 0) return { ...project, shots: renumber(survivors) }
+  if (survivors.length > 0) {
+    return { ...project, shots: normalizeShots(survivors, project.video.durationMs) }
+  }
 
   const ordered = [...project.shots].sort((a, b) => a.index - b.index)
   const first = ordered[0]
   if (!first) return project
-  return { ...project, shots: renumber([first]) }
+  return { ...project, shots: normalizeShots([first], project.video.durationMs) }
 }
