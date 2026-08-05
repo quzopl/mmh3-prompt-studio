@@ -1,14 +1,23 @@
+import type { Project } from '@mmh3/shared'
 import { useProject } from '../store/projectStore.js'
-import { usePlayhead } from '../store/playheadStore.js'
 import { same, useSelection } from '../store/selectionStore.js'
 import { useT } from '../i18n/useT.js'
 import { msToPx, type Scale } from './scale.js'
 import { clipBox } from './clips.js'
 import { shotSpans } from './spans.js'
-import { addScreenText } from './createOnTrack.js'
 
 /** Wysokość jednego wiersza klipu — jak `h-8` gdzie indziej na tej osi. */
-const ROW_HEIGHT_PX = 32
+export const SCREEN_TEXT_ROW_HEIGHT_PX = 32
+
+/**
+ * Liczba wierszy ścieżki — najliczniejsze `screenText` z ujęć projektu, min. 1
+ * (patrz akapit o wysokości niżej w komentarzu komponentu). Wystawione, żeby
+ * `TrackStack` (zadanie 12) mógł policzyć wysokość wiersza nagłówka z TEGO
+ * SAMEGO wzoru, którego używa sama ścieżka do własnej wysokości — jedno
+ * źródło, nie dwa niezależne przeliczenia, które mogłyby się rozjechać.
+ */
+export const screenTextRowCount = (project: Project): number =>
+  Math.max(1, ...project.shots.map(shot => shot.screenText.length))
 
 /**
  * `ScreenText` nie ma własnych czasów — należy do ujęcia i tyle. Klip pokrywa
@@ -44,25 +53,15 @@ export function ScreenTextTrack({ scale }: { scale: Scale }) {
   if (!project) return null
 
   const spans = shotSpans(project.shots, project.video.durationMs)
-  const rows = Math.max(1, ...project.shots.map(shot => shot.screenText.length))
+  const rows = screenTextRowCount(project)
 
   return (
     <div
       data-track="screen-text"
       aria-label={t('timeline.trackScreenText')}
       className="relative border-b border-neutral-800"
-      style={{ width: msToPx(scale, scale.durationMs), height: rows * ROW_HEIGHT_PX }}
+      style={{ width: msToPx(scale, scale.durationMs), height: rows * SCREEN_TEXT_ROW_HEIGHT_PX }}
     >
-      {/* Jak w `CameraTrack`: przycisk w rogu ścieżki do przeniesienia do nagłówka w zadaniu 12. */}
-      <button
-        type="button"
-        aria-label={t('track.addScreenText')}
-        onClick={() => useProject.getState().apply(
-          candidate => addScreenText(candidate, usePlayhead.getState().ms))}
-        className="absolute left-0 top-0 z-10 px-1 text-[10px] text-neutral-400 hover:text-neutral-100"
-      >
-        +
-      </button>
       {spans.flatMap(span =>
         span.shot.screenText.map((entry, position) => {
           const ref = { kind: 'screenText' as const, id: entry.id }
@@ -93,7 +92,7 @@ export function ScreenTextTrack({ scale }: { scale: Scale }) {
                   ? 'border-amber-500 bg-amber-950 text-amber-100'
                   : 'border-neutral-700 bg-neutral-900 hover:border-neutral-500'
               }`}
-              style={{ ...clipBox(scale, { id: entry.id, startMs: span.startMs, endMs: span.endMs }), top: position * ROW_HEIGHT_PX + 4 }}
+              style={{ ...clipBox(scale, { id: entry.id, startMs: span.startMs, endMs: span.endMs }), top: position * SCREEN_TEXT_ROW_HEIGHT_PX + 4 }}
             >
               {entry.text}
             </div>

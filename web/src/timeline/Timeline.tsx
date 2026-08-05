@@ -4,7 +4,7 @@ import { usePlayhead } from '../store/playheadStore.js'
 import { useT } from '../i18n/useT.js'
 import { clampZoom, createScale } from './scale.js'
 import { Ruler } from './Ruler.js'
-import { ShotTrack } from './ShotTrack.js'
+import { TrackStack } from './TrackStack.js'
 import { Playhead } from './Playhead.js'
 import { usePlayback } from './usePlayback.js'
 import { splitAtMs } from './shotOperations.js'
@@ -24,6 +24,16 @@ const ZOOM_STEP = 2
  * w pikselach, więc odwrócenie tego równania daje zoom docelowy. Bez pomiaru
  * (jeszcze nie zaobserwowany albo `ResizeObserver` niedostępny) wraca do
  * zoomu bazowego zamiast zgadywać.
+ *
+ * Znany, świadomie zaakceptowany niedoskonałość od zadania 12: `container`
+ * mierzy CAŁĄ szerokość (nagłówki `TrackStack` + obszar klipów), a wzór
+ * niżej zakłada, że cała zmierzona szerokość należy do klipów — „Dopasuj"
+ * więc odrobinę przeszacowuje i zostawia klipy odrobinę szersze niż
+ * widoczny po nagłówkach obszar. Odjęcie stałej szerokości nagłówka
+ * naprawiłoby to, ale zmieniłoby dotychczasowe, przetestowane wartości
+ * pikseli w `timeline.test.tsx` („dopasowanie…” dają dziś dokładnie
+ * `measuredWidthPx`) — kosmetyczna poprawka, którą zostawiam jako osobną
+ * decyzję, nie coś do przemycenia przy okazji tego zadania.
  */
 function fitZoom(measuredWidthPx: number | null): number {
   if (measuredWidthPx === null || measuredWidthPx <= 0) return 1
@@ -105,12 +115,18 @@ export function Timeline() {
         </span>
       </div>
 
-      <div ref={setContainer} className="flex-1 overflow-auto">
-        <div className="relative" style={{ width: scale.widthPx * scale.zoom }}>
-          <Ruler scale={scale} />
-          <ShotTrack scale={scale} />
-          <Playhead scale={scale} />
-        </div>
+      {/*
+        Pion przewija się tu, na najbardziej zewnętrznym kontenerze — kolumna
+        nagłówków i obszar klipów w `TrackStack` mają się przewijać RAZEM w
+        pionie (to jeden stos, nie dwa niezależne), więc dzielą ten sam
+        kontener przewijający. W poziomie przewija się już tylko
+        `[data-scroller]` WEWNĄTRZ `TrackStack` — linijka i playhead trafiają
+        tam przez sloty `ruler`/`playhead`, żeby fizycznie leżeć w tym samym
+        przewijanym poziomo kontenerze co klipy (patrz komentarz w
+        `TrackStack.tsx`), zamiast osobno mierzyć przesunięcie nagłówków.
+      */}
+      <div ref={setContainer} className="flex-1 overflow-y-auto">
+        <TrackStack scale={scale} ruler={<Ruler scale={scale} />} playhead={<Playhead scale={scale} />} />
       </div>
 
       <p className="border-t border-neutral-800 px-3 py-1 text-[10px] text-neutral-600">

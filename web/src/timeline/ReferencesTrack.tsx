@@ -1,4 +1,4 @@
-import type { LabelKind } from '@mmh3/shared'
+import type { LabelKind, Project } from '@mmh3/shared'
 import { useProject } from '../store/projectStore.js'
 import { useT } from '../i18n/useT.js'
 import { msToPx, type Scale } from './scale.js'
@@ -10,6 +10,12 @@ import { toggleLabelInShot } from './retentionScope.js'
 const LABEL_NAME: Record<LabelKind, string> = {
   subject: 'Subject', picture: 'Picture', video: 'Video', audio: 'Audio',
 }
+
+/** Wysokość JEDNEGO wiersza etykiety (`h-6` niżej) — patrz `DIALOGUE_LANE_HEIGHT_PX` w `DialogueTracks.tsx`, ten sam powód. */
+export const REFERENCE_ROW_HEIGHT_PX = 24
+
+/** Liczba wierszy: jeden na etykietę projektu — jedno źródło dla `TrackStack` (zadanie 12) i tego komponentu. */
+export const referenceRowCount = (project: Project): number => project.labels.length
 
 /**
  * Ścieżka istnieje tylko w trybie REF, bo tylko tam etykiety mają sens — poza

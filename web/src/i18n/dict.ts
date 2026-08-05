@@ -43,6 +43,10 @@ const pl = {
   'timeline.trackCamera': 'Kamera',
   'timeline.trackDialogue': 'Dialog {speaker}',
   'timeline.trackDialogueOther': 'Dialog bez mówcy',
+  // Tytuł CAŁEJ grupy pasów dialogowych w kolumnie nagłówków (zadanie 12) —
+  // `timeline.trackDialogue` niesie parametr mówcy i nie nadaje się na
+  // wspólny tytuł, gdy pasów jest kilka (jeden na mówcę plus zbiorczy).
+  'timeline.trackDialogueAll': 'Dialogi',
   'timeline.trackScreenText': 'Tekst na ekranie',
   'timeline.trackSfx': 'SFX',
   'timeline.trackSoundscape': 'Pejzaż dźwiękowy',
@@ -52,6 +56,11 @@ const pl = {
   'timeline.boundaryHandle': 'Ujęcie {number} — przeciągnij granicę, aby zmienić czas cięcia',
   'timeline.addShot': 'Dodaj ujęcie',
   'timeline.shortcuts': 'Spacja odtwarza, S dzieli ujęcie, Delete usuwa zaznaczone',
+
+  // Zwijanie/rozwijanie pasa w kolumnie nagłówków (zadanie 12).
+  'timeline.collapse': 'Zwiń ścieżkę {track}',
+  'timeline.expand': 'Rozwiń ścieżkę {track}',
+  'timeline.tracks': 'Ścieżki osi czasu',
 
   // Etykiety przycisków dodawania na ścieżkach (zadanie 14) — treść
   // interfejsu, więc idzie przez słownik normalnie w obu językach.
@@ -197,6 +206,7 @@ const en: Record<TKey, string> = {
   'timeline.trackCamera': 'Camera',
   'timeline.trackDialogue': 'Dialogue {speaker}',
   'timeline.trackDialogueOther': 'Dialogue without speaker',
+  'timeline.trackDialogueAll': 'Dialogue',
   'timeline.trackScreenText': 'On-screen text',
   'timeline.trackSfx': 'SFX',
   'timeline.trackSoundscape': 'Soundscape',
@@ -206,6 +216,10 @@ const en: Record<TKey, string> = {
   'timeline.boundaryHandle': 'Shot {number} — drag the boundary to change the cut time',
   'timeline.addShot': 'Add shot',
   'timeline.shortcuts': 'Space plays, S splits a shot, Delete removes the selection',
+
+  'timeline.collapse': 'Collapse track {track}',
+  'timeline.expand': 'Expand track {track}',
+  'timeline.tracks': 'Timeline tracks',
 
   'track.addCamera': 'Add camera move at the playhead',
   'track.addDialogue': 'Add line at the playhead',

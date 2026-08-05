@@ -53,7 +53,26 @@ import { msToPx, type Scale } from './scale.js'
  * czytnik ekranu bez informacji, którą osoba widząca odczytuje wprost z
  * klipu („nie opisano").
  */
-export function AudioBedTracks({ scale }: { scale: Scale }) {
+/** Identyfikator pola modelu za jednym z dwóch pasów — patrz komentarz nad komponentem. */
+export type AudioBedId = 'overallSoundscape' | 'nonDiegeticMusic'
+
+interface Props {
+  scale: Scale
+  /**
+   * `TrackStack` (zadanie 12) daje pejzażowi i muzyce osobne wiersze
+   * nagłówka z osobnym zwijaniem — a te dwa pasy dziś rysuje JEDEN
+   * komponent. `only` pozwala TEJ SAMEJ liście `beds` niżej (jedno źródło
+   * etykiet i treści dla obu pasów, patrz komentarz nad komponentem) wydać
+   * tylko jeden z dwóch wierszy DOM-u na jedno wywołanie, więc
+   * `TrackStack` woła komponent dwukrotnie (raz na pas) zamiast dostawać
+   * oba pasy sklejone w jednym wierszu treści, którego wiersz nagłówka nie
+   * dałby się dopasować 1:1. Bez parametru (jak dotąd) renderują się oba —
+   * zachowanie sprzed zadania 12 i istniejące testy tego komponentu.
+   */
+  only?: AudioBedId
+}
+
+export function AudioBedTracks({ scale, only }: Props) {
   const t = useT()
   const project = useProject(state => state.project)
   const selected = useSelection(state => state.selected)
@@ -64,7 +83,12 @@ export function AudioBedTracks({ scale }: { scale: Scale }) {
 
   const width = msToPx(scale, scale.durationMs)
 
-  const beds: Array<{ id: string; dataTrack: string; trackLabel: string; labelKey: TKey; text: string }> = [
+  // Adnotacja typu na `allBeds`, PRZED `.filter` — kontekst typu z adnotacji
+  // na `const x: T = wyrażenie` nie przechodzi przez wywołanie metody
+  // (`.filter(...)` na literale tablicy), więc literały obiektów niżej
+  // dostałyby poszerzone `id: string` zamiast `AudioBedId`, gdyby adnotacja
+  // stała dopiero na wyniku `.filter`.
+  const allBeds: Array<{ id: AudioBedId; dataTrack: string; trackLabel: string; labelKey: TKey; text: string }> = [
     {
       id: 'overallSoundscape',
       dataTrack: 'audio-soundscape',
@@ -80,6 +104,7 @@ export function AudioBedTracks({ scale }: { scale: Scale }) {
       text: project.audio.nonDiegeticMusic,
     },
   ]
+  const beds = allBeds.filter(bed => only === undefined || bed.id === only)
 
   return (
     <>

@@ -1,12 +1,10 @@
 import { useProject } from '../store/projectStore.js'
-import { usePlayhead } from '../store/playheadStore.js'
 import { same, useSelection } from '../store/selectionStore.js'
 import { useT } from '../i18n/useT.js'
 import { msToPx, type Scale } from './scale.js'
 import { clipBox } from './clips.js'
 import { useDragClip } from './useDragClip.js'
 import { shotSpans } from './spans.js'
-import { addSfx } from './createOnTrack.js'
 
 /**
  * Dźwięk diegetyczny nie jest przywiązany do własnego ujęcia — żadna reguła
@@ -86,16 +84,6 @@ export function SfxTrack({ scale }: { scale: Scale }) {
       className="relative h-8 border-b border-neutral-800"
       style={{ width: msToPx(scale, scale.durationMs) }}
     >
-      {/* Jak w `CameraTrack`: przycisk w rogu ścieżki do przeniesienia do nagłówka w zadaniu 12. */}
-      <button
-        type="button"
-        aria-label={t('track.addSfx')}
-        onClick={() => useProject.getState().apply(
-          candidate => addSfx(candidate, usePlayhead.getState().ms))}
-        className="absolute left-0 top-0 z-10 px-1 text-[10px] text-neutral-400 hover:text-neutral-100"
-      >
-        +
-      </button>
       {sorted.map(({ span, sound, position }) => {
         const ref = { kind: 'sfx' as const, id: sound.id }
         const isSelected = selected.some(candidate => same(candidate, ref))

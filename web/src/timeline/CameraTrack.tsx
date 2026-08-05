@@ -1,12 +1,10 @@
 import { useProject } from '../store/projectStore.js'
-import { usePlayhead } from '../store/playheadStore.js'
 import { same, useSelection } from '../store/selectionStore.js'
 import { useT } from '../i18n/useT.js'
 import { msToPx, type Scale } from './scale.js'
 import { clipBox } from './clips.js'
 import { useDragClip } from './useDragClip.js'
 import { shotSpans } from './spans.js'
-import { addCameraMove } from './createOnTrack.js'
 
 /**
  * Ruch kamery należy do ujęcia i reguła `CAM_IN_SHOT_BOUNDS` wymaga, żeby się
@@ -95,22 +93,6 @@ export function CameraTrack({ scale }: { scale: Scale }) {
       className="relative h-8 border-b border-neutral-800"
       style={{ width: msToPx(scale, scale.durationMs) }}
     >
-      {/*
-        Przycisk dodawania na playheadzie — na razie w rogu samej ścieżki, nie
-        w nagłówku (nagłówki żyją dopiero w `TrackStack` z zadania 12, a to
-        zadanie idzie przed nim; zadanie 12 przeniesie przycisk tam razem z
-        resztą). `z-10`, żeby stał nad klipami zaczynającymi się w `ms=0` —
-        koszt zaakceptowany świadomie na czas tego zadania, patrz plan.
-      */}
-      <button
-        type="button"
-        aria-label={t('track.addCamera')}
-        onClick={() => useProject.getState().apply(
-          candidate => addCameraMove(candidate, usePlayhead.getState().ms))}
-        className="absolute left-0 top-0 z-10 px-1 text-[10px] text-neutral-400 hover:text-neutral-100"
-      >
-        +
-      </button>
       {spans.flatMap(span => span.shot.cameraMoves.map((move, position) => {
         const ref = { kind: 'camera' as const, id: move.id }
         const isSelected = selected.some(candidate => same(candidate, ref))

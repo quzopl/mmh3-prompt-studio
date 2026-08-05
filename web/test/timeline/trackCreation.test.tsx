@@ -3,10 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { buildPrompt } from '@mmh3/shared'
 import { createScale } from '../../src/timeline/scale.js'
-import { CameraTrack } from '../../src/timeline/CameraTrack.js'
-import { SfxTrack } from '../../src/timeline/SfxTrack.js'
-import { DialogueTracks } from '../../src/timeline/DialogueTracks.js'
-import { ScreenTextTrack } from '../../src/timeline/ScreenTextTrack.js'
+import { TrackStack } from '../../src/timeline/TrackStack.js'
 import { useTimelineShortcuts } from '../../src/timeline/useTimelineShortcuts.js'
 import { useProject } from '../../src/store/projectStore.js'
 import { usePlayhead } from '../../src/store/playheadStore.js'
@@ -23,6 +20,15 @@ const twoShots = () => baseProject([emptyShot('a', 0, 0), emptyShot('b', 1, 4000
  * Skrót Delete żyje w `useTimelineShortcuts` (nasłuch na `window`), nie w
  * samej ścieżce — bez tego uchwytu klawisz nie miałby kto go obsłużyć,
  * dokładnie jak w `shortcuts.test.tsx`.
+ */
+/**
+ * Zadanie 12: przyciski „+" przeniosły się z rogu każdej ścieżki do kolumny
+ * nagłówków `TrackStack` (patrz `TrackStack.tsx` i jego komentarz) — kolizja
+ * z klipem zaczynającym się w `ms=0`, przed którą ostrzegał komentarz przy
+ * starym przycisku w `CameraTrack.tsx`. Testy niżej renderują więc CAŁY
+ * `TrackStack`, nie pojedynczą ścieżkę — sama ścieżka od tego zadania nie ma
+ * już własnego przycisku dodawania, więc test wymierzony w samą ścieżkę nie
+ * miałby czego kliknąć.
  */
 function Harness({ children }: { children: React.ReactNode }) {
   useTimelineShortcuts()
@@ -63,7 +69,7 @@ beforeEach(() => {
 describe('tworzenie i usuwanie na CameraTrack', () => {
   it('przycisk dodaje klip na playheadzie, Delete go usuwa jednym wpisem historii razem z dodaniem', async () => {
     const user = userEvent.setup()
-    render(<Harness><CameraTrack scale={scale} /></Harness>)
+    render(<Harness><TrackStack scale={scale} /></Harness>)
 
     expect(screen.queryByRole('button', { name: /^Ruch kamery/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /dodaj ruch kamery/i }))
@@ -86,7 +92,7 @@ describe('tworzenie i usuwanie na CameraTrack', () => {
 describe('tworzenie i usuwanie na SfxTrack', () => {
   it('przycisk dodaje klip na playheadzie, Delete go usuwa jednym wpisem historii razem z dodaniem', async () => {
     const user = userEvent.setup()
-    render(<Harness><SfxTrack scale={scale} /></Harness>)
+    render(<Harness><TrackStack scale={scale} /></Harness>)
 
     expect(screen.queryByRole('button', { name: /^Dźwięk:/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /dodaj dźwięk/i }))
@@ -116,7 +122,7 @@ describe('tworzenie i usuwanie na SfxTrack', () => {
 describe('tworzenie i usuwanie na DialogueTracks', () => {
   it('przycisk dodaje kwestię bez mówcy na playheadzie, Delete ją usuwa jednym wpisem historii razem z dodaniem', async () => {
     const user = userEvent.setup()
-    render(<Harness><DialogueTracks scale={scale} /></Harness>)
+    render(<Harness><TrackStack scale={scale} /></Harness>)
 
     expect(screen.queryByRole('button', { name: /^Kwestia/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /dodaj kwestię/i }))
@@ -139,7 +145,7 @@ describe('tworzenie i usuwanie na DialogueTracks', () => {
 describe('tworzenie i usuwanie na ScreenTextTrack', () => {
   it('przycisk dodaje tekst na ekranie w ujęciu pod playheadem, Delete go usuwa jednym wpisem historii razem z dodaniem', async () => {
     const user = userEvent.setup()
-    render(<Harness><ScreenTextTrack scale={scale} /></Harness>)
+    render(<Harness><TrackStack scale={scale} /></Harness>)
 
     expect(screen.queryByRole('button', { name: /^Tekst na ekranie/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /dodaj tekst na ekranie/i }))
