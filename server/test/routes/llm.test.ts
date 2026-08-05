@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { request as httpRequest } from 'node:http'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../../src/app.js'
 
@@ -156,4 +157,62 @@ describe('POST /api/llm/run', () => {
     expect(body.promptTokens).toBe(22)
     expect(body.completionTokens).toBe(44)
   })
+
+  /**
+   * Runda 2 recenzji: `app.inject` (`light-my-request`) nie modeluje realnego
+   * zerwania gniazda TCP, więc poprzednia wersja tego pliku nie mogła dowieść
+   * ani starej usterki (`new AbortController()`, którego nic nie przerywa),
+   * ani jej naprawy (`request.signal`, który — jak się okazało — jest martwy
+   * z INNEGO powodu: leniwy odczyt po `await` trafia na zdarzenie `close`,
+   * które już minęło). Ten test zakłada PRAWDZIWY serwer nasłuchujący na
+   * porcie, łączy się prawdziwym klientem `node:http`, i naprawdę niszczy
+   * połączenie w trakcie oczekiwania na (zaślepiony) model — dokładnie tak,
+   * jak zrobił to recenzent.
+   */
+  it('sygnał przekazany do modelu przerywa się przy realnym zerwaniu połączenia — i nie wcześniej, gdy klient wciąż czeka', async () => {
+    const slug = await createProject('Test projekt')
+    await enableProvider()
+
+    let capturedSignal: AbortSignal | undefined
+    let resolveFetchCalled: () => void
+    const fetchCalled = new Promise<void>(resolve => { resolveFetchCalled = resolve })
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => {
+      capturedSignal = init.signal ?? undefined
+      resolveFetchCalled()
+      // Nigdy się nie kończy — symuluje model, który jeszcze odpowiada, gdy
+      // klient zdąży zerwać połączenie.
+      return new Promise<Response>(() => {})
+    }))
+
+    await app.listen({ port: 0, host: '127.0.0.1' })
+    const address = app.server.address()
+    if (address === null || typeof address === 'string') throw new Error('serwer testowy bez adresu')
+
+    const body = JSON.stringify(runBody({ projectSlug: slug }))
+    const req = httpRequest({
+      host: '127.0.0.1',
+      port: address.port,
+      path: '/api/llm/run',
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
+    })
+    // Bez odbiorcy błędu `destroy()` niżej zgłosiłby niesłuchane zdarzenie
+    // `error` (ECONNRESET) i wywalił test procesem — to oczekiwany efekt
+    // uboczny zrywania własnego żądania, nie usterka.
+    req.on('error', () => {})
+    req.write(body)
+    req.end()
+
+    await fetchCalled
+
+    // Klient wciąż połączony, czeka na odpowiedź modelu — sygnał ma być cały.
+    expect(capturedSignal?.aborted).toBe(false)
+
+    req.destroy()
+
+    // `close` na surowym żądaniu serwera i przejście przez onRequestAbort nie
+    // są synchroniczne z `destroy()` klienta — odczekujemy, aż się rozejdą.
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(capturedSignal?.aborted).toBe(true)
+  }, 10000)
 })

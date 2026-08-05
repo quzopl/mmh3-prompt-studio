@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { LlmSettingsSchema, readSettings, redactSettings, writeSettings } from '../llm/settings.js'
 import { createProvider } from '../llm/provider.js'
@@ -34,6 +34,48 @@ const RunBody = z.discriminatedUnion('task', [
     ideaB: z.string().min(1),
   }),
 ])
+
+/**
+ * Sygnał przerwania na wywołanie modelu, budowany osobno dla każdego żądania.
+ *
+ * Runda 2 recenzji, dwa ślepe zaułki po drodze, oba sprawdzone gniazdem
+ * testowym (`llm.test.ts`), nie samą lekturą dokumentacji:
+ *
+ * 1. `request.signal` (Fastify 5) to leniwy getter, który podpina się do
+ *    zdarzenia `close` surowej wiadomości DOPIERO przy pierwszym odczycie. Od
+ *    Node 16 `close` na `IncomingMessage` POSIADAJĄCEJ CIAŁO odpala się, gdy
+ *    to ciało zostanie w całości odebrane — NIE dopiero wtedy, gdy gniazdo
+ *    faktycznie padnie. Odczyt po paru `await` trafiał więc na `close`, które
+ *    już minęło i nigdy się nie powtórzy.
+ *
+ * 2. Poprawka „użyj haka `onRequestAbort`" (publiczne API tego samego
+ *    mechanizmu co własna warstwa routingu Fastify — `req.on('close', …)` +
+ *    sprawdzenie `req.aborted`) wygląda na właściwą i jest nią dla żądań BEZ
+ *    ciała (tak testuje ją sam pakiet Fastify — `GET` bez treści). Ale
+ *    `POST /api/llm/run` ciało ma zawsze, a `close` na `request.raw` dla
+ *    żądania z ciałem odpala się RAZ, w chwili, gdy parser JSON skończy je
+ *    czytać — czyli prawie natychmiast po starcie handlera, z `req.aborted
+ *    === false`, i nigdy więcej, nawet gdy gniazdo realnie potem padnie.
+ *    Zmierzone osobnym, minimalnym serwerem Fastify z gniazdem `net.connect`:
+ *    hak `onRequestAbort` dla trasy z ciałem JSON nie odpalił się ANI RAZU
+ *    w ciągu sekundy po zerwaniu połączenia.
+ *
+ * Działa nasłuch na SUROWYM GNIEŹDZIE TCP (`request.raw.socket`), nie na
+ * `IncomingMessage`: zdarzenie `close` gniazda odpala się dokładnie raz, w
+ * chwili realnego zerwania połączenia, niezależnie od tego, czy żądanie miało
+ * ciało — to samo zmierzone tym samym gniazdem testowym. Nasłuch jest
+ * zdejmowany w `finally`, więc normalne zamknięcie gniazda PO wysłaniu
+ * odpowiedzi nigdy nie odpala przerwania, którego już nie ma czego dotyczyć.
+ */
+function abortSignalFor(request: FastifyRequest): { signal: AbortSignal; release: () => void } {
+  const controller = new AbortController()
+  const onClose = (): void => controller.abort()
+  request.raw.socket.once('close', onClose)
+  return {
+    signal: controller.signal,
+    release: () => request.raw.socket.off('close', onClose),
+  }
+}
 
 export function registerLlmRoutes(app: FastifyInstance): void {
   app.get('/api/llm/settings', async () =>
@@ -114,11 +156,7 @@ export function registerLlmRoutes(app: FastifyInstance): void {
       return reply.status(404).send({ error: `Projekt "${parsed.data.projectSlug}" nie istnieje` })
     }
 
-    // Sygnał ŻĄDANIA, nie świeży `AbortController`, którego nic nigdy nie
-    // przerwie — Fastify 5 wystawia `request.signal`, który odpala się, gdy
-    // klient się rozłączy w trakcie oczekiwania na model. Bez tego rozłączenie
-    // klienta zostawiało wywołanie modelu działające dalej w tle, bez adresata.
-    const { signal } = request
+    const { signal, release } = abortSignalFor(request)
     try {
       switch (parsed.data.task) {
         case 'structure': {
@@ -148,6 +186,8 @@ export function registerLlmRoutes(app: FastifyInstance): void {
       }
     } catch (error) {
       return reply.status(502).send({ error: error instanceof Error ? error.message : 'Błąd modelu' })
+    } finally {
+      release()
     }
   })
 }

@@ -219,27 +219,52 @@ function findSpeakerByCode(project: Project, name: string): Speaker | undefined 
   return project.speakers.find(speaker => speaker.code.trim().toLowerCase() === needle)
 }
 
+/**
+ * Zdanie z kompozycji i akcji, zamknięte kropką — jeśli model już jej nie
+ * dopisał — żeby to, co dojdzie po niej (ruch kamery jako osobne zdanie,
+ * patrz `sentenceJoin` niżej), zaczynało się od wielkiej litery po kropce, a
+ * nie w środku tego samego zdania.
+ */
 function composeBodyText(composition: string, action: string): string {
   const parts = [composition.trim(), action.trim()].filter(part => part !== '')
-  return parts.join(' ')
+  const text = parts.join(' ')
+  if (text === '' || /[.!?]$/.test(text)) return text
+  return `${text}.`
 }
 
 /**
- * Wstawia pojedynczą spację między KAŻDĄ parą sąsiednich segmentów.
- * `renderSegments` (`shared/src/compile/renderShot.ts`) skleja `body` pustym
- * stringiem, więc bez separatora sąsiednie segmenty zlepiają się w jeden ciąg
- * bez odstępu — `web/src/timeline/createOnTrack.ts::appendToBody` rozwiązało
- * dokładnie ten sam problem (z tym samym uzasadnieniem w komentarzu) dla
- * dopisywania na końcu istniejącego `body`; tu segmenty budujemy od zera, więc
- * potrzebny jest odstęp między wszystkimi, nie tylko na styku starej i nowej
- * treści. Żaden test schematu ani reguła walidatora tego nie łapie — sklejona
- * proza wciąż jest poprawnym, kompilowalnym projektem, tylko nieczytelnym —
- * stąd jedyna ochrona to test czytający skompilowany tekst wprost.
+ * Łączy sąsiednie segmenty `body` tak, żeby skompilowana proza czytała się
+ * jako zdania, nie jako jeden zlepiony ciąg.
+ *
+ * Runda 1 recenzji naprawiła sklejenie (dodała spację między segmentami), ale
+ * sama spacja nie wystarcza: `renderCameraMove` (`shared/src/compile/renderCamera.ts`)
+ * oddaje frazę BEZ końcowej kropki ("The camera pushes in"), więc segment
+ * mówcy doklejony samą spacją czyta się jako dopełnienie czasownika — "The
+ * camera pushes in a woman in a blue coat (S1) says:" — realny błąd odczytu
+ * dla modelu wideo, nie tylko kwestia estetyki. Złote przykłady w
+ * `shared/test/golden/` rozwiązują to samo miejsce łącząc frazę kamery
+ * spójnikiem w TYM SAMYM zdaniu (" as ..."), ale to wymaga klauzuli
+ * czasownikowej po stronie ruchu, której to zadanie nie ma — model nie
+ * podaje nic w rodzaju "as she turns". Najbliższe bezpieczne rozwiązanie bez
+ * zmyślania treści: fraza kamery staje się WŁASNYM, kompletnym zdaniem
+ * ("The camera pushes in.") zamiast fragmentu bez czasownika dopełnienia.
+ *
+ * Para mówca→dialog zostaje bez kropki między nimi — to jeden byt gramatyczny
+ * ("The woman in a blue coat (S1) says: <d>...</d>"), dokładnie ten sam
+ * kształt co w `shared/test/golden/fixtures/base.ts` (i2va: "... the quiet,
+ * breathy young woman (S1) says: <d>...").
  */
-function withSpacing(segments: Segment[]): Segment[] {
-  return segments.flatMap((segment, index) => (
-    index === 0 ? [segment] : [{ kind: 'text', text: ' ' } satisfies Segment, segment]
-  ))
+function sentenceJoin(segments: Segment[]): Segment[] {
+  const body: Segment[] = []
+  segments.forEach((segment, index) => {
+    const previous = segments[index - 1]
+    if (previous !== undefined) {
+      const connective = previous.kind === 'camera' ? '. ' : ' '
+      body.push({ kind: 'text', text: connective })
+    }
+    body.push(segment)
+  })
+  return body
 }
 
 /**
@@ -247,20 +272,31 @@ function withSpacing(segments: Segment[]): Segment[] {
  * wie nic o etykietach ani obrazach referencyjnych (`project.labels`), więc
  * nie ma z czego zbudować nowej kotwicy — ale jeśli projekt już miał
  * poprawnie umieszczoną, `replaceShots` (który wymienia WSZYSTKIE ujęcia
- * naraz) nie ma prawa jej po cichu zgubić. Zgubienie zamienia projekt, który
- * wcześniej się eksportował, w projekt, który przestaje — `ANCHOR_REQUIRED` i
- * (w L2VA) `L2VA_ANCHOR_LAST_SHOT` to BŁĘDY, nie przyjęte wyjątki od reguły
- * „żadna nowa diagnostyka", a `isExportReady` blokuje eksport na każdym
- * błędzie. Przenosimy więc dokładnie to, co któraś reguła sprawdza —
- * `picture-first` na nowe PIERWSZE ujęcie, `picture-last` na nowe OSTATNIE —
- * i nic ponad to (`keyframe` nie jest dziś sprawdzany przez żadną regułę).
+ * naraz) nie ma prawa jej po cichu zgubić.
+ *
+ * `picture-first` i `picture-last` mają w walidatorze ustaloną stronę:
+ * `ANCHOR_REQUIRED` i (w L2VA) `L2VA_ANCHOR_LAST_SHOT`
+ * (`shared/src/validate/rules/anchors.ts`) to BŁĘDY, nie przyjęte wyjątki od
+ * reguły „żadna nowa diagnostyka", więc trafiają dokładnie tam, gdzie reguła
+ * ich szuka: pierwsza na nowe PIERWSZE ujęcie, druga na nowe OSTATNIE.
+ *
+ * `keyframe` żadnej reguły nie ma (`shared/src/validate/rules` go nigdzie nie
+ * czyta) i żadnej ustalonej strony też — `web/src/timeline/AnchorBadges.tsx`
+ * pozwala postawić ją na DOWOLNYM ujęciu w trybie REF, nie tylko pierwszym
+ * czy ostatnim. Po wymianie kompletu ujęć nie ma jak odtworzyć „tego samego”
+ * ujęcia, na którym stała — więc zamiast udawać precyzję, której nie da się
+ * mieć, ląduje na nowym pierwszym ujęciu: to i tak lepsze niż ciche
+ * zniknięcie decyzji użytkownika bez żadnej diagnostyki, która by o niej
+ * powiedziała.
  */
-function anchorsToCarry(oldShots: Shot[]): { first: boolean; last: boolean } {
-  const allAnchors = oldShots.flatMap(shot => shot.anchors)
-  return {
-    first: allAnchors.includes('picture-first'),
-    last: allAnchors.includes('picture-last'),
-  }
+function anchorsToCarry(oldShots: Shot[]): { first: Anchor[]; last: Anchor[] } {
+  const allAnchors = new Set(oldShots.flatMap(shot => shot.anchors))
+  const first: Anchor[] = []
+  const last: Anchor[] = []
+  if (allAnchors.has('picture-first')) first.push('picture-first')
+  if (allAnchors.has('keyframe')) first.push('keyframe')
+  if (allAnchors.has('picture-last')) last.push('picture-last')
+  return { first, last }
 }
 
 /**
@@ -334,8 +370,8 @@ export function structureToPatch(result: StructureResult, project: Project): Pro
     }
 
     const anchors: Anchor[] = [
-      ...(carry.first && position === 0 ? (['picture-first'] as const) : []),
-      ...(carry.last && position === lastPosition ? (['picture-last'] as const) : []),
+      ...(position === 0 ? carry.first : []),
+      ...(position === lastPosition ? carry.last : []),
     ]
 
     return {
@@ -345,7 +381,7 @@ export function structureToPatch(result: StructureResult, project: Project): Pro
       cutType: 'cut',
       cutPhrase: 'the camera cuts to',
       composition: input.composition,
-      body: withSpacing(segments),
+      body: sentenceJoin(segments),
       cameraMoves,
       dialogue,
       screenText: [],

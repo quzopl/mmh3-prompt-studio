@@ -1,4 +1,4 @@
-import { MS_PER_FRAME, snapToFrame } from '@mmh3/shared'
+import { MIN_SHOT_FRAMES, MS_PER_FRAME, snapToFrame } from '@mmh3/shared'
 import { useProject } from '../store/projectStore.js'
 import { normalizeProject } from './normalizeProject.js'
 import { pxToMs, snapMs, type Scale } from './scale.js'
@@ -16,9 +16,11 @@ import { shotSpans } from './spans.js'
 const frameIndexOf = (ms: number): number => Math.round(ms / MS_PER_FRAME)
 const msOfFrameIndex = (frame: number): number => Math.round(frame * MS_PER_FRAME)
 
-/** Najkrótsze dopuszczalne ujęcie w klatkach. Krócej i po przyciągnięciu do klatki cięcia przestałyby rosnąć. */
-const MIN_SHOT_FRAMES = 2
-
+// `MIN_SHOT_FRAMES` mieszka w `shared/src/time/shotOrder.ts` — jedna
+// definicja, nie kopia zgodna dziś co do wartości z tamtą (i z
+// `web/src/timeline/normalize.ts` sprzed refaktoru rundy 1), która już raz
+// się rozjechała z inną kopią tej samej stałej w `server/`. Trzeci egzemplarz
+// tutaj byłby dokładnie tym samym ryzykiem, tylko jeszcze nieodkrytym.
 export const MIN_SHOT_MS = msOfFrameIndex(MIN_SHOT_FRAMES)
 
 /**

@@ -196,11 +196,11 @@ describe('structureToPatch — ruch kamery', () => {
 
 describe('structureToPatch — proza skompilowana czytelnie', () => {
   it('segmenty w body są rozdzielone spacją, a nie sklejone w jeden ciąg', () => {
-    // Odtwarza dokładnie znalezisko z recenzji: `renderSegments` skleja `body`
-    // pustym stringiem, więc tekst, ruch kamery, mówca i dialog dopisane bez
-    // separatora dają "suitcase.The camera pushes ina woman...says:" —
-    // poprawny, kompilowalny projekt, ale nieczytelna proza, której żadna
-    // reguła walidatora nie łapie.
+    // Odtwarza dokładnie znalezisko z rundy 1 recenzji: `renderSegments`
+    // skleja `body` pustym stringiem, więc tekst, ruch kamery, mówca i dialog
+    // dopisane bez separatora dają "suitcase.The camera pushes ina
+    // woman...says:" — poprawny, kompilowalny projekt, ale nieczytelna proza,
+    // której żadna reguła walidatora nie łapie.
     const result: StructureResult = {
       shots: [{
         startSeconds: 0,
@@ -220,6 +220,64 @@ describe('structureToPatch — proza skompilowana czytelnie', () => {
     expect(text).not.toContain('suitcase.The camera')
     expect(text).toContain('(S1) says:')
     expect(text).not.toContain(')says:')
+  })
+
+  it('fraza ruchu kamery kończy się własną kropką, żeby to, co po niej, nie czytało się jako jej dopełnienie', () => {
+    // Runda 2 recenzji: sama spacja z rundy 1 nie wystarczała —
+    // "...The camera pushes in a woman in a blue coat (S1) says:" czyta się
+    // jak "pushes in [obiekt: kobietę]", realny błąd odczytu dla modelu
+    // wideo, nie tylko brzydka proza. Ruch kamery musi kończyć WŁASNE zdanie.
+    const result: StructureResult = {
+      shots: [{
+        startSeconds: 0,
+        composition: 'a medium shot of a departure hall',
+        action: 'a woman grips the handle of her suitcase',
+        cameraMove: 'push-in',
+        speaker: 'S1',
+        line: 'I am not getting on that train.',
+      }],
+    }
+    const before = projectWithSpeaker()
+    const patch = structureToPatch(result, before)
+    const after = applyOps(before, patch.ops)
+    const { text } = buildPrompt(after)
+
+    expect(text).toContain('The camera pushes in. ')
+    expect(text).not.toContain('pushes in a woman')
+    expect(text).not.toContain('pushes in the')
+  })
+
+  it('composeBodyText dopisuje kropkę na końcu akcji, gdy model jej nie podał', () => {
+    const result: StructureResult = {
+      shots: [{
+        startSeconds: 0,
+        composition: 'a wide shot of a quiet courtyard',
+        // Celowo bez końcowej kropki — model nie zawsze ją doda.
+        action: 'leaves drift across the stone floor',
+        cameraMove: 'static',
+      }],
+    }
+    const patch = structureToPatch(result, newProject())
+    const op = patch.ops[0]
+    if (op === undefined || op.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
+    const textSegment = op.shots[0]?.body[0]
+    expect(textSegment?.kind === 'text' && textSegment.text.endsWith('.')).toBe(true)
+  })
+
+  it('ruch kamery jako ostatni segment (bez dialogu) nie zostawia sierocej kropki ani spacji na końcu', () => {
+    const result: StructureResult = {
+      shots: [{
+        startSeconds: 0,
+        composition: 'a wide shot of a quiet courtyard',
+        action: 'leaves drift across the stone floor.',
+        cameraMove: 'static',
+      }],
+    }
+    const patch = structureToPatch(result, newProject())
+    const op = patch.ops[0]
+    if (op === undefined || op.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
+    const lastSegment = op.shots[0]?.body.at(-1)
+    expect(lastSegment?.kind).toBe('camera')
   })
 })
 
@@ -388,6 +446,30 @@ describe('structureToPatch — kotwice referencyjne', () => {
     const op = patch.ops[0]
     if (op === undefined || op.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
     expect(op.shots[0]?.anchors).toEqual([])
+  })
+
+  it('REF: kotwica "keyframe" nie znika, choć żadna reguła walidatora jej nie sprawdza', () => {
+    // `keyframe` (web/src/timeline/AnchorBadges.tsx) nie ma ustalonej strony —
+    // użytkownik mógł ją postawić na dowolnym starym ujęciu, nie tylko
+    // pierwszym czy ostatnim, a po wymianie kompletu ujęć nie ma jak odtworzyć
+    // „to samo" ujęcie. Test sprawdza tylko, że decyzja NIE ZNIKA bez śladu —
+    // nie że trafia na konkretną pozycję.
+    const project = newProject()
+    const shot = project.shots[0]
+    if (shot === undefined) throw new Error('fixture bez ujęcia')
+    const before: Project = { ...project, mode: 'REF', shots: [{ ...shot, anchors: ['keyframe'] }] }
+
+    const result: StructureResult = {
+      shots: [
+        { startSeconds: 0, composition: 'a', action: 'pierwsza scena' },
+        { startSeconds: 3, composition: 'b', action: 'druga scena' },
+        { startSeconds: 6, composition: 'c', action: 'trzecia scena' },
+      ],
+    }
+    const patch = structureToPatch(result, before)
+    const after = applyOps(before, patch.ops)
+
+    expect(after.shots.some(s => s.anchors.includes('keyframe'))).toBe(true)
   })
 })
 
