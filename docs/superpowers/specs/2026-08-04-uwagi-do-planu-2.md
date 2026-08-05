@@ -297,3 +297,33 @@ a to dokładnie to, czego zakazuje zasada wyprowadzona w Planie 4, zadanie 8:
 propozycja ani normalizacja nie decydują niczego za użytkownika. Odznaka
 `anchor.stale` jest już zbudowana tak, żeby przetrwałą kotwicę dało się zdjąć
 jednym kliknięciem, więc droga wyjścia istnieje i jest widoczna.
+
+## 19. Model ma pola, których nikt nie czyta
+
+Zebrane po pięciu planach, bo przestało być przypadkiem:
+
+- `Shot.composition` — istnieje wyłącznie po to, żeby reguła `CUT_SHOULD_BE_MOVE`
+  mogła porównać sąsiednie ujęcia; do promptu nie trafia (punkt 2 tego dokumentu,
+  otwarty od Planu 1).
+- `CameraMove.startMs` i `endMs` — walidowane przez `CAM_IN_SHOT_BOUNDS`, sterują
+  ograniczeniami przeciągania na osi czasu, a `renderCameraMove` w ogóle ich nie
+  czyta. Kolejność segmentów w prompcie bierze się z `shot.body`, nie z czasu.
+- **Cała ścieżka `diegeticSfx`** — nie ma wariantu `Segment` dla dźwięku, więc nie
+  ma jak trafić do `body`, a `emitBase` ani `emitRef` nie czytają tablicy. Jedyny
+  ślad, jaki dźwięk zostawia w systemie, to zliczenie obecności w regule
+  `SOUNDSCAPE_NA_ONLY_IF_SILENT`.
+- `Label.role` — wykryte przy Planie 5, zadanie 15: żaden emiter ani żadna reguła
+  go nie czyta. `emitRef` renderuje wyłącznie `definition`, i to tylko dla etykiet
+  `standalone`.
+
+**Rozstrzygnięcie:** nie blokuje niczego, ale trzeba to nazwać, zamiast odkrywać
+za każdym razem od nowa. Każde z tych pól da się edytować w interfejsie, więc
+użytkownik ma prawo sądzić, że coś zmienia. Domknięcie jest jedno z dwóch dla
+każdego pola osobno: albo zasila prompt, albo znika z modelu i z interfejsu.
+Trzecia droga — zostawić edytowalne pole bez konsumenta — jest tą, którą idziemy
+dziś i której nie należy przedłużać w nieskończoność.
+
+Zadanie 15 Planu 5 zastosowało tu regułę roboczą, którą warto zachować:
+**tłumaczy się to, co model wideo przeczyta**. Pola bez konsumenta zostały poza
+tłumaczeniem całego projektu, bo przekładanie tekstu, którego nikt nie zobaczy,
+kosztuje kontekst modelu i niczego nie poprawia.
