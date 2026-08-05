@@ -47,6 +47,7 @@ const pl = {
   'timeline.trackSfx': 'SFX',
   'timeline.trackSoundscape': 'Pejzaż dźwiękowy',
   'timeline.trackMusic': 'Muzyka',
+  'timeline.trackReferences': 'Referencje',
   'timeline.clipLabel': 'Ujęcie {number}, od {start} ms do {end} ms',
   'timeline.boundaryHandle': 'Ujęcie {number} — przeciągnij granicę, aby zmienić czas cięcia',
   'timeline.addShot': 'Dodaj ujęcie',
@@ -78,6 +79,9 @@ const pl = {
   'audio.soundscapeClip': 'Pejzaż dźwiękowy całego wideo: {text}',
   'audio.musicClip': 'Muzyka całego wideo: {text}',
   'audio.empty': 'nie opisano',
+
+  'references.cell': 'Etykieta {label} w ujęciu {shot}',
+  'references.rowLabel': 'Występowanie etykiety {label}',
 
   'proposal.scenetrans': 'Kwestia przechodzi przez cięcie — dodaj <scenetrans>',
   'proposal.cutoff': 'Kwestia wystaje poza koniec materiału — oznacz <cutoff>',
@@ -181,6 +185,7 @@ const en: Record<TKey, string> = {
   'timeline.trackSfx': 'SFX',
   'timeline.trackSoundscape': 'Soundscape',
   'timeline.trackMusic': 'Music',
+  'timeline.trackReferences': 'References',
   'timeline.clipLabel': 'Shot {number}, from {start} ms to {end} ms',
   'timeline.boundaryHandle': 'Shot {number} — drag the boundary to change the cut time',
   'timeline.addShot': 'Add shot',
@@ -206,6 +211,9 @@ const en: Record<TKey, string> = {
   'audio.soundscapeClip': 'Soundscape of the whole video: {text}',
   'audio.musicClip': 'Music of the whole video: {text}',
   'audio.empty': 'not described',
+
+  'references.cell': 'Label {label} in shot {shot}',
+  'references.rowLabel': 'Occurrences of label {label}',
 
   'proposal.scenetrans': 'Line crosses a cut — add <scenetrans>',
   'proposal.cutoff': 'Line runs past the end of the material — mark <cutoff>',
