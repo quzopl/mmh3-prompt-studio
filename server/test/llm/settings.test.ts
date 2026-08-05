@@ -1,10 +1,13 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, writeFile, mkdir, chmod, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { readSettings, writeSettings, redactSettings, type LlmSettings } from '../../src/llm/settings.js'
 import { buildApp } from '../../src/app.js'
+import { createProject, listProjects } from '../../src/storage/projectStore.js'
+
+const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
 
 let root = ''
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'mmh3-llm-')) })
@@ -56,14 +59,42 @@ describe('ustawienia LLM', () => {
     expect((await readSettings(root)).mode).toBe('off')
   })
 
-  it('plik ustawień nie leży w katalogu żadnego projektu', async () => {
-    await writeSettings(root, {
-      mode: 'off',
-      endpoint: { baseUrl: '', apiKey: '', model: '' },
-      managed: { serverBinary: '', modelPath: '', gpuLayers: 0, contextSize: 4096 },
-    })
-    const raw = await readFile(settingsPath(root), 'utf8')
-    expect(raw.length).toBeGreaterThan(0)
+  it('katalog w miejscu pliku ustawień nie wywraca odczytu — wraca tryb wyłączony', async () => {
+    await mkdir(settingsPath(root))
+    expect((await readSettings(root)).mode).toBe('off')
+  })
+
+  // chmod 000 nic nie daje dla roota — omija uprawnienia plikowe, więc test
+  // przeszedłby niezależnie od tego, czy kod obsługuje EACCES. Pomijamy go
+  // wtedy w całości, żeby zielony wynik zawsze znaczył, że coś sprawdzono.
+  it.skipIf(isRoot)('plik bez prawa odczytu nie wywraca odczytu — wraca tryb wyłączony', async () => {
+    await writeSettings(root, withKey)
+    await chmod(settingsPath(root), 0o000)
+    try {
+      expect((await readSettings(root)).mode).toBe('off')
+    } finally {
+      await chmod(settingsPath(root), 0o600)
+    }
+  })
+
+  it('plik ustawień leży obok katalogu projektu, nie w jego wnętrzu, i nie trafia na listę projektów', async () => {
+    const { slug } = await createProject(root, 'Testowy', 'T2VA')
+    await writeSettings(root, withKey)
+
+    // Rodzeństwo katalogu projektu w drzewie katalogów, nie jego zawartość.
+    const entries = await readdir(root, { withFileTypes: true })
+    const settingsEntry = entries.find(entry => entry.name === 'llm-settings.json')
+    expect(settingsEntry?.isFile()).toBe(true)
+    const projectEntry = entries.find(entry => entry.name === slug)
+    expect(projectEntry?.isDirectory()).toBe(true)
+
+    // Regresja, która zagnieździłaby plik w katalogu projektu, ma się tu wywrócić.
+    await expect(readFile(join(root, slug, 'llm-settings.json'), 'utf8')).rejects.toThrow()
+
+    // I nie pojawia się na liście projektów.
+    const projects = await listProjects(root)
+    expect(projects.map(project => project.slug)).not.toContain('llm-settings.json')
+    expect(projects.map(project => project.slug)).toEqual([slug])
   })
 
   it('redakcja usuwa klucz i nie rusza reszty', () => {
@@ -143,6 +174,25 @@ describe('trasy /api/llm/settings', () => {
     expect(onDisk.endpoint.apiKey).toBe('tajne')
     expect(onDisk.endpoint.baseUrl).toBe('http://localhost:9999/v1')
     expect(onDisk.endpoint.model).toBe('inny-model')
+  })
+
+  it('PUT z null w apiKey czyści klucz', async () => {
+    await writeSettings(apiRoot, withKey)
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/llm/settings',
+      payload: {
+        mode: 'endpoint',
+        endpoint: { baseUrl: 'http://localhost:1234/v1', apiKey: null, model: 'qwen' },
+        managed: { serverBinary: '', modelPath: '', gpuLayers: 0, contextSize: 4096 },
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().endpoint.apiKey).toBe('')
+
+    const onDisk = JSON.parse(await readFile(settingsPath(apiRoot), 'utf8')) as LlmSettings
+    expect(onDisk.endpoint.apiKey).toBe('')
   })
 
   it('PUT odrzuca dane niezgodne ze schematem i nie ujawnia klucza w błędzie', async () => {
