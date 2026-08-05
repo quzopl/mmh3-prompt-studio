@@ -56,6 +56,9 @@ import { msToPx, type Scale } from './scale.js'
 /** Identyfikator pola modelu za jednym z dwóch pasów — patrz komentarz nad komponentem. */
 export type AudioBedId = 'overallSoundscape' | 'nonDiegeticMusic'
 
+/** Wysokość jednego pasa jako liczba — `TrackStack` (zadanie 12) liczy z TEJ SAMEJ stałej, nie z osobnej klasy `h-8`. */
+export const AUDIO_BED_HEIGHT_PX = 32
+
 interface Props {
   scale: Scale
   /**
@@ -118,8 +121,8 @@ export function AudioBedTracks({ scale, only }: Props) {
             key={bed.id}
             data-track={bed.dataTrack}
             aria-label={bed.trackLabel}
-            className="relative h-8 border-b border-neutral-800"
-            style={{ width }}
+            className="relative border-b border-neutral-800"
+            style={{ width, height: AUDIO_BED_HEIGHT_PX }}
           >
             <div
               role="button"

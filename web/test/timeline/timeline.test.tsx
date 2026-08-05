@@ -121,13 +121,23 @@ describe('dopasowanie do zmierzonej szerokości kontenera', () => {
     vi.unstubAllGlobals()
   })
 
+  /**
+   * Runda poprawek 1, znalezisko 4 (Chromium): `container` mierzy CAŁĄ
+   * szerokość, łącznie ze stałą kolumną nagłówków `TrackStack`
+   * (`HEADER_WIDTH_PX` = 128 px) — więc dopasowana oś ma być węższa od
+   * zmierzonej szerokości o dokładnie tyle, nie równa jej. Wartości pikseli
+   * niżej to `measuredWidthPx − 128`, nie `measuredWidthPx` — świadoma zmiana
+   * oczekiwań testu, bo poprzednie (`'1800px'`, `'3600px'`, `'2700px'`)
+   * kodowały założenie sprzed kolumny nagłówków i akurat dlatego produkowały
+   * poziomy suwak po kliknięciu „Dopasuj” (zmierzone w Chromium).
+   */
   it('dopasowanie przy różnych szerokościach kontenera daje różne zoomy', async () => {
     const first = render(<Timeline />)
     const firstObserver = FakeResizeObserver.last
     if (!firstObserver) throw new Error('ResizeObserver nie został utworzony')
     act(() => firstObserver.fire(1800))
     await userEvent.click(screen.getByRole('button', { name: /dopasuj/i }))
-    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('1800px')
+    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('1672px')
     first.unmount()
 
     render(<Timeline />)
@@ -135,7 +145,7 @@ describe('dopasowanie do zmierzonej szerokości kontenera', () => {
     if (!secondObserver) throw new Error('ResizeObserver nie został utworzony')
     act(() => secondObserver.fire(3600))
     await userEvent.click(screen.getByRole('button', { name: /dopasuj/i }))
-    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('3600px')
+    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('3472px')
   })
 
   it('zmiana rozmiaru kontenera po zamontowaniu aktualizuje dopasowanie', async () => {
@@ -145,13 +155,13 @@ describe('dopasowanie do zmierzonej szerokości kontenera', () => {
 
     act(() => observer.fire(1800))
     await userEvent.click(screen.getByRole('button', { name: /dopasuj/i }))
-    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('1800px')
+    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('1672px')
 
     // Ten sam obserwator odpala się ponownie — symuluje zmianę rozmiaru okna
     // po tym, jak komponent już stoi zamontowany, a nie tylko pierwszy pomiar.
     act(() => observer.fire(2700))
     await userEvent.click(screen.getByRole('button', { name: /dopasuj/i }))
-    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('2700px')
+    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('2572px')
   })
 
   it('odmontowanie rozłącza obserwator', () => {
@@ -160,5 +170,20 @@ describe('dopasowanie do zmierzonej szerokości kontenera', () => {
     if (!observer) throw new Error('ResizeObserver nie został utworzony')
     view.unmount()
     expect(observer.disconnect).toHaveBeenCalledOnce()
+  })
+
+  /**
+   * Odtwarza dokładnie przykład z recenzji w Chromium (znalezisko 4): kontener
+   * 1280 px, widoczny po nagłówkach obszar klipów 1152 px (1280 − 128).
+   * Dopasowana oś ma się zmieścić w tym widocznym obszarze, nie w całej
+   * zmierzonej szerokości — inaczej „Dopasuj” produkuje poziomy suwak.
+   */
+  it('dopasowanie do kontenera 1280px daje oś 1152px, nie 1280px', async () => {
+    render(<Timeline />)
+    const observer = FakeResizeObserver.last
+    if (!observer) throw new Error('ResizeObserver nie został utworzony')
+    act(() => observer.fire(1280))
+    await userEvent.click(screen.getByRole('button', { name: /dopasuj/i }))
+    expect(screen.getByRole('slider', { name: /linijka czasu/i }).style.width).toBe('1152px')
   })
 })

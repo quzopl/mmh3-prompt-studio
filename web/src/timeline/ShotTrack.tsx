@@ -8,6 +8,9 @@ import { msToPx, type Scale } from './scale.js'
 import { shotSpans } from './spans.js'
 import { useDragBoundary } from './useDragBoundary.js'
 
+/** Wysokość ścieżki jako liczba — `TrackStack` (zadanie 12) liczy z TEJ SAMEJ stałej, nie z osobnej klasy `h-10`. */
+export const SHOT_TRACK_HEIGHT_PX = 40
+
 export function ShotTrack({ scale }: { scale: Scale }) {
   const t = useT()
   const project = useProject(state => state.project)
@@ -24,8 +27,8 @@ export function ShotTrack({ scale }: { scale: Scale }) {
   return (
     <div
       aria-label={t('timeline.trackShots')}
-      className="relative h-10 border-b border-neutral-800"
-      style={{ width: msToPx(scale, scale.durationMs) }}
+      className="relative border-b border-neutral-800"
+      style={{ width: msToPx(scale, scale.durationMs), height: SHOT_TRACK_HEIGHT_PX }}
     >
       {shotSpans(project.shots, project.video.durationMs).map((span, position, spans) => {
         const ref = { kind: 'shot' as const, id: span.shot.id }

@@ -51,8 +51,8 @@ export function ReferencesTrack({ scale }: { scale: Scale }) {
             key={label.id}
             data-track={`references-${label.id}`}
             aria-label={t('references.rowLabel', { label: name })}
-            className="relative h-6 border-b border-neutral-800"
-            style={{ width: msToPx(scale, scale.durationMs) }}
+            className="relative border-b border-neutral-800"
+            style={{ width: msToPx(scale, scale.durationMs), height: REFERENCE_ROW_HEIGHT_PX }}
           >
             {spans.map((span, position) => {
               const present = span.shot.labelRefs.includes(label.id)

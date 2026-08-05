@@ -6,6 +6,9 @@ import { clipBox } from './clips.js'
 import { useDragClip } from './useDragClip.js'
 import { shotSpans } from './spans.js'
 
+/** Wysokość ścieżki jako liczba — `TrackStack` (zadanie 12) liczy z TEJ SAMEJ stałej, nie z osobnej klasy `h-8`. */
+export const SFX_TRACK_HEIGHT_PX = 32
+
 /**
  * Dźwięk diegetyczny nie jest przywiązany do własnego ujęcia — żadna reguła
  * walidatora tego nie wymaga (patrz `shared/src/validate/rules/audio.ts`:
@@ -81,8 +84,8 @@ export function SfxTrack({ scale }: { scale: Scale }) {
     <div
       data-track="sfx"
       aria-label={t('timeline.trackSfx')}
-      className="relative h-8 border-b border-neutral-800"
-      style={{ width: msToPx(scale, scale.durationMs) }}
+      className="relative border-b border-neutral-800"
+      style={{ width: msToPx(scale, scale.durationMs), height: SFX_TRACK_HEIGHT_PX }}
     >
       {sorted.map(({ span, sound, position }) => {
         const ref = { kind: 'sfx' as const, id: sound.id }

@@ -6,6 +6,9 @@ import { clipBox } from './clips.js'
 import { useDragClip } from './useDragClip.js'
 import { shotSpans } from './spans.js'
 
+/** Wysokość ścieżki jako liczba — `TrackStack` (zadanie 12) liczy z TEJ SAMEJ stałej, nie z osobnej klasy `h-8`. */
+export const CAMERA_TRACK_HEIGHT_PX = 32
+
 /**
  * Ruch kamery należy do ujęcia i reguła `CAM_IN_SHOT_BOUNDS` wymaga, żeby się
  * w nim mieścił. Ograniczenia gestu biorą się więc z rozpiętości ujęcia, a nie
@@ -90,8 +93,8 @@ export function CameraTrack({ scale }: { scale: Scale }) {
     <div
       data-track="camera"
       aria-label={t('timeline.trackCamera')}
-      className="relative h-8 border-b border-neutral-800"
-      style={{ width: msToPx(scale, scale.durationMs) }}
+      className="relative border-b border-neutral-800"
+      style={{ width: msToPx(scale, scale.durationMs), height: CAMERA_TRACK_HEIGHT_PX }}
     >
       {spans.flatMap(span => span.shot.cameraMoves.map((move, position) => {
         const ref = { kind: 'camera' as const, id: move.id }

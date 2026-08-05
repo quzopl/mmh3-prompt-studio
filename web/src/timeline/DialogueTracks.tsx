@@ -136,8 +136,8 @@ export function DialogueTracks({ scale }: { scale: Scale }) {
           key={lane.key}
           data-track={`dialogue-${lane.key}`}
           aria-label={lane.label}
-          className="relative h-8 border-b border-neutral-800"
-          style={{ width: msToPx(scale, scale.durationMs) }}
+          className="relative border-b border-neutral-800"
+          style={{ width: msToPx(scale, scale.durationMs), height: DIALOGUE_LANE_HEIGHT_PX }}
         >
           {spans.flatMap(span => span.shot.dialogue
             .map((event, position) => ({ event, position }))

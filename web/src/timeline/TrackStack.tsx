@@ -1,31 +1,46 @@
-import { useState, type ReactNode } from 'react'
+import { useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useProject } from '../store/projectStore.js'
 import { usePlayhead } from '../store/playheadStore.js'
 import { useT } from '../i18n/useT.js'
 import { msToPx, type Scale } from './scale.js'
-import { ShotTrack } from './ShotTrack.js'
-import { CameraTrack } from './CameraTrack.js'
+import { ShotTrack, SHOT_TRACK_HEIGHT_PX } from './ShotTrack.js'
+import { CameraTrack, CAMERA_TRACK_HEIGHT_PX } from './CameraTrack.js'
 import { DialogueTracks, dialogueLaneCount, DIALOGUE_LANE_HEIGHT_PX } from './DialogueTracks.js'
 import { ScreenTextTrack, screenTextRowCount, SCREEN_TEXT_ROW_HEIGHT_PX } from './ScreenTextTrack.js'
-import { SfxTrack } from './SfxTrack.js'
-import { AudioBedTracks } from './AudioBedTracks.js'
+import { SfxTrack, SFX_TRACK_HEIGHT_PX } from './SfxTrack.js'
+import { AudioBedTracks, AUDIO_BED_HEIGHT_PX } from './AudioBedTracks.js'
 import { ReferencesTrack, referenceRowCount, REFERENCE_ROW_HEIGHT_PX } from './ReferencesTrack.js'
+import { RULER_HEIGHT_PX } from './Ruler.js'
 import { addCameraMove, addDialogue, addScreenText, addSfx } from './createOnTrack.js'
 
-/** Szerokość kolumny nagłówków — poza `msToPx`, bo nie jest częścią skali czasu. */
-const HEADER_WIDTH_PX = 128
+/**
+ * Szerokość kolumny nagłówków — poza `msToPx`, bo nie jest częścią skali
+ * czasu. Wystawiona: `Timeline.tsx` odejmuje ją od zmierzonej szerokości
+ * kontenera przy liczeniu zoomu „Dopasuj” (runda poprawek 1, znalezisko 4) —
+ * bez tego „Dopasuj” traktowałoby całą zmierzoną szerokość (nagłówki +
+ * klipy) jako należącą do samych klipów i produkowało poziomy suwak.
+ */
+export const HEADER_WIDTH_PX = 128
 
 /**
  * Jeden wpis kolumny nagłówków i odpowiadający mu wpis obszaru przewijanego.
- * `rowCount` × `unitHeightPx` to wysokość wiersza nagłówka — dla ścieżek o
- * stałej liczbie wierszy (`rowCount: 1`) to zwykła stała wysokość, jak w
- * `CameraTrack`; dla ścieżek, których treść rysuje więcej niż jeden wiersz na
- * wpis (`DialogueTracks`: jeden pas na mówcę plus pas zbiorczy;
- * `ReferencesTrack` w trybie REF: jeden wiersz na etykietę), `rowCount`
- * pochodzi z TEJ SAMEJ funkcji, której używa sama ścieżka do wyrenderowania
- * swoich wierszy (`dialogueLaneCount`/`referenceRowCount`/
- * `screenTextRowCount`) — patrz komentarz nad komponentem niżej, dlaczego to
- * jedyny bezpieczny sposób, żeby te dwie kolumny się nie rozjechały.
+ * `unitHeightPx` w KAŻDYM wpisie pochodzi ze stałej WYSTAWIONEJ z tej samej
+ * ścieżki, której komponent faktycznie renderuje tę wysokość jako `style`
+ * (nie jako osobną klasę Tailwind gdzie indziej) — `SHOT_TRACK_HEIGHT_PX`,
+ * `CAMERA_TRACK_HEIGHT_PX`, `DIALOGUE_LANE_HEIGHT_PX`,
+ * `SCREEN_TEXT_ROW_HEIGHT_PX`, `SFX_TRACK_HEIGHT_PX`, `AUDIO_BED_HEIGHT_PX`,
+ * `REFERENCE_ROW_HEIGHT_PX`. Runda poprawek 1 (recenzja w Chromium) złapała
+ * dwa niezależne wpisane na sztywno „32”/„40” w tym pliku, które nigdy nie
+ * były sprawdzane względem tego, co dana ścieżka NAPRAWDĘ rysuje — literały
+ * usunięte, każdy wiersz niżej niesie import, nie liczbę.
+ *
+ * `rowCount` — dla ścieżek o stałej liczbie wierszy (`rowCount: 1`) to
+ * zwykłe „jeden”; dla ścieżek, których treść rysuje więcej niż jeden wiersz
+ * na wpis (`DialogueTracks`: jeden pas na mówcę plus pas zbiorczy;
+ * `ReferencesTrack` w trybie REF: jeden wiersz na etykietę), pochodzi z TEJ
+ * SAMEJ funkcji, której używa sama ścieżka do wyrenderowania swoich wierszy
+ * (`dialogueLaneCount`/`referenceRowCount`/`screenTextRowCount`) — patrz
+ * komentarz nad komponentem niżej.
  */
 interface Row {
   key: string
@@ -49,6 +64,13 @@ interface Props {
    * to jedyny sposób osiągnąć to bez duplikowania mechaniki przewijania w
    * dwóch miejscach — a duplikat prowadziłby dokładnie do rozjazdu, przed
    * którym ostrzega reszta tego pliku.
+   *
+   * Runda poprawek 1: `ruler` renderuje się jako PIERWSZE dziecko w obszarze
+   * przewijanym, przed wierszami ścieżek — a kolumna nagłówków nie miała
+   * odpowiednika. Efekt (złapany w Chromium): każdy wiersz treści siedział
+   * `RULER_HEIGHT_PX` niżej niż jego nagłówek, od pierwszej klatki. Nagłówki
+   * dostają teraz odstępnik dokładnie tej wysokości, WYSTAWIONEJ z
+   * `Ruler.tsx` — ta sama stała, którą sama linijka faktycznie renderuje.
    */
   ruler?: ReactNode
   playhead?: ReactNode
@@ -63,40 +85,33 @@ interface Props {
  * każdym dodanym mówcą), `ReferencesTrack` w trybie REF (jeden wiersz na
  * etykietę) i `ScreenTextTrack` (wysokość rośnie z najliczniejszym `ujęciem`
  * pod względem liczby tekstów). Licząc te wysokości NIEZALEŻNIE po obu
- * stronach (np. wpisując `h-8` na sztywno w nagłówku, podczas gdy treść
- * dostaje wysokość z osobnego przeliczenia) obie strony mogłyby się rozjechać
- * przy pierwszym drugim mówcy czy drugiej etykiecie tekstu w ujęciu — stąd
- * `DIALOGUE_LANE_HEIGHT_PX`/`dialogueLaneCount`,
- * `REFERENCE_ROW_HEIGHT_PX`/`referenceRowCount` i
- * `SCREEN_TEXT_ROW_HEIGHT_PX`/`screenTextRowCount` są WYSTAWIONE z tych
- * ścieżek i to jest jedyne miejsce w tym pliku, gdzie liczba/wysokość wierszy
- * jest liczona — ten sam wzór, którego samą ścieżka używa do własnej
- * wysokości, nie jego kopia.
+ * stronach obie strony mogłyby się rozjechać przy pierwszym drugim mówcy czy
+ * drugiej etykiecie tekstu w ujęciu.
  *
  * Pejzaż i muzyka (`AudioBedTracks`) to w treści zadania DWA osobne rodzaje
  * ścieżek, nie jeden wpis z dwoma wierszami — dostają więc DWA osobne wpisy
  * `rows` (każdy `rowCount: 1`), każdy z własnym zwijaniem. Component
  * `AudioBedTracks` rysuje oba pasy naraz, więc dostaje `only`, żeby jedno
- * wywołanie rysowało tylko swój pas — bez tego treść jednego wpisu `rows`
- * niosłaby DWA wiersze DOM-u, a nagłówek tego wpisu — jeden, dokładnie ten
- * sam rozjazd, przed którym ostrzega akapit wyżej.
+ * wywołanie rysowało tylko swój pas.
  *
  * Grupa referencji dostaje `Math.max(1, …)`, żeby nagłówek „Referencje”
  * (`timeline.trackReferences` — dotąd bez czytelnika, patrz treść zadania)
- * został widoczny nawet w projekcie bez żadnej etykiety; `ReferencesTrack`
- * sama w takim razie nie rysuje żadnego wiersza, więc treść ma wtedy 0 px, a
- * nagłówek — wysokość jednego pustego wiersza. Świadomy, ograniczony
- * wyjątek dla stanu pustego (ten sam wzorzec co `Math.max(1, …)` w
- * `screenTextRowCount`), nie rozjazd: liczba wierszy wciąż pochodzi z JEDNEJ
- * funkcji, `Math.max` tylko podnosi dolną granicę.
+ * został widoczny nawet w projekcie bez żadnej etykiety. Świadomy,
+ * ograniczony wyjątek dla stanu pustego (ten sam wzorzec co `Math.max(1, …)`
+ * w `screenTextRowCount`), nie rozjazd: liczba wierszy wciąż pochodzi z
+ * JEDNEJ funkcji, `Math.max` tylko podnosi dolną granicę.
  *
- * Zwinięcie działa na cały wpis `rows` naraz (nie na pojedynczy pas mówcy czy
- * pojedynczą etykietę) — `DialogueTracks`/`ReferencesTrack` renderują się
- * jednym wywołaniem, więc zwinięcie wpisu chowa całe wywołanie. Dla wpisów
- * wieloliniowych (dialog, referencje) nagłówek NIE kurczy się do zera po
- * zwinięciu — zostaje pełnej wysokości, jak pojedyncza ścieżka w brzmieniu
- * zadania („zwinięcie chowa klipy, ale zostawia nagłówek”); to jedyny
- * przycisk zwijania na cały pas, więc musi mieć gdzie stać.
+ * `rowHeightPx` niżej to JEDYNE miejsce, gdzie wysokość wiersza (nagłówka
+ * ALBO treści) jest liczona — runda poprawek 1 (recenzja w Chromium) złapała
+ * błąd, w którym nagłówek zwiniętego wiersza zostawał pełnej wysokości
+ * (`rowCount × unitHeightPx`), a treść znikała do zera: wszystko PONIŻEJ
+ * zwiniętego wiersza przesuwało się o jego pełną wysokość, a błąd się
+ * kumulował z każdym kolejnym zwinięciem. Teraz OBIE strony (styl wiersza
+ * nagłówka i odstępnik treści przy zwinięciu) wołają tę samą funkcję z tym
+ * samym stanem zwinięcia — zwinięty wiersz ma wysokość `unitHeightPx`
+ * (jeden wiersz — nagłówek zostaje czytelny, jak wymaga brzmienie zadania
+ * „zwinięcie chowa klipy, ale zostawia nagłówek”) po OBU stronach naraz,
+ * nie zero po jednej i pełną wysokość po drugiej.
  */
 export function TrackStack({ scale, ruler, playhead }: Props) {
   const t = useT()
@@ -106,9 +121,9 @@ export function TrackStack({ scale, ruler, playhead }: Props) {
   if (!project) return null
 
   const rows: Row[] = [
-    { key: 'shots', title: t('timeline.trackShots'), rowCount: 1, unitHeightPx: 40, render: () => <ShotTrack scale={scale} /> },
+    { key: 'shots', title: t('timeline.trackShots'), rowCount: 1, unitHeightPx: SHOT_TRACK_HEIGHT_PX, render: () => <ShotTrack scale={scale} /> },
     {
-      key: 'camera', title: t('timeline.trackCamera'), rowCount: 1, unitHeightPx: 32,
+      key: 'camera', title: t('timeline.trackCamera'), rowCount: 1, unitHeightPx: CAMERA_TRACK_HEIGHT_PX,
       render: () => <CameraTrack scale={scale} />,
       add: {
         label: t('track.addCamera'),
@@ -137,7 +152,7 @@ export function TrackStack({ scale, ruler, playhead }: Props) {
       },
     },
     {
-      key: 'sfx', title: t('timeline.trackSfx'), rowCount: 1, unitHeightPx: 32,
+      key: 'sfx', title: t('timeline.trackSfx'), rowCount: 1, unitHeightPx: SFX_TRACK_HEIGHT_PX,
       render: () => <SfxTrack scale={scale} />,
       add: {
         label: t('track.addSfx'),
@@ -145,11 +160,11 @@ export function TrackStack({ scale, ruler, playhead }: Props) {
       },
     },
     {
-      key: 'soundscape', title: t('timeline.trackSoundscape'), rowCount: 1, unitHeightPx: 32,
+      key: 'soundscape', title: t('timeline.trackSoundscape'), rowCount: 1, unitHeightPx: AUDIO_BED_HEIGHT_PX,
       render: () => <AudioBedTracks scale={scale} only="overallSoundscape" />,
     },
     {
-      key: 'music', title: t('timeline.trackMusic'), rowCount: 1, unitHeightPx: 32,
+      key: 'music', title: t('timeline.trackMusic'), rowCount: 1, unitHeightPx: AUDIO_BED_HEIGHT_PX,
       render: () => <AudioBedTracks scale={scale} only="nonDiegeticMusic" />,
     },
     ...(project.mode === 'REF'
@@ -165,39 +180,70 @@ export function TrackStack({ scale, ruler, playhead }: Props) {
   const toggle = (key: string): void => setCollapsed(current =>
     (current.includes(key) ? current.filter(entry => entry !== key) : [...current, key]))
 
+  // Jedyne miejsce, gdzie liczy się wysokość wiersza — patrz komentarz nad komponentem.
+  const rowHeightPx = (row: Row): number => (isCollapsed(row.key) ? row.unitHeightPx : row.rowCount * row.unitHeightPx)
+
+  /**
+   * Aktywacja klawiaturą dla `role="button"` w tej kolumnie — jak w
+   * `CameraTrack`/`ReferencesTrack`. Native `<button>` nie wystarczy: sama
+   * spacja na natywnym przycisku i tak bąbelkuje do `window`, gdzie
+   * `useTimelineShortcuts` woła `preventDefault` na KAŻDEJ spacji bez
+   * modyfikatora i przełącza odtwarzanie — czwarty raz w tym planie (po
+   * zadaniach 9, 10 i 11) złapany dokładnie ten sam błąd. `stopPropagation`
+   * musi więc polecieć TU, zanim zdarzenie w ogóle dotrze do `window`.
+   */
+  const activateOnKey = (action: () => void) => (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    event.stopPropagation()
+    action()
+  }
+
   return (
     <div aria-label={t('timeline.tracks')} className="flex">
       <div data-headers className="shrink-0 border-r border-neutral-800" style={{ width: HEADER_WIDTH_PX }}>
+        {ruler && (
+          <div
+            data-header-row="ruler"
+            aria-hidden="true"
+            className="border-b border-neutral-800"
+            style={{ height: RULER_HEIGHT_PX }}
+          />
+        )}
         {rows.map(row => (
           <div
             key={row.key}
             data-header-row={row.key}
-            data-rows={row.rowCount}
-            style={{ height: row.rowCount * row.unitHeightPx }}
+            style={{ height: rowHeightPx(row) }}
             className="flex items-center justify-between gap-1 border-b border-neutral-800 px-2 py-1 text-[10px]"
           >
             <span className="truncate">{row.title}</span>
             <span className="flex shrink-0 items-center gap-1">
               {row.add && (
-                <button
-                  type="button"
+                <div
+                  role="button"
+                  tabIndex={0}
                   aria-label={row.add.label}
                   onClick={row.add.onClick}
-                  className="px-1 text-neutral-400 hover:text-neutral-100"
+                  onKeyDown={activateOnKey(row.add.onClick)}
+                  className="cursor-pointer px-1 text-neutral-400 hover:text-neutral-100"
                 >
                   +
-                </button>
+                </div>
               )}
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
+                aria-expanded={!isCollapsed(row.key)}
                 aria-label={isCollapsed(row.key)
                   ? t('timeline.expand', { track: row.title })
                   : t('timeline.collapse', { track: row.title })}
                 onClick={() => toggle(row.key)}
-                className="px-1 text-neutral-400 hover:text-neutral-100"
+                onKeyDown={activateOnKey(() => toggle(row.key))}
+                className="cursor-pointer px-1 text-neutral-400 hover:text-neutral-100"
               >
                 {isCollapsed(row.key) ? '▸' : '▾'}
-              </button>
+              </div>
             </span>
           </div>
         ))}
@@ -206,7 +252,11 @@ export function TrackStack({ scale, ruler, playhead }: Props) {
         <div className="relative" style={{ width: msToPx(scale, scale.durationMs) }}>
           {ruler}
           {rows.map(row => (
-            <div key={row.key} data-content-row={row.key}>
+            <div
+              key={row.key}
+              data-content-row={row.key}
+              style={isCollapsed(row.key) ? { height: rowHeightPx(row) } : undefined}
+            >
               {isCollapsed(row.key) ? null : row.render()}
             </div>
           ))}

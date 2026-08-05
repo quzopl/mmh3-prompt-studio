@@ -4,7 +4,7 @@ import { usePlayhead } from '../store/playheadStore.js'
 import { useT } from '../i18n/useT.js'
 import { clampZoom, createScale } from './scale.js'
 import { Ruler } from './Ruler.js'
-import { TrackStack } from './TrackStack.js'
+import { TrackStack, HEADER_WIDTH_PX } from './TrackStack.js'
 import { Playhead } from './Playhead.js'
 import { usePlayback } from './usePlayback.js'
 import { splitAtMs } from './shotOperations.js'
@@ -19,25 +19,22 @@ const BASE_WIDTH_PX = 900
 const ZOOM_STEP = 2
 
 /**
- * Zoom, przy którym cały materiał zajmuje dokładnie zmierzoną szerokość
- * kontenera — `widthPx * zoom` w `createScale` to całkowita szerokość osi
- * w pikselach, więc odwrócenie tego równania daje zoom docelowy. Bez pomiaru
- * (jeszcze nie zaobserwowany albo `ResizeObserver` niedostępny) wraca do
- * zoomu bazowego zamiast zgadywać.
+ * Zoom, przy którym cały materiał zajmuje dokładnie widoczny (nie
+ * zmierzony!) obszar klipów — `widthPx * zoom` w `createScale` to całkowita
+ * szerokość osi w pikselach, więc odwrócenie tego równania daje zoom
+ * docelowy. Bez pomiaru (jeszcze nie zaobserwowany albo `ResizeObserver`
+ * niedostępny) wraca do zoomu bazowego zamiast zgadywać.
  *
- * Znany, świadomie zaakceptowany niedoskonałość od zadania 12: `container`
- * mierzy CAŁĄ szerokość (nagłówki `TrackStack` + obszar klipów), a wzór
- * niżej zakłada, że cała zmierzona szerokość należy do klipów — „Dopasuj"
- * więc odrobinę przeszacowuje i zostawia klipy odrobinę szersze niż
- * widoczny po nagłówkach obszar. Odjęcie stałej szerokości nagłówka
- * naprawiłoby to, ale zmieniłoby dotychczasowe, przetestowane wartości
- * pikseli w `timeline.test.tsx` („dopasowanie…” dają dziś dokładnie
- * `measuredWidthPx`) — kosmetyczna poprawka, którą zostawiam jako osobną
- * decyzję, nie coś do przemycenia przy okazji tego zadania.
+ * Runda poprawek 1, znalezisko 4 (Chromium): `container` mierzy CAŁĄ
+ * szerokość (nagłówki `TrackStack` + obszar klipów), więc wzór odejmuje
+ * `HEADER_WIDTH_PX` — bez tego „Dopasuj” liczyłoby zoom tak, jakby cała
+ * zmierzona szerokość należała do samych klipów, i renderowałby oś szerszą
+ * niż widoczny po nagłówkach obszar (spostrzeżone w Chromium jako poziomy
+ * suwak po kliknięciu „Dopasuj”).
  */
 function fitZoom(measuredWidthPx: number | null): number {
   if (measuredWidthPx === null || measuredWidthPx <= 0) return 1
-  return clampZoom(measuredWidthPx / BASE_WIDTH_PX)
+  return clampZoom((measuredWidthPx - HEADER_WIDTH_PX) / BASE_WIDTH_PX)
 }
 
 export function Timeline() {
