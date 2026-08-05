@@ -123,6 +123,21 @@ export function DialogueTracks({ scale }: { scale: Scale }) {
           {spans.flatMap(span => span.shot.dialogue
             .map((event, position) => ({ event, position }))
             .filter(({ event }) => lane.matches(event))
+            // Sortowanie KOPII do renderu, nie modelu — kolejność
+            // `shot.dialogue` to sprawa kompilatora (numeruje po niej
+            // `position` niżej), nie osi czasu. Bez tego sortowania kolejność
+            // w DOM-ie szłaby za kolejnością w tablicy, a ta nie musi się
+            // zgadzać z czasem: żadna reguła schematu ani walidatora tego nie
+            // wymaga, a zwykłe przeciągnięcie klipu (`write` w `useDragClip`
+            // podmienia `startMs`/`endMs` po id, nie przestawia elementu w
+            // tablicy) osiąga taki stan bez żadnego wysiłku. Kolejność w
+            // DOM-ie musi iść za czasem z dwóch powodów: cień naturalnej
+            // długości (niżej) celowo przelewa się poza własny klip, a
+            // przykrywa go dopiero klip malowany PÓŹNIEJ w dokumencie — to
+            // działa tylko, gdy „później w dokumencie” znaczy „później w
+            // czasie”; a przy Tabie klipy mają się pojawiać od lewej do
+            // prawej, nie w przypadkowej kolejności tablicy.
+            .sort((left, right) => left.event.startMs - right.event.startMs)
             .map(({ event, position }) => {
               const ref = { kind: 'dialogue' as const, id: event.id }
               const isSelected = selected.some(candidate => same(candidate, ref))
@@ -199,13 +214,21 @@ export function DialogueTracks({ scale }: { scale: Scale }) {
                     tylko na etykiecie, nie na kontenerze, więc przelew nie
                     psuje layoutu klipu, w którym mieszka. Tam, gdzie przelewa
                     się na pusty odcinek pasa, pokazuje ile miejsca kwestii
-                    naprawdę trzeba; tam, gdzie sięga kolejnego klipu, ten
-                    klip renderuje się później w DOM-ie tego samego pasa i bez
-                    ustawionego `z-index` maluje się NAD cieniem (późniejszy
-                    element w kolejności dokumentu przykrywa wcześniejszy), a
-                    jego tło (`bg-neutral-900`/`bg-emerald-950`) nie jest
-                    przezroczyste — więc przelew chowa się pod sąsiednim
-                    klipem zamiast go zasłaniać.
+                    naprawdę trzeba; tam, gdzie sięga kolejnego klipu — klipy w
+                    pasie renderują się w kolejności CZASU (sortowanie przy
+                    `.sort((left, right) => …)` wyżej, patrz komentarz tam), a
+                    bez ustawionego `z-index` elementy pozycjonowane maluje
+                    się w kolejności dokumentu, więc klip późniejszy w czasie
+                    maluje się NAD przelewającym się cieniem klipu
+                    wcześniejszego. Jego tło (`bg-neutral-900`/
+                    `bg-emerald-950`) nie jest przezroczyste — więc przelew
+                    chowa się pod sąsiednim klipem zamiast go zasłaniać. Bez
+                    tego sortowania argument by nie działał: kolejność w
+                    `shot.dialogue` nie musi iść za czasem (żadna reguła tego
+                    nie wymaga, a przeciąganie klipu nie przestawia elementu w
+                    tablicy), więc klip spatialnie wcześniejszy mógłby
+                    wylądować później w DOM-ie i to on przykryłby sąsiada,
+                    zamiast odwrotnie.
                   */}
                   <span
                     aria-hidden="true"

@@ -7,7 +7,7 @@ import { useProject } from '../../src/store/projectStore.js'
 import { useSelection } from '../../src/store/selectionStore.js'
 import { useSpeechRate } from '../../src/store/speechRateStore.js'
 import { DEFAULT_WORDS_PER_MINUTE, naturalDurationMs } from '../../src/timeline/speech.js'
-import { projectWithDialogue } from './fixtures.js'
+import { line, projectWithDialogue } from './fixtures.js'
 
 const scale = createScale(8000, 800, 1)
 
@@ -140,5 +140,34 @@ describe('naturalna długość na klipie dialogowym', () => {
 
     expect(useSelection.getState().selected).toEqual([{ kind: 'dialogue', id: 'd1' }])
     expect(setPointerCapture).not.toHaveBeenCalled()
+  })
+
+  it('klipy w pasie renderują się w kolejności czasu, nawet gdy tablica kwestii ma inną kolejność', () => {
+    // `write` w `useDragClip` podmienia `startMs`/`endMs` po id, nigdy nie
+    // przestawia elementu w `shot.dialogue` — zwykłe przeciągnięcie klipu
+    // wcześniejszego za późniejszy zostawia więc tablicę w kolejności
+    // niezgodnej z czasem. Kolejność w DOM-ie musi mimo to iść za czasem
+    // (patrz `.sort` w `DialogueTracks`), bo od niej zależy, który klip
+    // przykrywa przelewający się cień sąsiada — stąd tablica tu celowo ma
+    // kolejność ODWRÓCONĄ względem czasu (najpierw późniejsza kwestia).
+    useProject.getState().apply(project => ({
+      ...project,
+      shots: project.shots.map(shot => shot.id === 'a'
+        ? {
+            ...shot,
+            dialogue: [
+              line('later', ['s1'], 'pozniejsza', 5000, 6000),
+              line('earlier', ['s1'], 'wczesniejsza', 1000, 2000),
+            ],
+          }
+        : shot),
+    }))
+    render(<DialogueTracks scale={scale} />)
+    const lane = screen.getByLabelText(/dialog S1/i)
+    const clips = within(lane).getAllByRole('button')
+    expect(clips.map(clip => clip.getAttribute('aria-label'))).toEqual([
+      expect.stringMatching(/wczesniejsza/i),
+      expect.stringMatching(/pozniejsza/i),
+    ])
   })
 })
