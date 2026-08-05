@@ -23,24 +23,37 @@ export interface TaskResult<T> {
 }
 
 /**
- * Lokalne modele notorycznie owijają odpowiedź w płotek markdownu mimo
- * wymuszonego `response_format` i mimo instrukcji, żeby tego nie robić. To
- * formatowanie wokół treści, nie błąd treści — więc zdejmujemy płotek przed
- * próbą sparsowania, zamiast mylić ten objaw z niepoprawną odpowiedzią modelu.
- * Płotek może mieć znacznik języka albo nie i może być otoczony innym tekstem.
+ * Płotek zdejmujemy tylko wtedy, gdy owija odpowiedź w całości — grawisy na
+ * samym początku i na samym końcu (po przycięciu białych znaków), nic
+ * bardziej rozpoznawcze. Wcześniejsza wersja szukała potrójnego grawisu
+ * gdziekolwiek w tekście, więc poprawny JSON, który miał taki ciąg wewnątrz
+ * wartości string (np. cytat z fragmentem kodu), był okaleczany do samego
+ * fragmentu między przypadkowymi grawisami — reszta odpowiedzi znikała bez
+ * śladu. Odpowiedź, która nie jest opłotkowana w całości (np. z komentarzem
+ * modelu przed albo po), zostaje nietknięta i ma szansę uczciwie nie
+ * sparsować się jako JSON zamiast zostać zgadywana.
  */
+const FENCE_PATTERN = /^```(?:\w+)?\n?([\s\S]*)```$/
+
 function stripCodeFence(text: string): string {
-  const match = /```(?:\w+)?\s*\n?([\s\S]*?)\n?```/.exec(text)
-  return (match?.[1] ?? text).trim()
+  const trimmed = text.trim()
+  const match = FENCE_PATTERN.exec(trimmed)
+  return (match?.[1] ?? trimmed).trim()
 }
 
 interface ParseFailure {
   /** Surowa odpowiedź modelu — cytowana w wiadomości naprawczej. */
   rawText: string
-  /** Pełny opis błędu walidacji, do wglądu przez model przy naprawie. */
-  fullDescription: string
-  /** Pierwsze zdanie błędu — trafia do wyjątku, który widzi użytkownik. */
-  firstSentence: string
+  /**
+   * Wyjaśnienie po angielsku, dla modelu: surowe błędy Zoda albo błąd
+   * parsowania JSON. Model rozumuje po angielsku, więc to jest język, w
+   * którym najskuteczniej poprawi własną odpowiedź — nie tłumaczymy go.
+   */
+  modelExplanation: string
+  /** `true`, gdy odpowiedź w ogóle nie sparsowała się jako JSON — wtedy nie ma ścieżek pól. */
+  invalidJson: boolean
+  /** Ścieżki niezgodnych pól — neutralne językowo, bezpieczne do pokazania użytkownikowi wprost. */
+  fieldPaths: string[]
 }
 
 type ParseAttempt<T> = { ok: true; value: T } | { ok: false; failure: ParseFailure }
@@ -51,36 +64,47 @@ function parseResponse<T>(rawText: string, schema: z.ZodType<T>): ParseAttempt<T
     parsed = JSON.parse(stripCodeFence(rawText))
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    const description = `odpowiedź nie jest poprawnym JSON-em (${message})`
-    return { ok: false, failure: { rawText, fullDescription: description, firstSentence: description } }
+    return {
+      ok: false,
+      failure: {
+        rawText,
+        modelExplanation: `Your answer was not valid JSON: ${message}`,
+        invalidJson: true,
+        fieldPaths: [],
+      },
+    }
   }
 
   const result = schema.safeParse(parsed)
   if (result.success) return { ok: true, value: result.data }
 
-  const formatted = result.error.issues.map(issue => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-  const firstSentence = formatted[0] ?? 'nieznany błąd walidacji'
-  return { ok: false, failure: { rawText, fullDescription: formatted.join('; '), firstSentence } }
+  const fieldPaths = result.error.issues.map(issue => issue.path.join('.') || '(root)')
+  const modelExplanation = result.error.issues
+    .map(issue => `- ${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    .join('\n')
+  return { ok: false, failure: { rawText, modelExplanation, invalidJson: false, fieldPaths } }
 }
 
 /**
- * Wiadomość naprawcza cytuje dokładnie to, co model odpowiedział, i dokładnie
- * to, co Zod uznał za błędne — model, który nie widzi własnej pomyłki, potrafi
- * ją tylko powtórzyć.
+ * Wiadomość naprawcza jest w całości po angielsku i cytuje dokładnie to, co
+ * model odpowiedział, oraz surowe błędy Zoda — to audytorium modelu, nie
+ * użytkownika, i model, który nie widzi własnej pomyłki, potrafi ją tylko
+ * powtórzyć. Tłumaczenie tej wiadomości na polski nic by nie dało modelowi i
+ * tylko oddaliłoby ją od formy, w jakiej Zod faktycznie zgłasza błędy.
  */
 function repairMessage(failure: ParseFailure): ChatMessage {
   return {
     role: 'user',
     content: [
-      'Twoja poprzednia odpowiedź nie przeszła walidacji schematu.',
+      'Your previous answer did not pass schema validation.',
       '',
-      'Twoja odpowiedź:',
+      'Your answer:',
       failure.rawText,
       '',
-      'Błąd walidacji:',
-      failure.fullDescription,
+      'Validation error:',
+      failure.modelExplanation,
       '',
-      'Popraw to. Zwróć wyłącznie poprawny JSON zgodny ze schematem — bez żadnego dodatkowego tekstu ani znaczników markdown.',
+      'Fix this. Return only valid JSON matching the schema — no extra text, no markdown formatting.',
     ].join('\n'),
   }
 }
@@ -122,5 +146,13 @@ export async function runTask<T>(
     return { value: secondAttempt.value, promptTokens, completionTokens, repaired: true }
   }
 
-  throw new Error(`Zadanie „${task.name}" nie powiodło się: ${secondAttempt.failure.firstSentence}.`)
+  // Ten komunikat czyta użytkownik, nie model — surowy angielski tekst
+  // biblioteki (Zoda albo `JSON.parse`) tu nie trafia. Ścieżki pól są
+  // neutralne językowo, więc można je pokazać wprost, nie udając, że reszta
+  // komunikatu jest tłumaczeniem czegoś, czego nikt nie tłumaczył.
+  const { failure } = secondAttempt
+  const reason = failure.invalidJson
+    ? 'odpowiedź modelu nie jest poprawnym JSON-em'
+    : `niezgodne pola: ${failure.fieldPaths.join(', ')}`
+  throw new Error(`Zadanie „${task.name}": ${reason}.`)
 }
