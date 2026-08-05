@@ -5,6 +5,7 @@ import type { ChatMessage, Provider } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
 import { runTask } from '../run.js'
 import { redactToPatch, type RedactTarget } from './redact.js'
+import { audioFieldTextMessage, audioFieldTextOk, AUDIO_FIELD_RULE_BY_ID } from './audioFieldText.js'
 
 /**
  * Zadanie 15 z pięciu: jeden przebieg po CAŁYM projekcie, nie po jednym polu
@@ -63,8 +64,31 @@ export const TranslateAllFieldResultSchema = z.object({
   english: z.string(),
 })
 
+/**
+ * `superRefine` pilnuje liczby zdań dla pól przeznaczonych na
+ * `overallSoundscape`/`nonDiegeticMusic` — fix round 2/5, zadanie 11, punkt
+ * 2: ten sam otwór co w `redact.ts` (identyczna luka, to samo pole, inne
+ * drzwi). Rozpoznanie celu pola idzie WYŁĄCZNIE po formacie `id`
+ * (`audio:${field}`, nadawanym przez `collectTranslatableFields` niżej, nigdy
+ * przez model) — `AUDIO_FIELD_RULE_BY_ID` (`audioFieldText.ts`) nie
+ * potrzebuje więc dostępu do `project`/`target`: jedna partia
+ * (`chunkFields`) niesie tylko PODZBIÓR wszystkich pól, ale identyfikator
+ * sam mówi, jakiej reguły pilnować, więc ten sam statyczny schemat działa
+ * dla każdej partii bez przebudowywania go per-żądanie.
+ */
 export const TranslateAllSchema = z.object({
   fields: z.array(TranslateAllFieldResultSchema),
+}).superRefine((value, ctx) => {
+  value.fields.forEach((field, index) => {
+    const rule = AUDIO_FIELD_RULE_BY_ID[field.id]
+    if (rule === undefined) return
+    if (audioFieldTextOk(rule, field.english)) return
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['fields', index, 'english'],
+      message: audioFieldTextMessage(rule, field.english),
+    })
+  })
 })
 
 export type TranslateAllFieldResult = z.infer<typeof TranslateAllFieldResultSchema>

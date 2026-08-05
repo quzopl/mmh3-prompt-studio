@@ -7,7 +7,7 @@ import {
   type Project,
   type Speaker,
 } from '@mmh3/shared'
-import { redactToPatch, type RedactResult, type RedactTarget } from '../../../src/llm/tasks/redact.js'
+import { redactTaskFor, redactToPatch, type RedactResult, type RedactTarget } from '../../../src/llm/tasks/redact.js'
 import { newProject } from '../../fixtures/newProject.js'
 
 /**
@@ -290,5 +290,56 @@ describe('redactToPatch — niezmienniki projektu', () => {
 
     const after = applyOps(before, ops)
     expect(() => parseProject(after)).not.toThrow()
+  })
+})
+
+/**
+ * Fix round 2/5, zadanie 11, punkt 2: `redactToPatch` opakowuje w `setAudio`
+ * cokolwiek dostanie w `english` — ta sama luka co w `audio.ts` przed fix
+ * round 1 (siedem zdań w polu `overallSoundscape` zapala
+ * `SOUNDSCAPE_SENTENCES` na projekcie, który tej diagnostyki nie miał), tylko
+ * dostępna przez inne drzwi (redakcja PL→EN, nie podpowiedź audio). Testy
+ * niżej pilnują SCHEMATU (`redactTaskFor(target).schema`), nie
+ * `redactToPatch` — to jedyne miejsce w tym łańcuchu, które ma prawo
+ * odrzucić złą odpowiedź i dać modelowi drugą próbę (`runTask`).
+ */
+describe('redactTaskFor — schemat zależny od celu pilnuje liczby zdań dla pól audio (fix round 2/5, punkt 2)', () => {
+  const sentences = (count: number, prefix: string): string =>
+    Array.from({ length: count }, (_, i) => `${prefix} ${i + 1} is happening now`).join('. ') + '.'
+
+  it('cel audio/overallSoundscape: siedem zdań (poza 1–4) odrzucone przez schemat', () => {
+    const schema = redactTaskFor({ kind: 'audio', field: 'overallSoundscape' }).schema
+    const result = schema.safeParse({ english: sentences(7, 'Wind') })
+    expect(result.success).toBe(false)
+  })
+
+  it('cel audio/overallSoundscape: dwa zdania (w zakresie 1–4) przyjęte', () => {
+    const schema = redactTaskFor({ kind: 'audio', field: 'overallSoundscape' }).schema
+    const result = schema.safeParse({ english: sentences(2, 'Wind') })
+    expect(result.success).toBe(true)
+  })
+
+  it('cel audio/nonDiegeticMusic: pięć zdań (poza 1–3) odrzucone przez schemat', () => {
+    const schema = redactTaskFor({ kind: 'audio', field: 'nonDiegeticMusic' }).schema
+    const result = schema.safeParse({ english: sentences(5, 'A drum') })
+    expect(result.success).toBe(false)
+  })
+
+  it('cel audio/nonDiegeticMusic: puste pole i "N/A" zawsze przyjęte', () => {
+    const schema = redactTaskFor({ kind: 'audio', field: 'nonDiegeticMusic' }).schema
+    expect(schema.safeParse({ english: '' }).success).toBe(true)
+    expect(schema.safeParse({ english: 'N/A' }).success).toBe(true)
+  })
+
+  it('cel NIE-audio (style): siedem zdań przyjęte bez ograniczeń — reguła dotyczy tylko pól audio', () => {
+    const schema = redactTaskFor({ kind: 'style' }).schema
+    const result = schema.safeParse({ english: sentences(7, 'A wide shot') })
+    expect(result.success).toBe(true)
+  })
+
+  it('cel NIE-audio (speaker): siedem zdań przyjęte bez ograniczeń', () => {
+    const schema = redactTaskFor({ kind: 'speaker', speakerId: 'sp1', field: 'fullDescriptor' }).schema
+    const result = schema.safeParse({ english: sentences(7, 'A tall woman') })
+    expect(result.success).toBe(true)
   })
 })

@@ -395,6 +395,16 @@ describe('PatchReview — brak nowej diagnostyki i zgodność ze schematem (fix 
     expect(result).not.toBeNull()
     if (result === null) return
 
+    // Fix round 2/5, punkt 1: bez tej asercji test przechodzi identycznie,
+    // jeśli zatwierdzenie po cichu NIC nie robi — pusta zmiana (`result === p`)
+    // też nie wprowadza żadnej diagnostyki i też przechodzi `parseProject`.
+    // Sprawdzenie, że operacje FAKTYCZNIE wylądowały, jest jedyną rzeczą,
+    // która odróżnia „poprawnie zastosowano" od „nic się nie stało".
+    expect(result).not.toBe(p)
+    expect(result.style).toBe('Neo-noir')
+    expect(result.audio.overallSoundscape).toBe('Deszcz na szybie.')
+    expect(result.audio.nonDiegeticMusic).toBe('Cichy jazz.')
+
     assertNoUnexpectedDiagnostics(p, result)
     expect(() => parseProject(result)).not.toThrow()
   })

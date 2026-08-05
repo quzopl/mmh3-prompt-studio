@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { Project, ProjectPatch } from '@mmh3/shared'
 import type { ChatMessage } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
+import { audioFieldTextSchema, MUSIC_TEXT_RULE, SOUNDSCAPE_TEXT_RULE } from './audioFieldText.js'
 
 /**
  * Zadanie 2 z czterech: jedno pole projektu, po polsku, staje się tym samym
@@ -70,20 +71,6 @@ function buildUserMessage(input: RedactInput): string {
   return `Field content (Polish):\n\n${input.text}`
 }
 
-export const redactTask: TaskDefinition<RedactResult> = {
-  name: 'redakcja pola PL→EN',
-  schema: RedactSchema,
-  jsonSchema: redactJsonSchema,
-  maxTokens: 600,
-  buildMessages: (input: unknown): ChatMessage[] => {
-    const parsed = RedactInputSchema.parse(input)
-    return [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: buildUserMessage(parsed) },
-    ]
-  },
-}
-
 /**
  * Cztery rodzaje celu redakcji — po jednym na operację, którą `redactToPatch`
  * umie wyprodukować. Zamknięta unia wyprowadzona z Zoda: `routes/llm.ts`
@@ -110,6 +97,47 @@ export const RedactTargetSchema = z.discriminatedUnion('kind', [
 ])
 
 export type RedactTarget = z.infer<typeof RedactTargetSchema>
+
+/**
+ * Schemat odpowiedzi ZALEŻNY OD CELU — fix round 2/5, zadanie 11, punkt 2:
+ * kiedy `target.kind === 'audio'`, treść „english" jest przeznaczona na
+ * `overallSoundscape`/`nonDiegeticMusic` i podlega TEJ SAMEJ regule liczby
+ * zdań, którą zadanie „Podpowiedź audio" (`audio.ts`) wymusza dla tych pól
+ * (`audioFieldTextSchema`, `audioFieldText.ts`) — inaczej redakcja PL→EN
+ * mogłaby zwrócić np. siedem zdań i zapalić `SOUNDSCAPE_SENTENCES` na ekranie
+ * przeglądu identycznie jak zadanie audio przed fix round 1, tylko przez inne
+ * drzwi (recenzent: „the identical defect, in the identical field, through a
+ * different door"). Dla pozostałych trzech celów (`style`/`shotText`/
+ * `speaker`) żadna reguła długości nie obowiązuje — zwykła proza.
+ */
+function redactSchemaFor(target: RedactTarget): z.ZodType<RedactResult> {
+  if (target.kind !== 'audio') return RedactSchema
+  const rule = target.field === 'overallSoundscape' ? SOUNDSCAPE_TEXT_RULE : MUSIC_TEXT_RULE
+  return z.object({ english: audioFieldTextSchema(rule) })
+}
+
+/**
+ * `target` jest znany PRZED wysłaniem zapytania do modelu (`routes/llm.ts`
+ * czyta go z ciała żądania), więc schemat może go uwzględnić od razu, zamiast
+ * walidować dopiero po fakcie — stąd funkcja budująca `TaskDefinition`, nie
+ * stały obiekt (jak przed fix round 2/5). `name`/`jsonSchema`/`maxTokens`/
+ * `buildMessages` nie zależą od celu i zostają bez zmian.
+ */
+export function redactTaskFor(target: RedactTarget): TaskDefinition<RedactResult> {
+  return {
+    name: 'redakcja pola PL→EN',
+    schema: redactSchemaFor(target),
+    jsonSchema: redactJsonSchema,
+    maxTokens: 600,
+    buildMessages: (input: unknown): ChatMessage[] => {
+      const parsed = RedactInputSchema.parse(input)
+      return [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: buildUserMessage(parsed) },
+      ]
+    },
+  }
+}
 
 /**
  * Bieżąca treść pola, na które wskazuje `target` — albo `undefined`, gdy cel

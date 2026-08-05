@@ -355,3 +355,40 @@ lista w panelu dostawcy, z dala od projektu, którego dotyczy.
 dokładnie ten kształt, który trasa już przyjmuje i waliduje. Nic po stronie
 serwera nie wymaga zmiany; brakuje wyłącznie miejsca w interfejsie, z którego
 dałoby się to wywołać.
+
+## 21. `replaceShots` może zastosować się dwukrotnie przy dwóch kliknięciach złapanych w jedną, niezatwierdzoną partię Reactu
+
+Plan 5, zadanie 11 (`web/src/llm/PatchReview.tsx`), fix round 2 — zgłoszone
+wprost przez recenzenta, świadomie zostawione bez naprawy w tej rundzie.
+
+Zatwierdzona operacja znika z listy `remaining`, więc kolejne kliknięcie
+„Zatwierdź" czyta `chosen = remaining.filter(op => selected.has(op.id))` z
+LISTY, która już nie zawiera właśnie zastosowanej operacji — to działa
+niezawodnie dla dwóch PRAWDZIWYCH, osobnych zdarzeń kliknięcia (każde
+domyka własny cykl reakcji Reacta, więc drugie widzi już zaktualizowany
+stan). Druga linia obrony — `applyOps` na wartości już zastosowanej zwraca
+dokładnie ten sam obiekt referencyjnie (`shared/src/patch/apply.ts`) — chroni
+przed DUPLIKATEM zmiany dla wszystkich pięciu rodzajów operacji poza jednym:
+`replaceShots` porównuje referencję TABLICY `shots`, nie jej zawartość (zadanie
+4, celowo — nowa tablica o identycznej treści to wciąż realna podmiana na tym
+poziomie), więc dwa zastosowania TEJ SAMEJ operacji `replaceShots` z dwóch
+kliknięć, które trafiłyby do `apply` w jednej, jeszcze niezatwierdzonej
+partii reakcji Reacta (obie strony `onConfirm` czytają ten sam, jeszcze
+niezaktualizowany `remaining`/`selected` z domknięcia), wykonałyby się
+DWUKROTNIE — druga też realnie „zmienia" `project.shots`, bo porównanie jest
+referencyjne, nie głębokie.
+
+**Dlaczego to nie problem w tej rundzie:** prawdziwe, osobne zdarzenia
+klawiatury i myszy (klik, Enter, Spacja) nie produkują dwóch wywołań
+handlera w jednej partii — każde jest osobnym zdarzeniem DOM, między którymi
+React zdąży scommitować poprzednią aktualizację stanu. Scenariusz wymaga
+dwóch zdarzeń złapanych SYNCHRONICZNIE w jednym tasku JS (np. programowe
+`dispatchEvent` dwa razy pod rząd bez oddania sterowania), czego żaden
+prawdziwy gest użytkownika nie tworzy.
+
+**Co by to domknęło:** blokada na poziomie `onConfirm` niezależna od stanu
+komponentu — np. `useRef` z flagą „zatwierdzenie w toku", zerowaną dopiero po
+commicie stanu, albo przeniesienie logiki zatwierdzenia do reduktora, który
+serializuje kolejne wywołania. Nie zrobione w tej rundzie, bo koszt (kolejna
+warstwa stanu w komponencie, który i tak ma już trzy) przewyższa realne
+ryzyko przy prawdziwych zdarzeniach przeglądarki.

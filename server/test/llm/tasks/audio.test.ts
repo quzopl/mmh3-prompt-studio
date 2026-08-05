@@ -340,7 +340,11 @@ describe('AudioSchema — liczba zdań pilnowana w schemacie, nie dopiero przez 
     const result = AudioSchema.safeParse({ soundscape: sentences(7, 'Wind'), music: '' })
     if (result.success) throw new Error('oczekiwano odrzucenia')
     const message = result.error.issues[0]?.message ?? ''
-    expect(message).toContain('soundscape')
+    // Fix round 2/5: nazwa pola w komunikacie to `overallSoundscape` (nazwa
+    // pola PROJEKTU z `AudioFieldTextRule`, wspólna dla trzech zadań, które
+    // mogą pisać do tego pola), nie skrócone `soundscape` z kluczy JSON tej
+    // jednej rozmowy — patrz `audioFieldText.ts`.
+    expect(message).toContain('overallSoundscape')
     expect(message).toContain('1 to 4 sentences')
   })
 })

@@ -25,13 +25,23 @@ import { normalizeProject } from '../timeline/normalizeProject.js'
  * (`status: 'inapplicable'`) i `applyOps` cicho ją pomija.
  *
  * FIX ROUND 1/5 — trzy zmiany zachowania ponad pierwszą wersję:
- * 1. Zatwierdzone operacje ZNIKAJĄ z listy, reszta zostaje selekcjonowalna —
- *    wcześniejsza wersja blokowała CAŁY ekran po jednym kliknięciu
- *    „Zatwierdź" (nawet pustym), więc pomyłkowe odznaczenie i ponowne
- *    kliknięcie nie dawało wyjścia poza ponowne uruchomienie zadania, które
- *    wyrzuca akurat przejrzaną łatkę. Teraz drugie kliknięcie z tym samym
- *    (pustym) zaznaczeniem jest nieszkodliwe samo z siebie: pierwsze
- *    kliknięcie wyczyściło własne zaznaczenie.
+ * 1. Zatwierdzone operacje ZNIKAJĄ z listy (`remaining`), reszta zostaje
+ *    selekcjonowalna — wcześniejsza wersja blokowała CAŁY ekran po jednym
+ *    kliknięciu „Zatwierdź" (nawet pustym), więc pomyłkowe odznaczenie i
+ *    ponowne kliknięcie nie dawało wyjścia poza ponowne uruchomienie
+ *    zadania, które wyrzuca akurat przejrzaną łatkę. Podwójne kliknięcie
+ *    „Zatwierdź" zaraz po sobie NIE dubluje zastosowania: `chosen` liczy się
+ *    jako `remaining.filter(op => selected.has(op.id))`, więc operacja
+ *    usunięta z `remaining` po pierwszym zatwierdzeniu nie może trafić do
+ *    `chosen` w kolejnym wywołaniu; a nawet gdyby (dwa kliknięcia złapane w
+ *    JEDNĄ, jeszcze niezatwierdzoną partię reakcji Reacta), `applyOps` na
+ *    wartości już zastosowanej zwraca dokładnie ten sam obiekt referencyjnie
+ *    (`shared/src/patch/apply.ts`) — poza `replaceShots`, gdzie porównanie
+ *    jest celowo referencyjne na tablicy `shots` (zadanie 4), nie głębokie:
+ *    dwa zastosowania tej samej operacji `replaceShots` w JEDNEJ,
+ *    niescommitowanej partii mogłyby zadziałać dwukrotnie. Prawdziwe, osobne
+ *    zdarzenia klawiatury/myszy tego nie produkują — dług zapisany jako
+ *    punkt 21, `docs/superpowers/specs/2026-08-04-uwagi-do-planu-2.md`.
  * 2. Puste zaznaczenie kończy `onConfirm` NATYCHMIAST — zero wywołań
  *    `apply`, zero wpisu w historii, zero komunikatu. To samo dotyczy
  *    zaznaczenia niepustego, które okazuje się nie zmieniać niczego (np.

@@ -8,7 +8,7 @@ import { startManaged, stopManaged, managedState } from '../llm/managed.js'
 import { runTask } from '../llm/run.js'
 import { structureTask, structureToPatch, type StructureInput } from '../llm/tasks/structure.js'
 import {
-  redactTask, redactToPatch, redactSourceText, RedactTargetSchema, type RedactInput,
+  redactTaskFor, redactToPatch, redactSourceText, RedactTargetSchema, type RedactInput,
 } from '../llm/tasks/redact.js'
 import { audioTask, audioToPatch, audioInputFromProject } from '../llm/tasks/audio.js'
 import { criticTask, criticToNotes, criticAllowedRefs, type CriticInput } from '../llm/tasks/critic.js'
@@ -256,7 +256,7 @@ export function registerLlmRoutes(app: FastifyInstance): void {
           return {
             ok: true,
             run: async (fwd, signal, onRepairStart) => {
-              const result = await runTask(fwd, redactTask, input, signal, onRepairStart)
+              const result = await runTask(fwd, redactTaskFor(target), input, signal, onRepairStart)
               return {
                 patch: redactToPatch(result.value, target, project),
                 promptTokens: result.promptTokens,

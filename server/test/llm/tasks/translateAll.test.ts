@@ -13,6 +13,7 @@ import {
   chunkFields,
   collectTranslatableFields,
   runTranslateAll,
+  TranslateAllSchema,
   translateAllToPatch,
   type TranslatableField,
   type TranslateAllResult,
@@ -641,5 +642,60 @@ describe('runTranslateAll — orkiestracja partii', () => {
     const provider: Provider = { listModels: async () => [], complete, stream: notUsed }
     await runTranslateAll(provider, cleanProject(), controller.signal, () => {}, 1)
     expect(vi.mocked(complete).mock.calls[0]?.[0]?.signal).toBe(controller.signal)
+  })
+})
+
+/**
+ * Fix round 2/5, zadanie 11, punkt 2: `translateAllToPatch` woła
+ * `redactToPatch` dla pól `audio` dokładnie tak samo jak zadanie 7 —
+ * identyczna luka (siedem zdań w `overallSoundscape` zapala
+ * `SOUNDSCAPE_SENTENCES` na projekcie, który tej diagnostyki nie miał), tylko
+ * dostępna przez trzecie drzwi (tłumaczenie całego projektu, nie pojedyncze
+ * pole). Rozpoznanie, które elementy tablicy `fields` celują w pole audio,
+ * idzie WYŁĄCZNIE po formacie `id` (`audio:${field}`) — ten sam identyfikator
+ * budowany przez `collectTranslatableFields` niżej w tym pliku.
+ */
+describe('TranslateAllSchema — superRefine pilnuje liczby zdań dla pól audio, po id (fix round 2/5, punkt 2)', () => {
+  const sentences = (count: number, prefix: string): string =>
+    Array.from({ length: count }, (_, i) => `${prefix} ${i + 1} is happening now`).join('. ') + '.'
+
+  it('id "audio:overallSoundscape" z siedmioma zdaniami (poza 1–4) odrzucone', () => {
+    const result = TranslateAllSchema.safeParse({
+      fields: [{ id: 'audio:overallSoundscape', english: sentences(7, 'Wind') }],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('id "audio:nonDiegeticMusic" z pięcioma zdaniami (poza 1–3) odrzucone', () => {
+    const result = TranslateAllSchema.safeParse({
+      fields: [{ id: 'audio:nonDiegeticMusic', english: sentences(5, 'A drum') }],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('id "audio:overallSoundscape" w granicach 1–4 zdań przyjęte', () => {
+    const result = TranslateAllSchema.safeParse({
+      fields: [{ id: 'audio:overallSoundscape', english: sentences(3, 'Wind') }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('pole NIE-audio (np. "style") przyjmuje siedem zdań bez ograniczeń — reguła dotyczy tylko pól audio', () => {
+    const result = TranslateAllSchema.safeParse({
+      fields: [{ id: 'style', english: sentences(7, 'A wide shot') }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('partia mieszająca poprawne i złe pole odrzuca CAŁĄ partię ze wskazaniem właściwej ścieżki błędu', () => {
+    const result = TranslateAllSchema.safeParse({
+      fields: [
+        { id: 'style', english: sentences(7, 'A wide shot') },
+        { id: 'audio:overallSoundscape', english: sentences(7, 'Wind') },
+      ],
+    })
+    if (result.success) throw new Error('oczekiwano odrzucenia')
+    const issue = result.error.issues[0]
+    expect(issue?.path).toEqual(['fields', 1, 'english'])
   })
 })
