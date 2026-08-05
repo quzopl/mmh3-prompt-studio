@@ -17,6 +17,9 @@ export * from './validate/types.js'
 export * from './validate/validate.js'
 export * from './validate/registry.js'
 export * from './api.js'
+export * from './patch/types.js'
+export * from './patch/apply.js'
+export * from './patch/describe.js'
 // Wybiórczy eksport z pliku reguły, nie `export *` całego `validate/rules/*`
 // (te pliki rejestrują się do `allRules()` przez efekt uboczny, patrz
 // `validate/rules/index.ts`, i nie są pomyślane jako publiczne API modułu
