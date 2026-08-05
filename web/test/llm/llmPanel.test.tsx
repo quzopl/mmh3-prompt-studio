@@ -5,6 +5,7 @@ import type { Project } from '@mmh3/shared'
 import { LlmPanel } from '../../src/llm/LlmPanel.js'
 import { useProject } from '../../src/store/projectStore.js'
 import { usePlayhead } from '../../src/store/playheadStore.js'
+import { useCritic } from '../../src/store/criticStore.js'
 import { useTimelineShortcuts } from '../../src/timeline/useTimelineShortcuts.js'
 import { useLang } from '../../src/i18n/useT.js'
 
@@ -103,6 +104,7 @@ beforeEach(() => {
   useLang.setState({ lang: 'pl' })
   useProject.getState().load('test-projekt', project)
   usePlayhead.getState().reset()
+  useCritic.setState({ notes: [], capturedProject: null })
 })
 
 afterEach(() => {
@@ -553,5 +555,67 @@ describe('LlmPanel — klawiatura nie wypływa do skrótów osi czasu', () => {
 
     expect(usePlayhead.getState().playing).toBe(false)
     expect(calls).toEqual([{ task: 'critic', projectSlug: 'test-projekt' }])
+  })
+})
+
+describe('LlmPanel — uwagi krytyka trafiają do store\'u panelu walidacji (zadanie 12)', () => {
+  it('zakończone zadanie "critic" zapisuje uwagi w useCritic razem z referencją bieżącego projektu', async () => {
+    const { stream, send, close } = controllableStream()
+    const handlers = {
+      ...baseHandlers(settingsEndpoint),
+      'POST /api/llm/run': () => new Response(stream),
+    }
+    vi.stubGlobal('fetch', routedFetch(handlers))
+    render(<LlmPanel />)
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Krytyk' })).toHaveAttribute('aria-disabled', 'false')
+    })
+    expect(useCritic.getState().notes).toEqual([])
+
+    await user.click(screen.getByRole('button', { name: 'Krytyk' }))
+    await screen.findByText(/W toku…/)
+
+    send('done', {
+      notes: [{ ref: { kind: 'shot', id: 'shot-1' }, message: 'Test uwaga.', severity: 'hint' }],
+      promptTokens: 3, completionTokens: 6, repaired: false,
+    })
+    close()
+
+    await waitFor(() => {
+      expect(useCritic.getState().notes).toEqual([
+        { ref: { kind: 'shot', id: 'shot-1' }, message: 'Test uwaga.', severity: 'hint' },
+      ])
+    })
+    // Referencja PROJEKTU w chwili zapisania uwag — dokładnie ta, po której
+    // panel walidacji rozpozna nieaktualność przy kolejnej edycji.
+    expect(useCritic.getState().capturedProject).toBe(useProject.getState().project)
+  })
+
+  it('inne zadanie (np. "audio") nie rusza store\'u uwag krytyka — jego odpowiedź nie niesie notes', async () => {
+    const { stream, send, close } = controllableStream()
+    const handlers = {
+      ...baseHandlers(settingsEndpoint),
+      'POST /api/llm/run': () => new Response(stream),
+    }
+    vi.stubGlobal('fetch', routedFetch(handlers))
+    render(<LlmPanel />)
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Podpowiedź audio' })).toHaveAttribute('aria-disabled', 'false')
+    })
+    await user.click(screen.getByRole('button', { name: 'Podpowiedź audio' }))
+    await screen.findByText(/W toku…/)
+
+    send('done', { patch: { ops: [] }, promptTokens: 1, completionTokens: 1, repaired: false })
+    close()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Gotowe/)).toBeInTheDocument()
+    })
+    expect(useCritic.getState().notes).toEqual([])
+    expect(useCritic.getState().capturedProject).toBeNull()
   })
 })

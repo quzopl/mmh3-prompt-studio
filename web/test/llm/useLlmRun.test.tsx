@@ -605,3 +605,104 @@ describe('useLlmRun — stabilność referencji run()', () => {
     expect(currentOf(box).status).toBe('done')
   })
 })
+
+// Zadanie 12: krytyk nie zwraca łatki (patrz `routes/llm.ts`, przypadek
+// `'critic'`) tylko `notes` — pole dotąd wystawiane przez trasę, ale nigdy
+// nie czytane po stronie klienta. Panel walidacji (`ValidationPanel`, przez
+// `store/criticStore.ts`) jest pierwszym konsumentem.
+describe('useLlmRun — notes (uwagi krytyka)', () => {
+  it('zaczyna jako null i zostaje null dla zadania, którego odpowiedź niesie tylko łatkę', async () => {
+    const { stream, send, close } = controllableStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+
+    expect(currentOf(box).notes).toBeNull()
+    act(() => currentOf(box).run(request))
+    expect(currentOf(box).notes).toBeNull()
+
+    await act(async () => {
+      send('done', { patch: { ops: [] }, promptTokens: 1, completionTokens: 1, repaired: false })
+      close()
+      await flush()
+    })
+    expect(currentOf(box).status).toBe('done')
+    expect(currentOf(box).notes).toBeNull()
+  })
+
+  it('przyjmuje listę uwag z odpowiedzi "done", gdy odpowiedź niesie pole notes', async () => {
+    const { stream, send, close } = controllableStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+
+    act(() => currentOf(box).run({ task: 'critic', projectSlug: 'test-projekt' }))
+    await act(async () => {
+      send('done', {
+        notes: [{ ref: { kind: 'shot', id: 'shot-1' }, message: 'Ujęcie trwa zbyt długo.', severity: 'warning' }],
+        promptTokens: 4, completionTokens: 9, repaired: false,
+      })
+      close()
+      await flush()
+    })
+
+    expect(currentOf(box).status).toBe('done')
+    expect(currentOf(box).notes).toEqual([
+      { ref: { kind: 'shot', id: 'shot-1' }, message: 'Ujęcie trwa zbyt długo.', severity: 'warning' },
+    ])
+    // Zadanie krytyka nie niesie łatki — `patch` zostaje `null`.
+    expect(currentOf(box).patch).toBeNull()
+  })
+
+  it('kolejny bieg resetuje notes do null, zanim nowa odpowiedź przyjdzie', async () => {
+    const first = controllableStream()
+    const second = controllableStream()
+    let call = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call += 1
+      return new Response(call === 1 ? first.stream : second.stream)
+    }))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+
+    act(() => currentOf(box).run({ task: 'critic', projectSlug: 'test-projekt' }))
+    await act(async () => {
+      first.send('done', {
+        notes: [{ ref: { kind: 'shot', id: 'shot-1' }, message: 'stara uwaga', severity: 'hint' }],
+        promptTokens: 1, completionTokens: 1, repaired: false,
+      })
+      first.close()
+      await flush()
+    })
+    expect(currentOf(box).notes).toHaveLength(1)
+
+    act(() => currentOf(box).run({ task: 'critic', projectSlug: 'test-projekt' }))
+    expect(currentOf(box).notes).toBeNull()
+
+    await act(async () => {
+      second.send('done', { notes: [], promptTokens: 1, completionTokens: 1, repaired: false })
+      second.close()
+      await flush()
+    })
+    expect(currentOf(box).notes).toEqual([])
+  })
+
+  it('odrzuca kształt spoza kontraktu (np. severity spoza "hint"/"warning") — notes zostaje null, nie śmieciem', async () => {
+    const { stream, send, close } = controllableStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+
+    act(() => currentOf(box).run({ task: 'critic', projectSlug: 'test-projekt' }))
+    await act(async () => {
+      send('done', {
+        notes: [{ ref: { kind: 'shot', id: 'shot-1' }, message: 'x', severity: 'error' }],
+        promptTokens: 1, completionTokens: 1, repaired: false,
+      })
+      close()
+      await flush()
+    })
+
+    expect(currentOf(box).notes).toBeNull()
+  })
+})

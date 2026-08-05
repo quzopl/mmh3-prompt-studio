@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useProject } from '../store/projectStore.js'
+import { useCritic } from '../store/criticStore.js'
 import { useT, type Translate } from '../i18n/useT.js'
 import { settingsApi, type LlmMode, type LlmSettings, type ManagedState } from './settingsApi.js'
 import { useLlmRun, type LlmRunRequest } from './useLlmRun.js'
@@ -201,6 +202,26 @@ export function LlmPanel() {
       })
     return () => { cancelled = true }
   }, [])
+
+  /**
+   * Uwagi krytyka (zadanie 12) trafiają do `useCritic` stąd, jedynego miejsca,
+   * które woła zadanie „critic" i widzi jego wynik. Zależność WYŁĄCZNIE od
+   * `run.notes` — NIE od `project` — jest rozmyślna: `run.notes` zmienia
+   * referencję tylko wtedy, gdy zadanie faktycznie się zakończy nowym
+   * wynikiem (`setNotes` w `useLlmRun`), a projekt czytamy w tej chwili przez
+   * `getState()`, nie jako reaktywną zależność. Gdyby `project` był w
+   * tablicy zależności, KAŻDA późniejsza edycja projektu odpaliłaby ten efekt
+   * ponownie i podmieniła `capturedProject` w `useCritic` na świeżą
+   * referencję — te same (już nieaktualne) uwagi wyglądałyby znów jak
+   * aktualne, co dokładnie niweczy oznaczanie nieaktualności w panelu
+   * walidacji.
+   */
+  useEffect(() => {
+    if (run.notes === null) return
+    const currentProject = useProject.getState().project
+    if (currentProject === null) return
+    useCritic.getState().setNotes(run.notes, currentProject)
+  }, [run.notes])
 
   const busy = run.status === 'running'
 

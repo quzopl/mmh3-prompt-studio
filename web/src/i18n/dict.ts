@@ -130,6 +130,12 @@ const pl = {
   'validation.warning': 'Ostrzeżenie',
   'validation.hint': 'Wskazówka',
   'validation.source': 'Źródło',
+  // Nagłówek grupy uwag krytyka (zadanie 12) — treść MUSI mówić, że uwagi
+  // pochodzą z modelu językowego, nie z reguł: to jest cały sens oddzielenia
+  // (brief).
+  'validation.criticTitle': 'Uwagi modelu językowego',
+  'validation.criticSource': 'Źródło: model językowy',
+  'validation.criticStale': 'Nieaktualna — projekt zmienił się od tej uwagi',
 
   'shot.number': 'Ujęcie {number}',
   'shot.startMs': 'Czas cięcia',
@@ -384,6 +390,9 @@ const en: Record<TKey, string> = {
   'validation.warning': 'Warning',
   'validation.hint': 'Hint',
   'validation.source': 'Source',
+  'validation.criticTitle': 'Language-model notes',
+  'validation.criticSource': 'Source: language model',
+  'validation.criticStale': 'Stale — the project has changed since this note',
 
   'shot.number': 'Shot {number}',
   'shot.startMs': 'Cut time',

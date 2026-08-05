@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ProjectPatch } from '@mmh3/shared'
 import { useT, type Translate } from '../i18n/useT.js'
+import type { CriticNote } from '../store/criticStore.js'
 
 export type LlmRunStatus = 'idle' | 'running' | 'done' | 'error' | 'cancelled'
 
@@ -25,6 +26,7 @@ export interface LlmRunRequest {
  * odróżnienie „liczba" od „null" od „czegoś innego" dzieje się przy odczycie. */
 interface DonePayload {
   patch?: unknown
+  notes?: unknown
   promptTokens?: unknown
   completionTokens?: unknown
   repaired?: unknown
@@ -32,6 +34,22 @@ interface DonePayload {
 
 const isProjectPatch = (value: unknown): value is ProjectPatch =>
   typeof value === 'object' && value !== null && Array.isArray((value as { ops?: unknown }).ops)
+
+/** Sprawdza kształt POJEDYNCZEJ uwagi krytyka bez zaufania do sieci — to samo
+ * podejście co `isProjectPatch` wyżej: JSON z `fetch` jest `unknown`, dopóki
+ * coś go nie sprawdzi polami, nie samym rzutowaniem. */
+const isCriticNote = (value: unknown): value is CriticNote => {
+  if (typeof value !== 'object' || value === null) return false
+  const note = value as { ref?: unknown; message?: unknown; severity?: unknown }
+  if (typeof note.message !== 'string') return false
+  if (note.severity !== 'hint' && note.severity !== 'warning') return false
+  if (typeof note.ref !== 'object' || note.ref === null) return false
+  const ref = note.ref as { kind?: unknown; id?: unknown }
+  return typeof ref.kind === 'string' && typeof ref.id === 'string'
+}
+
+const isCriticNoteArray = (value: unknown): value is CriticNote[] =>
+  Array.isArray(value) && value.every(isCriticNote)
 
 /** `number`, jeśli serwer zgłosił konkretną wartość; `null`, jeśli pole jest
  * `null`, brakuje go, albo ma zły typ — wszystkie te przypadki znaczą to
@@ -53,8 +71,15 @@ export interface UseLlmRunResult {
    * pierwszą (nieudaną) a drugą próbą. */
   retrying: boolean
   /** `null`, dopóki zadanie nie zakończy się poprawnie (albo dla zadania
-   * „critic", które nie zwraca łatki tylko uwagi — poza zakresem tego haka). */
+   * „critic", które nie zwraca łatki tylko uwagi — zob. `notes` niżej). */
   patch: ProjectPatch | null
+  /** Uwagi krytyka (zadanie 12) — `null`, dopóki zadanie nie zakończy się
+   * poprawnie ALBO dla zadań innych niż „critic", które w ogóle nie niosą
+   * pola `notes` w odpowiedzi trasy. Konsument (panel walidacji, przez
+   * `store/criticStore.ts`) rozstrzyga, co z nimi zrobić — ten hak jest
+   * wyłącznie mechaniką sieci i nie zna znaczenia uwag, tak samo jak nie zna
+   * znaczenia operacji w `patch`. */
+  notes: CriticNote[] | null
   /** Licznik postępu w trakcie strumieniowania — liczba przyjętych kawałków
    * BIEŻĄCEJ próby (przybliżenie liczby tokenów; lokalne serwery zgodne z
    * API OpenAI wysyłają zwykle jeden kawałek na jeden wygenerowany token).
@@ -246,6 +271,7 @@ export function useLlmRun(): UseLlmRunResult {
   const [text, setText] = useState('')
   const [retrying, setRetrying] = useState(false)
   const [patch, setPatch] = useState<ProjectPatch | null>(null)
+  const [notes, setNotes] = useState<CriticNote[] | null>(null)
   const [tokens, setTokens] = useState(0)
   const [promptTokens, setPromptTokens] = useState<number | null>(null)
   const [completionTokens, setCompletionTokens] = useState<number | null>(null)
@@ -308,6 +334,7 @@ export function useLlmRun(): UseLlmRunResult {
     setText('')
     setRetrying(false)
     setPatch(null)
+    setNotes(null)
     setTokens(0)
     setPromptTokens(null)
     setCompletionTokens(null)
@@ -340,6 +367,7 @@ export function useLlmRun(): UseLlmRunResult {
         if (!isCurrent()) return
         finish()
         setPatch(isProjectPatch(payload.patch) ? payload.patch : null)
+        setNotes(isCriticNoteArray(payload.notes) ? payload.notes : null)
         const finalCompletion = asTokenCount(payload.completionTokens)
         setPromptTokens(asTokenCount(payload.promptTokens))
         setCompletionTokens(finalCompletion)
@@ -363,5 +391,5 @@ export function useLlmRun(): UseLlmRunResult {
     })
   }, [finish, stopTicking])
 
-  return { status, text, retrying, patch, tokens, promptTokens, completionTokens, elapsedMs, error, run, cancel }
+  return { status, text, retrying, patch, notes, tokens, promptTokens, completionTokens, elapsedMs, error, run, cancel }
 }
