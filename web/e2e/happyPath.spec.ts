@@ -110,7 +110,17 @@ test('od utworzenia projektu do gotowego promptu', async ({ page }) => {
   await expect(msDisplay).toHaveText('8000 ms')
 
   // Zmiana języka przełącza interfejs, ale nie treść promptu.
-  await page.getByRole('button', { name: 'EN' }).click()
+  //
+  // ZNALEZISKO zadania 13 (prawdziwa przeglądarka, nie jsdom): dopasowanie po
+  // nazwie bez `exact: true` jest podciągiem, bez rozróżniania wielkości
+  // liter — panel LLM (zadanie 10) dodał do tej samej strony przyciski
+  // „Endpoint", „Zapisz ustawienia", „Redakcja PL→EN" i „Tłumaczenie całego
+  // projektu", z których KAŻDY zawiera podciąg „en" gdzieś w środku nazwy.
+  // Selektor bez `exact` trafiał więc w PIĘĆ elementów i Playwright odmawiał w
+  // trybie strict — usterka spała od zadania 10, bo żaden e2e nie uruchomił
+  // się między nim a tym zadaniem (plan wykonywał wyłącznie testy jednostkowe
+  // aż do tego kroku).
+  await page.getByRole('button', { name: 'EN', exact: true }).click()
   await expect(page.getByText(/ready to export/i)).toBeVisible()
   await expect(page.getByText(/integrated_multimodal_description/)).toBeVisible()
   await expect(page.getByText(/Live-action, cinematic/).first()).toBeVisible()

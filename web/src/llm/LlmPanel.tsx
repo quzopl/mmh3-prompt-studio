@@ -613,8 +613,26 @@ export function LlmPanel() {
 
         <div className="flex flex-col gap-1">
           <Field label={t('llm.redactTarget')}>
+            {/*
+              Zadanie 13, znalezisko w prawdziwej przeglądarce: bez własnego
+              `aria-label` nazwa dostępna TEGO elementu liczy się z treści
+              całego `<label>`, w którym stoi — a że to jedyny `<select>` w tym
+              panelu, doliczają się do niej teksty WSZYSTKICH `<option>`, nie
+              tylko wybranej (measured: „Cel redakcjiStyl wizualnyTło…").
+              Efekt uboczny w produkcji żaden (są to te same napisy, które i
+              tak widać w rozwijanej liście), ale nazwa „Styl wizualny" z opcji
+              zaczynała kolidować z polem tekstowym `Styl wizualny` gdzie
+              indziej na tej samej stronie — `getByLabel(/styl wizualny/i)` w
+              `happyPath.spec.ts` trafiał w DWA elementy i test padał w trybie
+              strict, mimo że jsdom (testy jednostkowe tego panelu) tego nie
+              widzi, bo nie liczy dostępnych nazw tak jak prawdziwa
+              przeglądarka. Jawny `aria-label` (ten sam tekst, co etykieta
+              pola) wygrywa z liczeniem nazwy z treści i usuwa kolizję u
+              źródła, nie tylko w tym jednym teście.
+            */}
             <select
               className={inputClass}
+              aria-label={t('llm.redactTarget')}
               value={redactValue}
               disabled={busy}
               onChange={event => setRedactValue(event.target.value)}
