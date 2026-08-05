@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api/client.js'
 import { useProject } from '../store/projectStore.js'
 import { usePlayhead } from '../store/playheadStore.js'
+import { useCritic } from '../store/criticStore.js'
 import { useAutosave } from '../store/useAutosave.js'
 import { useT } from '../i18n/useT.js'
 import { PromptPanel } from '../panels/PromptPanel.js'
@@ -50,13 +51,26 @@ export function Editor({ slug, onClose }: Props) {
     // a przeniesione `playing` uruchamiało odtwarzanie, o które nikt nie
     // prosił — i pierwsza klatka pętli dosuwała nowy projekt do jego końca.
     usePlayhead.getState().reset()
+    // Uwagi krytyka (zadanie 12) żyją w sklepie równie globalnym jak projekt
+    // i znacznik odtwarzania — dokładnie ten sam błąd, co przy playheadzie
+    // wyżej, gdyby tego brakło: uwagi wygenerowane dla poprzedniego projektu
+    // (inny `id`, inne obiekty pod tymi samymi `ref`) przywitałyby użytkownika
+    // w NOWYM projekcie, wskazując na obiekty, których tam nie ma (round 1
+    // recenzji zadania 12). `isCriticStale` oznaczyłby je jako nieaktualne
+    // dopiero PO wczytaniu nowego projektu (inna referencja), ale do tego
+    // momentu — i tak zbyt długo — panel pokazywałby uwagi z cudzego projektu.
+    useCritic.getState().clear()
     api.getProject(slug)
       .then(response => load(slug, response.project))
       .catch((err: Error) => setError(err.message))
 
     // Powrót do listy projektów tak samo nie może zostawić włączonego
-    // odtwarzania ani czasu spoza materiału na wejście do następnego edytora.
-    return () => usePlayhead.getState().reset()
+    // odtwarzania, czasu spoza materiału ani uwag krytyka na wejście do
+    // następnego edytora.
+    return () => {
+      usePlayhead.getState().reset()
+      useCritic.getState().clear()
+    }
   }, [slug, load])
 
   if (error) return <p className="p-6 text-red-400">{error}</p>

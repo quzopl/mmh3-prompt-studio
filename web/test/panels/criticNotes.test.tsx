@@ -9,6 +9,7 @@ import { useCritic, type CriticNote } from '../../src/store/criticStore.js'
 import { usePlayhead } from '../../src/store/playheadStore.js'
 import { useTimelineShortcuts } from '../../src/timeline/useTimelineShortcuts.js'
 import { useLang } from '../../src/i18n/useT.js'
+import { DICT } from '../../src/i18n/dict.js'
 
 /**
  * Zadanie 12: uwagi krytyka w panelu walidacji, w osobnej grupie od reguł
@@ -61,6 +62,23 @@ const diagnostic = {
   guideRef: 'guide_base §4.1',
 }
 
+/**
+ * Teksty wprost ze SŁOWNIKA, nie przepisane ręcznie do testu — round 1
+ * recenzji zadania 12: literał `/model językowego/i` w teście miał literówkę
+ * względem prawdziwego napisu w `dict.ts` („modelu", nie „model"), więc
+ * asercja o BRAKU nagłówka nigdy nie mogła się nie powieść — nawet po
+ * usunięciu strażnika chowającego pustą grupę. Odczyt wprost z `DICT`
+ * eliminuje możliwość takiego rozjazdu raz na zawsze: literówka w `dict.ts`
+ * zmieniłaby też oczekiwaną wartość tutaj, więc test nigdy nie przestanie
+ * być w stanie zaczerwienić się na naprawdę zepsute zachowanie.
+ */
+const CRITIC_TITLE = DICT.pl['validation.criticTitle']
+const CRITIC_SOURCE = DICT.pl['validation.criticSource']
+const CRITIC_STALE = DICT.pl['validation.criticStale']
+/** Dokładny tekst podpisu wiersza, gdy uwaga jest nieaktualna — `ValidationPanel`
+ * skleja oba fragmenty w jednym `<span>` jako `źródło · nieaktualność`. */
+const CRITIC_SOURCE_STALE = `${CRITIC_SOURCE} · ${CRITIC_STALE}`
+
 beforeEach(() => {
   useLang.setState({ lang: 'pl' })
   useSelection.setState({ selected: [] })
@@ -73,7 +91,9 @@ beforeEach(() => {
 describe('ValidationPanel — grupa uwag krytyka nieobecna bez uwag', () => {
   it('bez uwag grupa (i jej nagłówek) w ogóle się nie renderuje', () => {
     render(<ValidationPanel />)
-    expect(screen.queryByText(/model językowego/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(CRITIC_TITLE)).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: CRITIC_TITLE })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: CRITIC_TITLE })).not.toBeInTheDocument()
   })
 })
 
@@ -81,7 +101,20 @@ describe('ValidationPanel — grupa uwag krytyka, osobna od reguł', () => {
   it('nagłówek grupy mówi, że uwagi pochodzą z modelu językowego', () => {
     useCritic.getState().setNotes([note()], currentProject())
     render(<ValidationPanel />)
-    expect(screen.getByText('Uwagi modelu językowego')).toBeInTheDocument()
+    expect(screen.getByText(CRITIC_TITLE)).toBeInTheDocument()
+  })
+
+  // Round 1 recenzji: nagłówek musi być prawdziwym nagłówkiem w drzewie
+  // dostępności (nawigacja po nagłówkach/landmarkach czytnika ekranu), nie
+  // tylko wizualnie — inaczej separacja reguł od opinii modelu, będąca całym
+  // sensem zadania 12, nie istnieje dla kogoś, kto nie widzi ekranu.
+  it('nagłówek jest prawdziwym elementem nagłówkowym, a lista jest z nim powiązana jako grupa', () => {
+    useCritic.getState().setNotes([note()], currentProject())
+    render(<ValidationPanel />)
+
+    expect(screen.getByRole('heading', { name: CRITIC_TITLE })).toBeInTheDocument()
+    const group = screen.getByRole('group', { name: CRITIC_TITLE })
+    expect(within(group).getByText(NOTE_MESSAGE)).toBeInTheDocument()
   })
 
   it('uwaga renderuje się w swojej liście, osobnej od listy reguł — nie wymieszana', () => {
@@ -103,7 +136,7 @@ describe('ValidationPanel — grupa uwag krytyka, osobna od reguł', () => {
   it('podpis wiersza mówi, że źródłem jest model językowy', () => {
     useCritic.getState().setNotes([note()], currentProject())
     render(<ValidationPanel />)
-    expect(screen.getByText(/Źródło: model językowy/)).toBeInTheDocument()
+    expect(screen.getByText(CRITIC_SOURCE)).toBeInTheDocument()
   })
 })
 
@@ -144,7 +177,7 @@ describe('ValidationPanel — zmiana projektu nie kasuje uwag, tylko oznacza je 
     const { rerender } = render(<ValidationPanel />)
 
     expect(screen.getByText(NOTE_MESSAGE)).toBeInTheDocument()
-    expect(screen.queryByText(/Nieaktualna/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(CRITIC_SOURCE_STALE)).not.toBeInTheDocument()
 
     // Symulacja edycji: `useProject.apply/load` zawsze oddaje NOWY obiekt
     // projektu, nigdy nie mutuje istniejącego — ten sam mechanizm tutaj.
@@ -156,13 +189,41 @@ describe('ValidationPanel — zmiana projektu nie kasuje uwag, tylko oznacza je 
     expect(useCritic.getState().notes).toHaveLength(1)
     expect(screen.getByText(NOTE_MESSAGE)).toBeInTheDocument()
     // Ale panel pokazuje, że jest ze starszej wersji projektu.
-    expect(screen.getByText(/Nieaktualna/i)).toBeInTheDocument()
+    expect(screen.getByText(CRITIC_SOURCE_STALE)).toBeInTheDocument()
   })
 
   it('bez żadnej zmiany projektu uwaga nie jest oznaczona jako nieaktualna', () => {
     useCritic.getState().setNotes([note()], currentProject())
     render(<ValidationPanel />)
-    expect(screen.queryByText(/Nieaktualna/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(CRITIC_SOURCE_STALE)).not.toBeInTheDocument()
+    expect(screen.getByText(CRITIC_SOURCE)).toBeInTheDocument()
+  })
+
+  // Round 1 recenzji: sprawdzone ręcznie, nie w garniturze — brakujący trzeci
+  // stan. Użytkownik wraca właśnie do TEGO stanu: edytuje projekt (uwaga
+  // staje się nieaktualna), potem uruchamia krytyka jeszcze raz. Nowe uwagi
+  // są zapisywane z referencją AKTUALNEGO projektu (`LlmPanel`'s effect w
+  // `useCritic.getState().setNotes(run.notes, currentProject)`), więc
+  // oznaczenie nieaktualności ma zniknąć — inaczej świeże uwagi wyglądałyby
+  // na przestarzałe.
+  it('kolejny bieg krytyka po edycji usuwa oznaczenie nieaktualności', () => {
+    const projectV1 = currentProject()
+    useCritic.getState().setNotes([note({ message: 'Uwaga sprzed edycji' })], projectV1)
+    const { rerender } = render(<ValidationPanel />)
+
+    const projectV2: Project = { ...projectV1, style: 'Neo-noir' }
+    useProject.setState({ project: projectV2 })
+    rerender(<ValidationPanel />)
+    expect(screen.getByText(CRITIC_SOURCE_STALE)).toBeInTheDocument()
+
+    // Drugi bieg krytyka, TERAZ, po edycji — zapisany z referencją `projectV2`.
+    useCritic.getState().setNotes([note({ message: 'Uwaga po drugim biegu' })], projectV2)
+    rerender(<ValidationPanel />)
+
+    expect(screen.queryByText(CRITIC_SOURCE_STALE)).not.toBeInTheDocument()
+    expect(screen.getByText(CRITIC_SOURCE)).toBeInTheDocument()
+    expect(screen.getByText('Uwaga po drugim biegu')).toBeInTheDocument()
+    expect(screen.queryByText('Uwaga sprzed edycji')).not.toBeInTheDocument()
   })
 })
 

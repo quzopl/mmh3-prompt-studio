@@ -5,6 +5,7 @@ import { Editor } from '../../src/screens/Editor.js'
 import { api } from '../../src/api/client.js'
 import { useProject } from '../../src/store/projectStore.js'
 import { usePlayhead } from '../../src/store/playheadStore.js'
+import { useCritic } from '../../src/store/criticStore.js'
 import { useSelection } from '../../src/store/selectionStore.js'
 import { useLang } from '../../src/i18n/useT.js'
 
@@ -26,6 +27,14 @@ const project = (name: string, durationMs: number): Project => ({
 const LONG = project('Długi', 15000)
 const SHORT = project('Krótki', 4000)
 
+/** Bezpieczny odczyt wczytanego projektu ze store'u — bez asercji nienull
+ * (`!`), tak jak `currentOf`/`currentProject` w innych plikach testowych. */
+function currentProject(): Project {
+  const loaded = useProject.getState().project
+  if (loaded === null) throw new Error('projekt jeszcze nie wczytany')
+  return loaded
+}
+
 /**
  * Pętla odtwarzania nie ma tu nic do roboty — te testy ustawiają `playing`
  * tylko po to, żeby sprawdzić, czy przełączenie projektu ten stan zeruje.
@@ -42,6 +51,7 @@ beforeEach(() => {
   useLang.setState({ lang: 'pl' })
   useSelection.setState({ selected: [] })
   usePlayhead.setState({ ms: 0, playing: false })
+  useCritic.setState({ notes: [], capturedProject: null })
 })
 
 afterEach(() => {
@@ -107,5 +117,43 @@ describe('Editor — przełączenie projektu', () => {
 
     expect(usePlayhead.getState().ms).toBe(0)
     expect(usePlayhead.getState().playing).toBe(false)
+  })
+
+  // Round 1 recenzji zadania 12: dokładnie ten sam błąd co przy playheadzie
+  // wyżej, dopóki nikt nie sprawdził. Uwagi krytyka żyją w module-scoped
+  // `useCritic`, tak samo globalnym jak `usePlayhead` i (przed swoim resetem)
+  // `useProject` — bez czyszczenia w tym samym efekcie uwagi wygenerowane dla
+  // „Długiego" przywitałyby użytkownika w „Krótkim", wskazując `ref`, których
+  // tam nie ma.
+  it('przełączenie projektu czyści uwagi krytyka z poprzedniego projektu', async () => {
+    const view = render(<Editor slug="dlugi" onClose={() => {}} />)
+    await openedName('Długi')
+
+    act(() => useCritic.getState().setNotes(
+      [{ ref: { kind: 'shot', id: 'a' }, message: 'Uwaga o Długim.', severity: 'hint' }],
+      currentProject(),
+    ))
+    expect(useCritic.getState().notes).toHaveLength(1)
+
+    view.rerender(<Editor slug="krotki" onClose={() => {}} />)
+    await openedName('Krótki')
+
+    expect(useCritic.getState().notes).toEqual([])
+    expect(useCritic.getState().capturedProject).toBeNull()
+  })
+
+  it('odmontowanie edytora też czyści uwagi krytyka', async () => {
+    const view = render(<Editor slug="dlugi" onClose={() => {}} />)
+    await openedName('Długi')
+
+    act(() => useCritic.getState().setNotes(
+      [{ ref: { kind: 'shot', id: 'a' }, message: 'Uwaga o Długim.', severity: 'hint' }],
+      currentProject(),
+    ))
+
+    view.unmount()
+
+    expect(useCritic.getState().notes).toEqual([])
+    expect(useCritic.getState().capturedProject).toBeNull()
   })
 })
