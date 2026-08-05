@@ -3,24 +3,10 @@ import { useProject } from '../store/projectStore.js'
 import { same, useSelection } from '../store/selectionStore.js'
 import { useT } from '../i18n/useT.js'
 import { AnchorBadges } from './AnchorBadges.js'
+import { clipBox } from './clips.js'
 import { msToPx, type Scale } from './scale.js'
-import { shotSpans, type ShotSpan } from './spans.js'
+import { shotSpans } from './spans.js'
 import { useDragBoundary } from './useDragBoundary.js'
-
-/** Najwęższy klip, jaki da się jeszcze chwycić myszą. */
-const MIN_CLIP_PX = 8
-
-/**
- * Prostokąt klipu przycięty do widocznego obszaru. Ujęcie z czasem cięcia poza
- * długością wideo jest błędem, który walidator zgłasza — ale narysowane poza
- * ekranem byłoby nie do chwycenia, więc jedyny klip, który trzeba naprawić,
- * byłby jedynym nieosiągalnym. Przypinamy je do krawędzi zamiast gubić.
- */
-export function clipBox(scale: Scale, span: ShotSpan): { left: number; width: number } {
-  const left = Math.min(msToPx(scale, span.startMs), msToPx(scale, scale.durationMs) - MIN_CLIP_PX)
-  const right = Math.min(msToPx(scale, span.endMs), msToPx(scale, scale.durationMs))
-  return { left: Math.max(0, left), width: Math.max(MIN_CLIP_PX, right - left) }
-}
 
 export function ShotTrack({ scale }: { scale: Scale }) {
   const t = useT()
@@ -72,7 +58,7 @@ export function ShotTrack({ scale }: { scale: Scale }) {
                   ? 'border-sky-600 bg-sky-950 text-sky-100'
                   : 'border-neutral-700 bg-neutral-900 hover:border-neutral-500'
               }`}
-              style={clipBox(scale, span)}
+              style={clipBox(scale, { id: span.shot.id, startMs: span.startMs, endMs: span.endMs })}
             >
               {/*
                 Etykieta ujęcia ma własny overflow-hidden, a nie cały klip —
