@@ -59,3 +59,21 @@ export const projectWithDialogue = (): Project => ({
   ]),
   speakers: [speaker('s1', 'S1'), speaker('s2', 'S2')],
 })
+
+/** Alias pod nazwą oczekiwaną przez testy spoza tego pliku — sama funkcja bez zmian. */
+export const lineFixture = line
+
+/**
+ * Kwestia `d1` (3000-5000 ms) przechodzi przez cięcie ujęcia `b` (start 4000 ms)
+ * i mieści się przed końcem materiału (8000 ms z `baseProject`) — jedyna
+ * geometria, jakiej potrzebują testy propozycji `<scenetrans>` w interfejsie.
+ * Wspólny budowniczy zamiast trzykrotnego powtórzenia tego samego kształtu
+ * projektu inline w każdym teście.
+ */
+export const projectWithCrossingLine = (): Project => ({
+  ...baseProject([
+    { ...emptyShot('a', 0, 0), dialogue: [line('d1', ['s1'], 'przechodzi przez ciecie', 3000, 5000)] },
+    emptyShot('b', 1, 4000),
+  ]),
+  speakers: [speaker('s1', 'S1')],
+})

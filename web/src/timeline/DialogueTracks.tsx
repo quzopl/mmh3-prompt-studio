@@ -8,6 +8,7 @@ import { clipBox } from './clips.js'
 import { useDragClip } from './useDragClip.js'
 import { shotSpans } from './spans.js'
 import { naturalDurationMs } from './speech.js'
+import { applyProposal, dialogueProposals } from './proposals.js'
 
 /**
  * Kwestia dwóch mówców pojawia się w obu pasach — to ta sama kwestia widziana
@@ -57,6 +58,11 @@ export function DialogueTracks({ scale }: { scale: Scale }) {
   const wordsPerMinute = useSpeechRate(state => state.wordsPerMinute)
 
   const spans = project ? shotSpans(project.shots, project.video.durationMs) : []
+  // Raz na render, nie w pętli po kwestiach niżej — `dialogueProposals`
+  // przechodzi cały projekt, więc policzenie jej dla KAŻDEJ kwestii z osobna
+  // powtarzałoby ten sam przebieg po wszystkich ujęciach tyle razy, ile jest
+  // kwestii w projekcie.
+  const proposals = project ? dialogueProposals(project) : []
 
   const findEvent = (eventId: string) => {
     for (const span of spans) {
@@ -259,6 +265,45 @@ export function DialogueTracks({ scale }: { scale: Scale }) {
                       className="absolute -top-1 right-0 h-2 w-2 rounded-full bg-amber-400"
                     />
                   )}
+                  {/*
+                    Propozycje wynikające z geometrii klipu (patrz komentarz
+                    przy `dialogueProposals`) — nigdy nie stosują się same,
+                    tylko dają zrobić to jednym kliknięciem. `dialogueProposals`
+                    zwraca płaską listę kluczowaną po id kwestii, więc jedna
+                    kwestia potrafi dostać RAZEM propozycję `scenetrans` i
+                    `cutoff` (przechodzi przez cięcie I wystaje poza koniec
+                    materiału naraz). Rozsunięcie po indeksie w przefiltrowanej
+                    liście (`left: proposalIndex * 10`), a nie stała pozycja
+                    jak w brzmieniu zadania — dwa przyciski w tym samym
+                    miejscu nakładałyby się jeden na drugim: klikalny byłby
+                    tylko ten pomalowany później w dokumencie, a drugi
+                    istniałby w drzewie dostępności, ale nie dałby się
+                    dosięgnąć myszą. To ten sam rodzaj kolizji zagnieżdżonych
+                    elementów interaktywnych, który już trzykrotnie ugryzł ten
+                    projekt — tu w wersji przestrzennej, nie przez
+                    bąbelkowanie.
+
+                    `onPointerDown` zatrzymuje propagację tak samo jak przy
+                    plakietce ostrzeżenia wyżej — bez tego gest zaczęty na
+                    przycisku propozycji spadłby do `onPointerDown` klipu i
+                    ruszyłby przeciąganie zamiast kliknięcia.
+                  */}
+                  {proposals
+                    .filter(proposal => proposal.eventId === event.id)
+                    .map((proposal, proposalIndex) => (
+                      <button
+                        key={proposal.kind}
+                        type="button"
+                        aria-label={t(`proposal.${proposal.kind}`)}
+                        onPointerDown={pointerEvent => pointerEvent.stopPropagation()}
+                        onClick={clickEvent => {
+                          clickEvent.stopPropagation()
+                          useProject.getState().apply(candidate => applyProposal(candidate, proposal))
+                        }}
+                        className="absolute -top-1 left-0 h-2 w-2 rounded-full bg-sky-400"
+                        style={{ left: proposalIndex * 10 }}
+                      />
+                    ))}
                   <div
                     role="separator"
                     aria-label={t('dialogue.dragStart', { speaker: codeOf(event) || '—' })}

@@ -59,6 +59,9 @@ const pl = {
   'dialogue.dragEnd': 'Przesuń koniec kwestii {speaker}',
   'dialogue.tooShort': 'Kwestia nie mieści się w klipie: potrzeba {needed} s, jest {actual} s',
 
+  'proposal.scenetrans': 'Kwestia przechodzi przez cięcie — dodaj <scenetrans>',
+  'proposal.cutoff': 'Kwestia wystaje poza koniec materiału — oznacz <cutoff>',
+
   'monitor.title': 'Monitor',
   'monitor.empty': 'Playhead nie stoi nad żadnym ujęciem.',
   'monitor.shot': 'Ujęcie {number}',
@@ -169,6 +172,9 @@ const en: Record<TKey, string> = {
   'dialogue.dragStart': 'Move start of line by {speaker}',
   'dialogue.dragEnd': 'Move end of line by {speaker}',
   'dialogue.tooShort': 'Line does not fit the clip: needs {needed} s, has {actual} s',
+
+  'proposal.scenetrans': 'Line crosses a cut — add <scenetrans>',
+  'proposal.cutoff': 'Line runs past the end of the material — mark <cutoff>',
 
   'monitor.title': 'Monitor',
   'monitor.empty': 'The playhead is not over any shot.',
