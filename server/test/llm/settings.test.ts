@@ -255,4 +255,18 @@ describe('trasa /api/llm/models', () => {
     const res = await app.inject({ method: 'GET', url: '/api/llm/models' })
     expect(res.statusCode).toBe(502)
   })
+
+  it('gdy serwer modelu nie jest uruchomiony, zwraca 502 z polskim komunikatem, nie "fetch failed"', async () => {
+    await writeSettings(apiRoot, {
+      mode: 'endpoint',
+      endpoint: { baseUrl: 'http://model.local:9999/v1', apiKey: '', model: 'qwen' },
+      managed: { serverBinary: '', modelPath: '', gpuLayers: 0, contextSize: 4096 },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed') }))
+
+    const res = await app.inject({ method: 'GET', url: '/api/llm/models' })
+    expect(res.statusCode).toBe(502)
+    expect(res.json().error).not.toContain('fetch failed')
+    expect(res.json().error).toMatch(/model\.local/)
+  })
 })
