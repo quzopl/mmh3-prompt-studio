@@ -1227,9 +1227,183 @@ git commit -m "test: droga od zadania LLM do zmienionego modelu w przegladarce"
 
 ---
 
+### Task 14: Zwolnienie modelu z pamięci karty
+
+Powód jest konkretny, nie kosmetyczny: docelowa maszyna ma CUDA, a prompt powstaje **po to**, żeby zaraz puścić generowanie w ComfyUI. Model językowy siedzący w VRAM-ie zabiera pamięć, której potrzebuje model wideo — więc bez sposobu na zwolnienie jej trzeba wybierać, która z dwóch rzeczy działa naraz.
+
+Sposób zależy od dostawcy i **żaden nie jest uniwersalny**, więc interfejs ma mówić prawdę o tym, co potrafi:
+
+- **Tryb zarządzany** — zatrzymanie procesu `llama-server` zwalnia VRAM w całości. To jest pełne zwolnienie i tak trzeba je nazwać.
+- **Ollama** — przyjmuje `keep_alive: 0` w żądaniu i wyładowuje model po jego zakończeniu. Rozpoznawalna po tym, że `/api/tags` odpowiada; standard OpenAI tego pola nie zna, ale Ollama je czyta.
+- **LM Studio** — ma własne API poza standardem OpenAI (`/api/v0/models` z akcją wyładowania w nowszych wersjach). Jeśli nie odpowiada, nie zgaduj.
+- **Zwykły endpoint zgodny z OpenAI** — nie ma czego zawołać. Przycisk musi być wtedy nieaktywny z wyjaśnieniem, a nie udawać, że coś zrobił.
+
+**Files:**
+- Create: `server/src/llm/unload.ts`
+- Modify: `server/src/routes/llm.ts`
+- Modify: `server/src/llm/managed.ts`
+- Modify: `web/src/llm/LlmPanel.tsx`
+- Modify: `web/src/i18n/dict.ts`
+- Test: `server/test/llm/unload.test.ts`
+- Test: `web/test/llm/unloadButton.test.tsx`
+
+**Interfaces:**
+- Produces:
+  - `type UnloadCapability = 'managed' | 'ollama' | 'lmstudio' | 'none'`
+  - `detectUnloadCapability(settings: LlmSettings): Promise<UnloadCapability>`
+  - `unloadModel(settings: LlmSettings): Promise<{ freed: boolean; how: UnloadCapability }>`
+  - trasy `GET /api/llm/unload/capability` i `POST /api/llm/unload`
+
+- [ ] **Krok 1: Dodaj klucze słownika**
+
+Polska:
+
+```ts
+  'llm.unload': 'Zwolnij pamięć karty',
+  'llm.unloadManaged': 'Zatrzymuje serwer modelu i zwalnia całą pamięć karty',
+  'llm.unloadOllama': 'Prosi Ollamę o wyładowanie modelu z pamięci karty',
+  'llm.unloadLmStudio': 'Prosi LM Studio o wyładowanie modelu z pamięci karty',
+  'llm.unloadUnsupported': 'Ten dostawca nie umie zwolnić pamięci na żądanie — zatrzymaj go po swojej stronie',
+  'llm.unloadDone': 'Pamięć karty zwolniona',
+  'llm.unloadFailed': 'Nie udało się zwolnić pamięci: {reason}',
+```
+
+angielska:
+
+```ts
+  'llm.unload': 'Free GPU memory',
+  'llm.unloadManaged': 'Stops the model server and frees all GPU memory',
+  'llm.unloadOllama': 'Asks Ollama to unload the model from GPU memory',
+  'llm.unloadLmStudio': 'Asks LM Studio to unload the model from GPU memory',
+  'llm.unloadUnsupported': 'This provider cannot free memory on request — stop it on your side',
+  'llm.unloadDone': 'GPU memory freed',
+  'llm.unloadFailed': 'Could not free memory: {reason}',
+```
+
+- [ ] **Krok 2: Napisz testy wykrywania i zwalniania**
+
+`server/test/llm/unload.test.ts`. Podmieniaj `fetch` tak, jak robi to `server/test/llm/openai.test.ts`.
+
+```ts
+import { describe, expect, it, vi, afterEach } from 'vitest'
+import { detectUnloadCapability, unloadModel } from '../../src/llm/unload.js'
+
+afterEach(() => { vi.restoreAllMocks() })
+
+const endpointSettings = (baseUrl: string) => ({
+  mode: 'endpoint' as const,
+  endpoint: { baseUrl, apiKey: '', model: 'qwen' },
+  managed: { serverBinary: '', modelPath: '', gpuLayers: 0, contextSize: 8192 },
+})
+
+describe('wykrywanie sposobu zwolnienia pamięci', () => {
+  it('tryb zarządzany zwalnia przez zatrzymanie procesu', async () => {
+    const settings = { ...endpointSettings(''), mode: 'managed' as const }
+    expect(await detectUnloadCapability(settings)).toBe('managed')
+  })
+
+  it('endpoint odpowiadający na /api/tags to Ollama', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url.includes('/api/tags') ? new Response('{"models":[]}') : new Response('', { status: 404 })))
+    expect(await detectUnloadCapability(endpointSettings('http://localhost:11434/v1'))).toBe('ollama')
+  })
+
+  it('endpoint odpowiadający na /api/v0/models to LM Studio', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url.includes('/api/v0/models') ? new Response('{"data":[]}') : new Response('', { status: 404 })))
+    expect(await detectUnloadCapability(endpointSettings('http://localhost:1234/v1'))).toBe('lmstudio')
+  })
+
+  it('endpoint, który nie odpowiada na żadne z nich, nie umie zwolnić pamięci', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
+    expect(await detectUnloadCapability(endpointSettings('http://localhost:8000/v1'))).toBe('none')
+  })
+
+  it('tryb wyłączony nie ma czego zwalniać', async () => {
+    expect(await detectUnloadCapability({ ...endpointSettings(''), mode: 'off' })).toBe('none')
+  })
+
+  it('nieodpowiadający serwer nie wywraca wykrywania', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed') }))
+    expect(await detectUnloadCapability(endpointSettings('http://localhost:9/v1'))).toBe('none')
+  })
+})
+
+describe('zwalnianie pamięci', () => {
+  it('Ollama dostaje keep_alive równe zero', async () => {
+    let body: unknown = null
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      if (url.includes('/api/tags')) return new Response('{"models":[]}')
+      body = JSON.parse(String(init.body))
+      return new Response('{}')
+    }))
+    const result = await unloadModel(endpointSettings('http://localhost:11434/v1'))
+    expect(result.freed).toBe(true)
+    expect((body as { keep_alive?: number }).keep_alive).toBe(0)
+  })
+
+  it('dostawca bez możliwości zwolnienia zwraca freed równe fałsz, a nie rzuca', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
+    const result = await unloadModel(endpointSettings('http://localhost:8000/v1'))
+    expect(result.freed).toBe(false)
+    expect(result.how).toBe('none')
+  })
+
+  it('błąd po stronie dostawcy daje freed równe fałsz z powodem, nie wyjątek', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url.includes('/api/tags') ? new Response('{"models":[]}') : new Response('padło', { status: 500 })))
+    await expect(unloadModel(endpointSettings('http://localhost:11434/v1'))).resolves.toMatchObject({ freed: false })
+  })
+})
+```
+
+Dopisz w pełni test trybu zarządzanego: po `unloadModel` na ustawieniach `managed` stan z `managedState()` ma być `stopped`. Podpatrz w `server/test/llm/managed.test.ts`, jak tam uruchamia się proces zastępczy.
+
+- [ ] **Krok 3: Uruchom, zobacz czerwony, napisz `unload.ts`**
+
+Wymagania:
+
+- Wykrywanie sonduje **równolegle** i z krótkim limitem czasu (dwie sekundy) — użytkownik klikający przycisk nie ma czekać, aż dwa nieistniejące endpointy wyczerpią limit systemowy.
+- Adres do sond buduj z hosta z `baseUrl`, **nie** doklejając ścieżek do `/v1` — Ollama wystawia `/api/tags` w korzeniu, nie pod `/v1`. Skorzystaj z `URL`, tak jak `openai.ts` po poprawce z zadania 2.
+- Zwolnienie w trybie zarządzanym woła `stopManaged()` i nic więcej; VRAM zwalnia się razem z procesem.
+- Zwolnienie w Ollamie to żądanie do `/api/generate` z `model`, pustym promptem i `keep_alive: 0`.
+- Żadna ścieżka nie rzuca wyjątkiem do wołającego. Zwolnienie pamięci to operacja pomocnicza; jej niepowodzenie nie ma prawa wywrócić panelu.
+- Klucz API traktuj tak jak w zadaniu 2: przy skonfigurowanym kluczu treść odpowiedzi nie idzie do komunikatu.
+
+- [ ] **Krok 4: Dodaj obie trasy**
+
+`GET /api/llm/unload/capability` zwraca `{ capability }`. `POST /api/llm/unload` zwraca `{ freed, how }`. Obie odpowiadają dwusetką także wtedy, gdy zwolnienie się nie udało — to nie jest błąd protokołu, tylko wynik operacji, a klient ma go pokazać, nie potraktować jak awarię.
+
+- [ ] **Krok 5: Napisz testy przycisku**
+
+`web/test/llm/unloadButton.test.tsx`:
+
+- przy możliwości `none` przycisk jest nieaktywny i widać wyjaśnienie z `llm.unloadUnsupported`;
+- przy `managed` przycisk jest aktywny, a podpowiedź mówi, że zatrzyma serwer — użytkownik ma wiedzieć, że to nie jest samo zwolnienie pamięci, tylko zatrzymanie;
+- kliknięcie woła trasę i pokazuje potwierdzenie;
+- nieudane zwolnienie pokazuje powód, a nie znika po cichu;
+- przycisk nie jest aktywny w trakcie biegnącego zadania — wyładowanie modelu w połowie generowania to gwarantowany błąd;
+- klawisze obsługiwane przez przycisk nie wypływają do globalnych skrótów osi czasu.
+
+- [ ] **Krok 6: Dołóż przycisk do panelu**
+
+Przycisk siada obok wyboru dostawcy, nie przy czterech zadaniach — to operacja na dostawcy, nie na projekcie. Podpowiedź bierze się z wykrytej możliwości, więc mówi konkretnie, co się stanie u tego dostawcy, zamiast jednego ogólnego zdania dla wszystkich.
+
+Po udanym zwolnieniu w trybie zarządzanym stan serwera wraca do `stopped`, więc panel ma to pokazać — inaczej użytkownik zobaczy „gotowy" przy zatrzymanym procesie.
+
+- [ ] **Krok 7: Uruchom całość i commit**
+
+```bash
+npm test && npm run typecheck
+git add server/src/llm/unload.ts server/src/routes/llm.ts server/src/llm/managed.ts web/src/llm/LlmPanel.tsx web/src/i18n/dict.ts server/test/llm/unload.test.ts web/test/llm/unloadButton.test.tsx
+git commit -m "feat: zwolnienie modelu z pamieci karty dla trybu zarzadzanego i Ollamy"
+```
+
+---
+
 ## Uwaga o kolejności
 
-Zadania 1–3 budują dostawcę i są od siebie zależne w tej kolejności. Zadanie 4 (łatka) nie zależy od żadnego z nich i może iść równolegle, ale musi poprzedzać 6–8. Zadanie 5 wymaga 2. Zadania 6, 7 i 8 wymagają 4 i 5, i są od siebie niezależne. Zadanie 9 wymaga 2. Zadania 10–12 wymagają 9 oraz odpowiadających im zadań językowych. Zadanie 13 wymaga wszystkiego.
+Zadania 1–3 budują dostawcę i są od siebie zależne w tej kolejności. Zadanie 4 (łatka) nie zależy od żadnego z nich i może iść równolegle, ale musi poprzedzać 6–8. Zadanie 5 wymaga 2. Zadania 6, 7 i 8 wymagają 4 i 5, i są od siebie niezależne. Zadanie 9 wymaga 2. Zadania 10–12 wymagają 9 oraz odpowiadających im zadań językowych. Zadanie 14 wymaga 3 (zatrzymanie procesu) i 10 (panel). Zadanie 13 wymaga wszystkiego, łącznie z 14.
 
 ## Czego ten plan nie robi
 
