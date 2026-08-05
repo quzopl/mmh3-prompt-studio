@@ -91,28 +91,59 @@ function markCutoff(project: Project, eventId: string): Project {
 }
 
 /**
- * Czy mówca ma już JAKIEKOLWIEK wprowadzenie (segment `speaker` wskazujący
- * na niego, albo segment `label` z jego `speakerId`) w którymś z ujęć ŚCIŚLE
- * PRZED podaną pozycją w `spans`. Ten sam zakres skanowania, którego używa
- * `SPEAKER_FIRST_INTRO` (`shared/src/validate/rules/speech.ts`): kolejność
- * ujęć po indeksie, potem kolejność segmentów w `body` — łącznie z formą
- * segmentu, nie tylko jego istnieniem: nawet wprowadzenie, które SAMO łamie
- * regułę (forma `'short'` bez opisu przy pierwszym pojawieniu), i tak zdejmuje
- * mówcę ze zbioru „świeżych" w oczach tej reguły (`introduced.add(id)`
- * wykonuje się TAM zanim reguła w ogóle sprawdzi formę), więc liczy się też
- * tutaj — poprawianie cudzego istniejącego naruszenia nie jest naszą sprawą.
- *
- * `export`, bo `createOnTrack.ts` (`promoteFirstSurvivingIntroduction`)
- * odpowiada na dokładnie to samo pytanie po usunięciu kwestii, która była
- * czyimś jedynym pełnym wprowadzeniem — reguła 2/5 recenzji zadania 14:
- * druga, niezależna implementacja tego samego rachunku rozjechałaby się z tą
- * przy pierwszej zmianie jednego z dwóch miejsc.
+ * Punkt w prozie projektu: ujęcie (po kolejności `index`, jak w `shotSpans`)
+ * i indeks segmentu w jego `body`. `SPEAKER_FIRST_INTRO`
+ * (`shared/src/validate/rules/speech.ts`) skanuje dokładnie w tym porządku —
+ * ujęcie po ujęciu, a wewnątrz ujęcia segment po segmencie — więc pytanie „czy
+ * mówca był już wprowadzony" ma sens tylko wobec takiej pary, nie wobec samego
+ * numeru ujęcia.
  */
-export function speakerIntroducedBefore(spans: ShotSpan[], beforePosition: number, speakerId: string): boolean {
-  return spans.slice(0, beforePosition).some(span =>
-    span.shot.body.some(seg =>
-      (seg.kind === 'speaker' && seg.speakerIds.includes(speakerId))
-      || (seg.kind === 'label' && seg.speakerId === speakerId)))
+export interface BodyPosition {
+  /** Indeks ujęcia w `spans`. */
+  shotPosition: number
+  /** Indeks segmentu w `body` TEGO ujęcia — skan kończy się TUŻ PRZED nim. */
+  segmentIndex: number
+}
+
+/**
+ * Czy mówca ma już JAKIEKOLWIEK wprowadzenie (segment `speaker` wskazujący na
+ * niego albo segment `label` z jego `speakerId`) ŚCIŚLE PRZED podanym punktem.
+ * Ten sam zakres skanowania, którego używa `SPEAKER_FIRST_INTRO` — łącznie z
+ * dwiema rzeczami, które łatwo przeoczyć:
+ *
+ * 1. Liczy się też wprowadzenie, które SAMO łamie regułę (forma `'short'` bez
+ *    opisu na pierwszym pojawieniu): `introduced.add(id)` wykonuje się TAM
+ *    zanim reguła w ogóle sprawdzi formę, więc mówca przestaje być „świeży"
+ *    niezależnie od werdyktu. Poprawianie cudzego istniejącego naruszenia nie
+ *    jest naszą sprawą.
+ * 2. Skan kończy się na SEGMENCIE, nie na granicy ujęcia. Runda 2 recenzji
+ *    końcowej: poprzednia wersja przyjmowała sam numer ujęcia i przeglądała
+ *    wyłącznie CAŁE wcześniejsze ujęcia, przez co `body` postaci
+ *    `[label(s1), text, speaker(s1,'short'), …]` — czyste wobec reguły, bo
+ *    etykieta wprowadza mówcę przed formą skróconą — wyglądało tak, jakby ta
+ *    forma skrócona była pierwszym wystąpieniem. `promoteFirstIntroduction`
+ *    (`normalizeProject.ts`) podnosiło ją wtedy do `'full'` przy usunięciu
+ *    zupełnie niepowiązanego ujęcia: autorska proza rozwlekała się w prompcie
+ *    i żadna diagnostyka tego nie pokazywała, bo żadnej nie było. Komentarz w
+ *    tym miejscu twierdził wprost, że zakresy obu skanów są te same — nie były.
+ *
+ * `export`, bo `normalizeProject.ts` (`promoteFirstIntroduction`) odpowiada na
+ * dokładnie to samo pytanie po zniknięciu segmentu, który był czyimś jedynym
+ * pełnym wprowadzeniem. Druga, niezależna implementacja tego samego rachunku
+ * rozjechałaby się z tą przy pierwszej zmianie jednego z dwóch miejsc — i
+ * właśnie to rozejście, w miniaturze, było usterką opisaną w punkcie 2.
+ */
+export function speakerIntroducedBefore(
+  spans: ShotSpan[], before: BodyPosition, speakerId: string,
+): boolean {
+  const introduces = (seg: Segment): boolean =>
+    (seg.kind === 'speaker' && seg.speakerIds.includes(speakerId))
+    || (seg.kind === 'label' && seg.speakerId === speakerId)
+
+  return spans.slice(0, before.shotPosition + 1).some((span, position) => {
+    const limit = position === before.shotPosition ? before.segmentIndex : span.shot.body.length
+    return span.shot.body.slice(0, limit).some(introduces)
+  })
 }
 
 /**
@@ -158,8 +189,12 @@ function speakerSegmentFor(
   spans: ShotSpan[], ownerPosition: number, event: DialogueEvent,
 ): Segment | undefined {
   if (event.speakerIds.length === 0) return undefined
-  const allAlreadyIntroduced = event.speakerIds
-    .every(speakerId => speakerIntroducedBefore(spans, ownerPosition + 1, speakerId))
+  // Kontynuacja ląduje na SAMYM POCZĄTKU `body` ujęcia docelowego (patrz
+  // `splitAtSceneTrans`), więc punktem odniesienia jest segment 0 tego ujęcia:
+  // wszystko z ujęć wcześniejszych liczy się w całości, a z ujęcia docelowego
+  // nic — bo nasz segment stanie przed wszystkim, co tam już jest.
+  const allAlreadyIntroduced = event.speakerIds.every(speakerId =>
+    speakerIntroducedBefore(spans, { shotPosition: ownerPosition + 1, segmentIndex: 0 }, speakerId))
   return { kind: 'speaker', speakerIds: event.speakerIds, form: allAlreadyIntroduced ? 'short' : 'full' }
 }
 

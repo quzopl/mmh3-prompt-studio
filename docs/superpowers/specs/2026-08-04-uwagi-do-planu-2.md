@@ -235,3 +235,57 @@ piszącym, i tak zachowują się pola liczbowe w programach montażowych.
 Zostają dwie drobne konsekwencje: wyczyszczenie pola i wyjście z niego
 zatwierdza 83 ms (minimalną długość ujęcia) zamiast zostawiać wartość, i nie ma
 Escape cofającego edycję.
+
+---
+
+# Przeniesione z recenzji końcowej Planu 4
+
+Rzeczy wykryte przy zamykaniu gałęzi `feat/sciezki-osi-czasu`, rozstrzygnięte jako
+dług zamiast blokady scalenia.
+
+## 17. Kotwice klatek to piąty niezmiennik zależny od kolejności ujęć — i jedyny bez właściciela
+
+Recenzja końcowa Planu 4 dała `normalizeProject`
+(`web/src/timeline/normalizeProject.ts`) własność czterech rzeczy wyprowadzalnych
+z kolejności i rozpiętości ujęć: samej kolejności, zaciśnięcia ruchów kamery do
+swojego ujęcia, formy pierwszego wprowadzenia mówcy i zakresów w
+`retention_analysis`. Piąta rzecz tego samego kształtu została poza funkcją:
+**umiejscowienie kotwic**.
+
+Zmierzone w przemiocie: w projekcie L2VA z jednym ujęciem niosącym `picture-last`
+podział tego ujęcia (`S`) zostawia kotwicę na ujęciu, które przestało być ostatnie
+— `L2VA_ANCHOR_LAST_SHOT` zapala się na projekcie, który przed naciśnięciem
+klawisza był czysty. Usunięcie ostatniego ujęcia niosącego jedyną wymaganą kotwicę
+daje w tym samym trybie `ANCHOR_REQUIRED`.
+
+**Rozstrzygnięcie:** nie blokuje scalenia i **nie** jest zwykłym naruszeniem zasady
+„akcja interfejsu nie może wnieść diagnostyki do czystego projektu" — bo w
+przeciwieństwie do czterech pozostałych niezmienników ten jest już złagodzony w
+interfejsie. `AnchorBadges` (`web/src/timeline/AnchorBadges.tsx`) świadomie rysuje
+kotwicę spoza trybu jako odznakę „nieświeżą" z etykietą `anchor.stale` („kliknij,
+aby zdjąć"), więc użytkownik widzi problem na klipie i zdejmuje go jednym
+kliknięciem. Diagnostyka jest tu uczciwym opisem stanu, który sam interfejs
+pokazuje.
+
+Właściwym domknięciem jest przyjęcie kotwic przez `normalizeProject` jako piątego
+niezmiennika — **to pierwsza rzecz, którą ta funkcja powinna adoptować.** Wymaga
+jednak rozstrzygnięcia projektowego, którego recenzja Planu 4 nie miała prawa
+podjąć sama: przy podziale ujęcia niosącego `picture-last` kotwica może
+**wędrować** za końcem materiału (przenieść się na nowe ostatnie ujęcie) albo
+**zostawać** tam, gdzie ją postawiono, i tylko świecić na czerwono. Pierwsze jest
+wygodniejsze, ale przesuwa decyzję użytkownika o klatce kluczowej bez pytania —
+czyli robi dokładnie to, czego zabrania zasada wypracowana w zadaniu 8
+(„propozycja nie ma prawa zdecydować czegokolwiek za użytkownika"). Drugie jest
+dzisiejszym zachowaniem i wymaga tylko tego, żeby diagnostyka była widoczna —
+co już jest.
+
+## 18. `FL2VA_PREFER_SINGLE_SHOT` przy podziale ujęcia jest wynikiem uczciwym
+
+Podział ujęcia w trybie FL2VA zapala tę regułę na projekcie, który jej nie miał —
+ale nie ma tu nic do naprawienia: użytkownik naprawdę właśnie zrobił drugie ujęcie
+w trybie, który preferuje jedno, a reguła jest ostrzeżeniem opisującym dokładnie
+to. Dopisane do listy przyjętych wyjątków obok `SPEECH_FITS`,
+`SOUNDSCAPE_NA_ONLY_IF_SILENT` i `SPEAKER_SILENT_NO_ID`.
+
+Ten wpis istnieje dlatego, że przy trzech poprzednich wyjątkach zabrakło go w
+dokumentacji i każda kolejna recenzja odkrywała je od nowa jako rzekomą regresję.

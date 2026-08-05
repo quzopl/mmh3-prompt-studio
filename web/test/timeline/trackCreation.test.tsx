@@ -59,6 +59,12 @@ const ACCEPTED_NEW_DIAGNOSTICS = new Set([
   'SOUNDSCAPE_NA_ONLY_IF_SILENT',
   // Mówca traci swoją ostatnią kwestię w całym projekcie.
   'SPEAKER_SILENT_NO_ID',
+  // Czwarty przyjęty wyjątek — `FL2VA_PREFER_SINGLE_SHOT` (podział ujęcia w
+  // trybie FL2VA) — celowo NIE stoi na tej liście: fikstury tego pliku są
+  // T2VA, a te przyciski nie tworzą ujęć, więc ta reguła jest tu
+  // nieosiągalna i wpisanie jej tylko rozluźniłoby asercję bez powodu.
+  // Pełna lista czterech wyjątków żyje w `progress.md` i w punkcie 18
+  // `docs/superpowers/specs/2026-08-04-uwagi-do-planu-2.md`.
 ])
 
 /**

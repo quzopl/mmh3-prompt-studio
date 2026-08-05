@@ -278,6 +278,38 @@ describe('normalizacja projektu po zmianie listy ujęć', () => {
     })
   })
 
+  /**
+   * Runda 2 recenzji końcowej: `SPEAKER_FIRST_INTRO` skanuje segmenty W
+   * KOLEJNOŚCI WEWNĄTRZ ujęcia i liczy segment `label` niosący `speakerId`
+   * jako wprowadzenie (`introduced.add(seg.speakerId)` w
+   * `shared/src/validate/rules/speech.ts`). Body poniżej jest więc CZYSTE
+   * przed jakimkolwiek gestem: etykieta wprowadza `s1`, a stojąca po niej
+   * forma skrócona jest już kolejnym wystąpieniem — dokładnie tak, jak chce
+   * guide. `speakerIntroducedBefore` patrzyło wyłącznie na CAŁE wcześniejsze
+   * ujęcia, więc promocja uznawała tę formę skróconą za pierwsze wystąpienie
+   * i po cichu rozwlekała autorską prozę w prompcie, bez żadnej diagnostyki,
+   * która by to pokazała.
+   */
+  const withLabelIntroduction = (): Project => ({
+    ...project,
+    speakers: [speakerRecord],
+    labels: [label],
+    shots: [
+      shot('a', 0, 0),
+      {
+        ...shot('b', 1, 4000),
+        dialogue: [dialogueLine('d1', 4000, 5000)],
+        body: [
+          { kind: 'label' as const, labelId: 'l1', speakerId: 's1', bracketed: true },
+          { kind: 'text' as const, text: ' ' },
+          { kind: 'speaker' as const, speakerIds: ['s1'], form: 'short' as const },
+          { kind: 'text' as const, text: ' ' },
+          { kind: 'dialogue' as const, eventId: 'd1' },
+        ],
+      },
+    ],
+  })
+
   describe('pierwsze wprowadzenie mówcy przeżywa usunięcie ujęcia', () => {
     it('usunięcie ujęcia z jedynym pełnym wprowadzeniem nie zapala SPEAKER_FIRST_INTRO', () => {
       const before = withSplitIntroduction()
@@ -285,6 +317,23 @@ describe('normalizacja projektu po zmianie listy ujęć', () => {
       const next = removeShots(before, ['a'])
       expect(ruleIds(next)).not.toContain('SPEAKER_FIRST_INTRO')
       expect(next.shots[0]?.body[0]).toEqual({ kind: 'speaker', speakerIds: ['s1'], form: 'full' })
+    })
+
+    it('forma skrócona po wprowadzeniu ETYKIETĄ w tym samym ujęciu zostaje nietknięta', () => {
+      const before = withLabelIntroduction()
+      expect(ruleIds(before)).not.toContain('SPEAKER_FIRST_INTRO')
+
+      const next = removeShots(before, ['a'])
+
+      expect(next.shots[0]?.body[2]).toEqual({ kind: 'speaker', speakerIds: ['s1'], form: 'short' })
+      expect(ruleIds(next)).not.toContain('SPEAKER_FIRST_INTRO')
+      // Szkoda, której walidator by nie pokazał: proza w prompcie rozwleka się
+      // z opisu skróconego (`shortDescriptor`, „the woman") na pełny
+      // (`fullDescriptor`, „a woman") — po podniesieniu formy, o które
+      // użytkownik nie prosił. Dwa różne łańcuchy w fiksturze mówcy właśnie po
+      // to, żeby dało się je rozróżnić w gotowym tekście.
+      expect(buildPrompt(next).text).toContain('the woman (S1)')
+      expect(buildPrompt(next).text).not.toContain('a woman (S1)')
     })
   })
 

@@ -64,11 +64,15 @@ function clampMovesIntoShots(shots: Shot[], durationMs: number): Shot[] {
  * podniesienia go do `'full'` reguła zapala się na projekcie, który jej przed
  * gestem nie miał.
  *
- * Skanowanie w TYM SAMYM porządku, którego używa reguła i
- * `speakerIntroducedBefore` w `proposals.ts` — ujęcia po `index`, potem `body`
- * po kolejności tablicy. Reużycie `speakerIntroducedBefore` (zamiast drugiej
- * odpowiedzi na to samo pytanie) zostaje z zadania 14: dwie implementacje
- * rozjechałyby się przy pierwszej zmianie jednej z nich.
+ * Skanowanie w TYM SAMYM porządku, którego używa reguła —
+ * `speakerIntroducedBefore` w `proposals.ts` dostaje PARĘ (ujęcie, segment),
+ * nie sam numer ujęcia. Runda 2 recenzji końcowej: dopóki dostawało sam numer,
+ * przeglądało wyłącznie całe WCZEŚNIEJSZE ujęcia i nie widziało wprowadzenia
+ * stojącego w TYM SAMYM `body` kilka segmentów wyżej — a reguła je widzi i
+ * liczy (segment `label` z `speakerId` też wprowadza mówcę). Efekt: `body`
+ * postaci `[label(s1), text, speaker(s1,'short'), …]`, czyste wobec reguły,
+ * dostawało przy usunięciu niepowiązanego ujęcia podniesioną formę i
+ * rozwleczoną prozę — bez żadnej diagnostyki, która by to pokazała.
  *
  * Nie rusza segmentu, który ma już `form: 'full'` albo własny `descriptor` —
  * ani żadnego DALSZEGO wystąpienia. Skrócona forma po pierwszym wprowadzeniu
@@ -80,7 +84,9 @@ function promoteFirstIntroduction(shots: Shot[], durationMs: number, speakerId: 
   for (const [position, span] of spans.entries()) {
     const segIndex = span.shot.body.findIndex(seg => seg.kind === 'speaker' && seg.speakerIds.includes(speakerId))
     if (segIndex === -1) continue
-    if (speakerIntroducedBefore(spans, position, speakerId)) return shots
+    if (speakerIntroducedBefore(spans, { shotPosition: position, segmentIndex: segIndex }, speakerId)) {
+      return shots
+    }
     const segment = span.shot.body[segIndex]
     if (segment === undefined || segment.kind !== 'speaker') return shots
     if (segment.form === 'full' || segment.descriptor) return shots
