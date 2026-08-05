@@ -226,22 +226,32 @@ describe('przeciąganie granicy w ścieżce ujęć', () => {
     expect(shots.map(s => s.index)).toEqual([0, 1, 2])
   })
 
-  it('przeciągnięcie granicy za sąsiada nie rozjeżdża indeksów z czasami', () => {
-    const threeShots: Project = {
+  it('przeciągnięcie granicy naprawia porządek, który przyszedł już rozjechany', () => {
+    // `b` (index 1) i `c` (index 2) mają zamienione czasy względem swoich
+    // indeksów — stan, jaki może przynieść import albo ręczna edycja pliku,
+    // nie gest w tej aplikacji. Przeciągam granicę zupełnie innego ujęcia
+    // (`d`), które nie jest sąsiadem `b` ani `c` w kolejności `index` —
+    // `boundaryTargetMs` czyta sąsiadów tylko z pozycji `d`, więc sam z siebie
+    // nie tknie `b` ani `c`. Gdyby ten test dawał się przejść bez pełnej
+    // normalizacji całej listy w pisarzu (a nie tylko lokalnego ograniczenia),
+    // nie dowodziłby niczego — sprawdzone przez cofnięcie `normalizeShots` w
+    // `useDragBoundary` i obserwację czerwieni.
+    const desynced: Project = {
       ...project,
-      shots: [shot('a', 0, 0), shot('b', 1, 2000), shot('c', 2, 6000)],
+      video: { ...project.video, durationMs: 9000 },
+      shots: [shot('a', 0, 0), shot('b', 1, 6000), shot('c', 2, 2000), shot('d', 3, 7000)],
     }
-    useProject.getState().load('test', threeShots)
-    render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+    useProject.getState().load('test', desynced)
+    render(<ShotTrack scale={createScale(9000, 900, 1)} />)
 
-    const handle = screen.getByRole('separator', { name: /ujęcie 2/i })
+    const handle = screen.getByRole('separator', { name: /ujęcie 4/i })
     handle.setPointerCapture = () => {}
     handle.releasePointerCapture = () => {}
-    handle.parentElement!.getBoundingClientRect = () => ({ left: 0, width: 800 }) as DOMRect
+    handle.parentElement!.getBoundingClientRect = () => ({ left: 0, width: 900 }) as DOMRect
 
-    firePointer(handle, 'pointerdown', 200)
-    firePointer(handle, 'pointermove', 780)
-    firePointer(handle, 'pointerup', 780)
+    firePointer(handle, 'pointerdown', 700)
+    firePointer(handle, 'pointermove', 710)
+    firePointer(handle, 'pointerup', 710)
 
     const shots = useProject.getState().project?.shots ?? []
     const byIndex = [...shots].sort((x, y) => x.index - y.index).map(s => s.startMs)

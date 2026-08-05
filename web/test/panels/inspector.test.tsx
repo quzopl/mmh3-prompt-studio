@@ -97,32 +97,34 @@ describe('Inspector', () => {
     expect(startMs).toBe(4000)
   })
 
-  it('czas cięcia łamiący kolejność ujęć jest poprawiany, nie zapisywany', async () => {
-    // Ujęcia: 0, 4000, 6000. Wpisanie 7000 dla środkowego rozjeżdża porządek
-    // `index` z porządkiem `startMs`, a każdy konsument zakłada, że są zgodne
-    // — `spans.ts` sortuje po `index`, `useDragBoundary` z tej kolejności
-    // wyprowadza sąsiadów. Zmierzony skutek: przy następnym przeciągnięciu
-    // granica ujęcia 3 sama odskakiwała z 6000 poza 7083, bez udziału
-    // użytkownika. Ograniczenie jest to samo, co przy przeciąganiu: dwie
-    // klatki przed następnym cięciem, czyli 5917 ms.
+  it('edycja czasu ujęcia naprawia porządek, który przyszedł już rozjechany', async () => {
+    // Ujęcia `shot-2` (index 1) i `shot-3` (index 2) mają zamienione czasy
+    // względem swoich indeksów — stan, jaki może przynieść import albo ręczna
+    // edycja pliku, nie sam formularz. Edytuję czas zupełnie innego ujęcia
+    // (`shot-4`); `setShotStartMs` czyta sąsiadów tylko z jego własnej pozycji
+    // w indeksie, więc sam z siebie nie tknie `shot-2` ani `shot-3` — naprawę
+    // robi wyłącznie pełna normalizacja całej listy w pisarzu. Sprawdzone
+    // przez cofnięcie `normalizeShots` w `setShotStartMs`: bez niej ten test
+    // przechodził mimo rozjechanego porządku — poprawione.
     useProject.getState().apply(p => ({
       ...p,
       shots: [
         p.shots[0]!,
-        { ...p.shots[0]!, id: 'shot-2', index: 1, startMs: 4000 },
-        { ...p.shots[0]!, id: 'shot-3', index: 2, startMs: 6000 },
+        { ...p.shots[0]!, id: 'shot-2', index: 1, startMs: 6000 },
+        { ...p.shots[0]!, id: 'shot-3', index: 2, startMs: 2000 },
+        { ...p.shots[0]!, id: 'shot-4', index: 3, startMs: 7000 },
       ],
     }))
-    useSelection.setState({ selected: [{ kind: 'shot', id: 'shot-2' }] })
+    useSelection.setState({ selected: [{ kind: 'shot', id: 'shot-4' }] })
     render(<Inspector />)
     const field = screen.getByLabelText(/czas cięcia/i)
     await userEvent.clear(field)
-    await userEvent.type(field, '7000')
+    await userEvent.type(field, '7100')
     await userEvent.tab()
 
     const shots = useProject.getState().project!.shots
-    expect(shots.map(s => s.startMs)).toEqual([0, 5917, 6000])
-    expect(shots.map(s => s.index)).toEqual([0, 1, 2])
+    const byIndex = [...shots].sort((x, y) => x.index - y.index).map(s => s.startMs)
+    expect(byIndex).toEqual([...byIndex].sort((x, y) => x - y))
   })
 
   it('czas cięcia nie wychodzi poza długość materiału', async () => {

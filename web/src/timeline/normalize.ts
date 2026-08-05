@@ -16,33 +16,48 @@ const msOfFrameIndex = (frame: number): number => Math.round(frame * MS_PER_FRAM
  * czasy, które w modelu różniły się o milisekundę, a wtedy `shotSpans` daje
  * ujęcie o zerowej długości — nie do chwycenia i nie do naprawienia myszą.
  *
- * Dwa przebiegi, nie jedno ograniczenie. Pierwsza wersja tej funkcji liczyła
- * `Math.min(lastFrame, Math.max(previousFrame + 1, wanted))` w jednym kroku —
- * ale to każe klatce spełnić naraz dwa żądania, które przy stłoczeniu ujęć
- * przy końcu materiału nie dają się pogodzić: „bądź co najmniej o jedną
- * klatkę dalej niż poprzednia” i „nie przekrocz ostatniej klatki”. Gdy
- * miejsce się kończy, zewnętrzny `min` zawsze rozstrzyga na korzyść sufitu, więc
- * każde kolejne ujęcie po wyczerpaniu miejsca lądowało na tej samej, ostatniej
- * klatce — dokładnie ten defekt, przed którym rozsuwanie miało chronić.
+ * Trzy kroki, żaden z wyjściem awaryjnym w środku:
  *
- * Dlatego osobno: przebieg w przód ustala rosnące, unikalne numery klatek bez
- * żadnego górnego ograniczenia (któraś może wypaść poza `durationMs`), a
- * przebieg wstecz ściąga ogon z powrotem do wnętrza materiału, idąc od
- * ostatniego ujęcia do drugiego i pilnując, żeby każde było o co najmniej
- * jedną klatkę przed następnym. Gdyby ściąganie miało zepchnąć ujęcie poniżej
- * klatki 1 — czyli miejsca fizycznie nie starcza na tyle ujęć, ile ich jest
- * (przy 24 kl/s najkrótszy dozwolony materiał mieści 96 klatek, więc trzeba by
- * mieć więcej ujęć niż klatek) — przerywamy i zostawiamy resztę tam, gdzie
- * postawił ją przebieg w przód. Ujęcie poza `durationMs` to złe wyjście, ale
- * naprawialne: `SHOT_TIME_IN_RANGE` je zgłosi, a `clipBox` i tak przypina
- * klips do krawędzi osi czasu, więc zostaje chwytalny i da się usuwać ujęcia,
- * aż się zmieszczą. Zlepienie kilku ujęć na jednej klatce dałoby model,
- * którego nie da się już naprawić żadnym gestem.
+ * 1. Przebieg w przód ustala rosnące, unikalne numery klatek bez żadnego
+ *    górnego ograniczenia: `frame[0] = 0`, potem `frame[i] = max(frame[i-1] + 1,
+ *    przyciągnięta_klatka)`. Wynik jest ściśle rosnący i unikalny z definicji,
+ *    ale może sięgać poza `durationMs`.
+ *
+ * 2. Przebieg wstecz ściąga to z powrotem do wnętrza materiału: ostatnie
+ *    ujęcie przycinane do `lastFrame`, a każde wcześniejsze do co najwyżej
+ *    jednej klatki przed następnym — `frame[i] = min(frame[i], frame[i+1] - 1)`
+ *    aż do `frame[0]` włącznie, bez żadnego warunku przerywającego. Klatki
+ *    mogą przy tym zejść poniżej zera — to na razie dozwolone i naprawiane w
+ *    kroku 3, nie tutaj.
+ *
+ *    Wcześniejsza wersja tego przebiegu przerywała się, gdy zabrakło miejsca
+ *    (`if (candidate < 1) break`), zostawiając nieprzetworzoną resztę przy
+ *    surowych wartościach z przebiegu w przód. To tworzyło szew dokładnie w
+ *    punkcie przerwania: klatki poniżej szwu (nietknięte, z przebiegu w przód,
+ *    rosnące od zera) i klatki powyżej szwu (ściśnięte do `lastFrame`) mogły
+ *    się nakładać, bo nic nie wymuszało odstępu między nimi. Przy 20 ujęciach
+ *    w 500 ms dawało to 11 unikalnych klatek na 20 i czasy, które przestawały
+ *    rosnąć — dokładnie ta kolizja, przed którą cała funkcja miała chronić.
+ *    Przebieg bez przerwania nie ma szwu: każda klatka jest wymuszona ściśle
+ *    poniżej swojego następcy przez konstrukcję pętli, więc unikalność i
+ *    kolejność trzymają się dla całej listy, nie tylko dla jej ogona.
+ *
+ * 3. Jeśli po kroku 2 pierwsza klatka wyszła poniżej zera, przesuwamy całą
+ *    listę o tę samą stałą, żeby wróciła na zero — jednorodne przesunięcie
+ *    nie rusza ani kolejności, ani unikalności, bo dodaje tę samą liczbę do
+ *    każdej klatki. Nadmiar wędruje wtedy na koniec, poza `durationMs`, co
+ *    jest złym wyjściem, ale naprawialnym: `SHOT_TIME_IN_RANGE` je zgłosi, a
+ *    `clipBox` i tak przypina klips do krawędzi osi czasu, więc zostaje
+ *    chwytalny i da się usuwać ujęcia, aż się zmieszczą. Zlepienie kilku
+ *    ujęć na jednej klatce — to, co robił szew z poprzedniej wersji — nie
+ *    daje żadnej z tych trzech rzeczy: ujęcia o zerowej długości nie widać,
+ *    nie da się jej złapać i nie da się jej usunąć osobno od sąsiadki.
  */
 export function normalizeShots(shots: Shot[], durationMs: number): Shot[] {
   const lastFrame = frameIndexOf(durationMs) - MIN_SHOT_FRAMES
   const ordered = [...shots].sort((a, b) => a.startMs - b.startMs)
-  if (ordered.length === 0) return []
+  const count = ordered.length
+  if (count === 0) return []
 
   let previousFrame = 0
   const frames = ordered.map((shot, index) => {
@@ -53,13 +68,17 @@ export function normalizeShots(shots: Shot[], durationMs: number): Shot[] {
     return frame
   })
 
-  let bound = lastFrame
-  for (let index = frames.length - 1; index >= 1; index -= 1) {
-    const frame = frames[index] ?? 0
-    const candidate = Math.min(frame, bound)
-    if (candidate < 1) break
-    frames[index] = candidate
-    bound = candidate - 1
+  const lastIndex = count - 1
+  frames[lastIndex] = Math.min(frames[lastIndex] ?? 0, lastFrame)
+  for (let index = lastIndex - 1; index >= 0; index -= 1) {
+    frames[index] = Math.min(frames[index] ?? 0, (frames[index + 1] ?? 0) - 1)
+  }
+
+  const head = frames[0] ?? 0
+  if (head < 0) {
+    for (let index = 0; index < count; index += 1) {
+      frames[index] = (frames[index] ?? 0) - head
+    }
   }
 
   return ordered.map((shot, index) => ({ ...shot, index, startMs: msOfFrameIndex(frames[index] ?? 0) }))
