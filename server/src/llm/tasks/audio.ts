@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import type { Project, ProjectPatch, Segment, Shot } from '@mmh3/shared'
+import { countSentences, type Project, type ProjectPatch, type Segment, type Shot } from '@mmh3/shared'
 import type { ChatMessage } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
 
@@ -12,12 +12,43 @@ import type { TaskDefinition } from '../run.js'
  * (zob. `shared/src/validate/rules/audio.ts` — `MUSIC_NO_MOOD_WORDS` odrzuca
  * właśnie nazywanie emocji wprost).
  */
+const isNA = (text: string): boolean => text.trim() === 'N/A'
+
+/**
+ * Liczba zdań jest częścią tego, co znaczy „poprawna odpowiedź" dla tego
+ * pola — więc pilnuje jej SCHEMAT, nie dopiero walidator projektu na ekranie
+ * przeglądu. Fix round 1/5, zadanie 11, punkt 1 (krytyczny): nic po drodze
+ * (`applyOps`, `PatchReview`) nie pilnowało liczby zdań — system prompt SAM
+ * SIEBIE nie wymusza, więc realistyczna odpowiedź modelu (np. siedem krótkich
+ * zdań w `soundscape`) trafiała jako operacja na ekran przeglądu i po
+ * zatwierdzeniu zapalała `SOUNDSCAPE_SENTENCES`/`MUSIC_SENTENCES`
+ * (`shared/src/validate/rules/audio.ts`) na projekcie, który jej wcześniej
+ * nie miał — dokładnie to, czego reguła zbiorcza planu zabrania. Odrzucenie
+ * TU daje modelowi drugą, naprawczą próbę (`runTask`,
+ * `server/src/llm/run.ts`) zamiast cicho przepuszczać treść łamiącą regułę.
+ * Puste pole i „N/A" przechodzą zawsze — to samo legalne „nie mam
+ * propozycji", które dopuszcza reguła walidatora.
+ */
+function sentenceCountField(min: number, max: number, fieldName: string) {
+  const inRange = (text: string): boolean => {
+    const trimmed = text.trim()
+    if (trimmed === '' || isNA(trimmed)) return true
+    const count = countSentences(trimmed)
+    return count >= min && count <= max
+  }
+  return z.string().refine(inRange, text => ({
+    message: `"${fieldName}" must be ${min} to ${max} sentences (found ${countSentences(text.trim())}) `
+      + '— return an empty string if it does not apply.',
+  }))
+}
+
 export const AudioSchema = z.object({
-  // Bez `min(1)` z tego samego powodu co `RedactSchema.english`: pusta
-  // odpowiedź dla jednego pola jest poprawnym (choć bezużytecznym) wynikiem —
-  // `audioToPatch` musi być na nią bezpieczne, nie schemat rozmowy ją odrzucać.
-  soundscape: z.string(),
-  music: z.string(),
+  // `min`/`max` zdań pilnowane przez `sentenceCountField` — puste pole nadal
+  // przechodzi (patrz komentarz tam), więc `audioToPatch` nie musi być
+  // osobno bezpieczne na pustą odpowiedź, tylko na jej ZNACZENIE („brak
+  // propozycji"), tak jak wcześniej.
+  soundscape: sentenceCountField(1, 4, 'soundscape'),
+  music: sentenceCountField(1, 3, 'music'),
 })
 
 export type AudioResult = z.infer<typeof AudioSchema>

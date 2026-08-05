@@ -31,3 +31,11 @@ export * from './patch/describe.js'
 // `fitsClip`) — inaczej dwa miejsca liczące „czy kwestia się mieści" tym
 // samym pytaniem dawałyby dwie różne odpowiedzi.
 export { WORDS_PER_SECOND, FIT_TOLERANCE } from './validate/rules/speech.js'
+// Ten sam wyjątek co wyżej: `countSentences` liczy zdania dla
+// `SOUNDSCAPE_SENTENCES`/`MUSIC_SENTENCES` (`validate/rules/audio.ts`), a
+// zadanie audio po stronie serwera (`server/src/llm/tasks/audio.ts`, fix
+// round 1/5 zadania 11) musi liczyć zdania TĄ SAMĄ funkcją, żeby odrzucić w
+// schemacie odpowiedź modelu, zanim złamie regułę, którą i tak zaraz zobaczy
+// walidator — dwie kopie tego samego liczenia rozjechałyby się tak samo, jak
+// ostrzega komentarz przy `WORDS_PER_SECOND`.
+export { countSentences } from './validate/rules/audio.js'

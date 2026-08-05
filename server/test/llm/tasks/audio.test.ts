@@ -7,7 +7,7 @@ import {
   type Project,
   type Speaker,
 } from '@mmh3/shared'
-import { audioInputFromProject, audioToPatch, type AudioResult } from '../../../src/llm/tasks/audio.js'
+import { AudioSchema, audioInputFromProject, audioToPatch, type AudioResult } from '../../../src/llm/tasks/audio.js'
 import { newProject } from '../../fixtures/newProject.js'
 
 /**
@@ -288,5 +288,59 @@ describe('audioInputFromProject — treść dla modelu pomija dialog i frazę ru
     expect(content).toBe(`${shot.composition} A woman stands alone at the edge of the platform.`)
     expect(content).not.toContain(line.text)
     expect(content).not.toContain('camera')
+  })
+})
+
+/**
+ * Fix round 1/5, zadanie 11, punkt 1 (krytyczny): przed tą poprawką
+ * `AudioSchema` przyjmowało dowolny ciąg znaków, więc realistyczna odpowiedź
+ * modelu spoza zakresu 1–4/1–3 zdań (guide §4.6/§4.7,
+ * `shared/src/validate/rules/audio.ts` — `SOUNDSCAPE_SENTENCES`/
+ * `MUSIC_SENTENCES`) przechodziła przez cały łańcuch (`audioToPatch` →
+ * `applyOps` → ekran przeglądu) i zapalała regułę na projekcie, który jej
+ * wcześniej nie miał. Testy niżej pilnują SCHEMATU wprost — to jedyne
+ * miejsce w tym łańcuchu, które ma prawo odrzucić złą odpowiedź i dać
+ * modelowi drugą próbę (`runTask`), zamiast po cichu przepuszczać ją dalej.
+ */
+describe('AudioSchema — liczba zdań pilnowana w schemacie, nie dopiero przez walidator', () => {
+  const sentences = (count: number, prefix: string): string =>
+    Array.from({ length: count }, (_, i) => `${prefix} ${i + 1} is happening now`).join('. ') + '.'
+
+  it('pejzaż siedmiu zdań (poza zakresem 1–4) jest odrzucany przez schemat', () => {
+    const result = AudioSchema.safeParse({ soundscape: sentences(7, 'Wind'), music: '' })
+    expect(result.success).toBe(false)
+  })
+
+  it('muzyka pięciu zdań (poza zakresem 1–3) jest odrzucana przez schemat', () => {
+    const result = AudioSchema.safeParse({ soundscape: '', music: sentences(5, 'A drum') })
+    expect(result.success).toBe(false)
+  })
+
+  it('pejzaż w granicach 1–4 zdań jest przyjmowany', () => {
+    const result = AudioSchema.safeParse({ soundscape: sentences(4, 'Wind'), music: '' })
+    expect(result.success).toBe(true)
+  })
+
+  it('muzyka w granicach 1–3 zdań jest przyjmowana', () => {
+    const result = AudioSchema.safeParse({ soundscape: '', music: sentences(3, 'A drum') })
+    expect(result.success).toBe(true)
+  })
+
+  it('puste pole przechodzi zawsze — to legalne „brak propozycji", nie treść do policzenia', () => {
+    const result = AudioSchema.safeParse({ soundscape: '', music: '' })
+    expect(result.success).toBe(true)
+  })
+
+  it('"N/A" przechodzi zawsze, tak jak dopuszcza reguła walidatora', () => {
+    const result = AudioSchema.safeParse({ soundscape: 'N/A', music: 'N/A' })
+    expect(result.success).toBe(true)
+  })
+
+  it('komunikat błędu jest po angielsku i nazywa pole — to audytorium modelu w rundzie naprawczej, nie użytkownika', () => {
+    const result = AudioSchema.safeParse({ soundscape: sentences(7, 'Wind'), music: '' })
+    if (result.success) throw new Error('oczekiwano odrzucenia')
+    const message = result.error.issues[0]?.message ?? ''
+    expect(message).toContain('soundscape')
+    expect(message).toContain('1 to 4 sentences')
   })
 })

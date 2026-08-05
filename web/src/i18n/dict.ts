@@ -240,10 +240,38 @@ const pl = {
   // Przegląd łatki z wybiórczym przyjmowaniem operacji (zadanie 11).
   'patchReview.title': 'Przegląd łatki',
   'patchReview.empty': 'Łatka nie zawiera żadnych operacji.',
+  // Fix round 1/5, punkt 2: lista może się wyczerpać przed pełnym zakresem
+  // `patch.ops` (każde zatwierdzenie usuwa rozpatrzone operacje) — osobny
+  // komunikat od `patchReview.empty`, bo tu łatka MIAŁA operacje, tylko już
+  // wszystkie przeszły przez decyzję użytkownika.
+  'patchReview.allReviewed': 'Wszystkie operacje zostały już rozpatrzone.',
   'patchReview.before': 'Przed',
   'patchReview.after': 'Po',
   'patchReview.confirm': 'Zatwierdź',
-  'patchReview.applied': 'Zastosowano {count} operacji.',
+  // Trzy warianty liczby mnogiej (1 / 2–4 poza 12–14 / reszta) — wybierane
+  // przez `pluralCategory` w `PatchReview.tsx`, fix round 1/5, punkt 7:
+  // jeden szablon dawał gramatycznie złe „1 operacji"/„2 operacji".
+  'patchReview.appliedOne': 'Zastosowano {count} operację.',
+  'patchReview.appliedFew': 'Zastosowano {count} operacje.',
+  'patchReview.appliedMany': 'Zastosowano {count} operacji.',
+  // Placeholder pustej wartości — `describeOp` (shared/) zwraca dla niej
+  // wariant `{ kind: 'empty' }`, nie gotowy string, żeby to WŁAŚNIE ten
+  // ekran decydował o języku (fix round 1/5, punkt 5).
+  'patchReview.notDescribed': '(nieopisane)',
+  'patchReview.shotCount': 'liczba ujęć: {count}',
+  // Fix round 1/5, punkt 6: podsumowanie `replaceShots` po IDENTYFIKATORZE
+  // ujęcia, nie po pozycji — mówi wprost, ile ujęć zostanie dodanych,
+  // usuniętych i zmienionych, zamiast samej arytmetyki liczby ujęć.
+  'patchReview.shotSummary': 'dodane: {added}, usunięte: {removed}, zmienione: {altered}',
+  // Powody, dla których operacja się nie zastosuje (`InapplicableReason` w
+  // `shared/src/patch/describe.ts`) — każdy z własnym kluczem zamiast
+  // gotowego zdania po polsku zaszytego w `shared/` (fix round 1/5, punkt 5).
+  'patchReview.reasonMissingShot': 'Operacja się nie zastosuje — nie ma ujęcia o tym identyfikatorze.',
+  'patchReview.reasonMissingSegment': 'Operacja się nie zastosuje — ujęcie nie ma segmentu pod tym indeksem.',
+  'patchReview.reasonWrongSegmentKind': 'Operacja się nie zastosuje — wskazany segment jest typu „{kind}", nie tekstem.',
+  'patchReview.reasonMissingSpeaker': 'Operacja się nie zastosuje — nie ma mówcy o tym identyfikatorze.',
+  'patchReview.reasonMissingLabel': 'Operacja się nie zastosuje — nie ma etykiety o tym identyfikatorze.',
+  'patchReview.reasonMissingRetentionEntry': 'Operacja się nie zastosuje — nie ma wpisu retencji o tym identyfikatorze.',
 } as const
 
 export type TKey = keyof typeof pl
@@ -450,10 +478,22 @@ const en: Record<TKey, string> = {
 
   'patchReview.title': 'Patch review',
   'patchReview.empty': 'The patch has no operations.',
+  'patchReview.allReviewed': 'All operations have already been reviewed.',
   'patchReview.before': 'Before',
   'patchReview.after': 'After',
   'patchReview.confirm': 'Confirm',
-  'patchReview.applied': '{count} operations applied.',
+  'patchReview.appliedOne': '{count} operation applied.',
+  'patchReview.appliedFew': '{count} operations applied.',
+  'patchReview.appliedMany': '{count} operations applied.',
+  'patchReview.notDescribed': '(not described)',
+  'patchReview.shotCount': 'shot count: {count}',
+  'patchReview.shotSummary': 'added: {added}, removed: {removed}, altered: {altered}',
+  'patchReview.reasonMissingShot': "This operation won't apply — there is no shot with this id.",
+  'patchReview.reasonMissingSegment': "This operation won't apply — the shot has no segment at this index.",
+  'patchReview.reasonWrongSegmentKind': 'This operation won\'t apply — the targeted segment is of type "{kind}", not text.',
+  'patchReview.reasonMissingSpeaker': "This operation won't apply — there is no speaker with this id.",
+  'patchReview.reasonMissingLabel': "This operation won't apply — there is no label with this id.",
+  'patchReview.reasonMissingRetentionEntry': "This operation won't apply — there is no retention entry with this id.",
 }
 
 export const DICT: Record<Lang, Record<TKey, string>> = { pl, en }

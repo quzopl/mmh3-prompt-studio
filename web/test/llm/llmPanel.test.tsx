@@ -436,6 +436,40 @@ describe('LlmPanel — anulowanie i błędy', () => {
   })
 })
 
+describe('LlmPanel — przegląd łatki jest osiągalny po zakończeniu zadania (zadanie 11; fix round 1/5, punkt 7)', () => {
+  // Recenzent: „Nothing tests that the review is reachable at all; replacing
+  // its render condition with `false` leaves 501 tests green." Zdarzenie
+  // `done` z NIEPUSTĄ łatką musi faktycznie wyrenderować `PatchReview` w
+  // drzewie panelu — dotąd żaden test tego nie sprawdzał (istniejące testy
+  // `done` niosły `patch: { ops: [] }`, więc `PatchReview` renderował się,
+  // ale pokazywał tylko komunikat o pustej łatce, nigdy pole wyboru).
+  it('zdarzenie "done" z niepustą łatką pokazuje sekcję przeglądu z polem wyboru operacji', async () => {
+    const { stream, send, close } = controllableStream()
+    const handlers = {
+      ...baseHandlers(settingsEndpoint),
+      'POST /api/llm/run': () => new Response(stream),
+    }
+    vi.stubGlobal('fetch', routedFetch(handlers))
+    render(<LlmPanel />)
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Podpowiedź audio' })).toHaveAttribute('aria-disabled', 'false')
+    })
+    await user.click(screen.getByRole('button', { name: 'Podpowiedź audio' }))
+    await screen.findByText(/W toku…/)
+
+    send('done', {
+      patch: { ops: [{ kind: 'setStyle', id: 'op-1', label: 'Nowy styl wizualny', text: 'Neo-noir' }] },
+      promptTokens: 10, completionTokens: 5, repaired: false,
+    })
+    close()
+
+    expect(await screen.findByRole('region', { name: 'Przegląd łatki' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Nowy styl wizualny' })).toBeInTheDocument()
+  })
+})
+
 describe('LlmPanel — stan zarządzanego serwera (fix round 1/5, punkt 3)', () => {
   it('błąd pobrania stanu zarządzanego serwera pokazuje powód zamiast milczącej kreski', async () => {
     const settingsManaged = {

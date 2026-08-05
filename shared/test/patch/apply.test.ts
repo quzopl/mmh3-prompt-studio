@@ -246,40 +246,59 @@ describe('applyOps', () => {
   })
 })
 
+/**
+ * `describeOp` zwraca STRUKTURĘ (`{ status: 'applicable', before, after }`
+ * albo `{ status: 'inapplicable', reason }`), nie gotowe zdania po polsku —
+ * fix round 1/5, zadanie 11, punkt 5: poprzednia wersja zwracała surowe
+ * polskie stringi, więc ekran przeglądu w interfejsie angielskim i tak
+ * pokazywał polski tekst. Pomocniki niżej odczytują tę strukturę bez
+ * asercji `unwrap`, żeby błąd w kształcie (np. `kind` inny niż oczekiwany)
+ * wywalał test krzykliwie, a nie cicho przechodził przez `undefined`.
+ */
+function expectApplicable(described: ReturnType<typeof describeOp>) {
+  if (described.status !== 'applicable') throw new Error(`oczekiwano 'applicable', dostano '${described.status}'`)
+  return described
+}
+
+function expectText(value: { kind: string } & Record<string, unknown>): string {
+  if (value.kind !== 'text') throw new Error(`oczekiwano wariantu 'text', dostano '${value.kind}'`)
+  return (value as { kind: 'text'; text: string }).text
+}
+
 describe('describeOp', () => {
   it('opisuje zmianę pola dźwięku po obu stronach', () => {
     const op: PatchOp = { kind: 'setAudio', id: 'o1', label: 'x', field: 'overallSoundscape', text: 'nowe' }
-    const described = describeOp(project(), op)
-    expect(described.after).toContain('nowe')
+    const described = expectApplicable(describeOp(project(), op))
+    expect(expectText(described.after)).toBe('nowe')
   })
 
-  it('pusta wartość czyta się jako dosłowny placeholder, nie jako pusty ciąg', () => {
+  it('pusta wartość czyta się jako własny wariant, nie jako pusty ciąg tekstu', () => {
     const p = project()
     expect(p.audio.overallSoundscape).toBe('')
-    const withEmptyBefore = describeOp(p, {
+    const withEmptyBefore = expectApplicable(describeOp(p, {
       kind: 'setAudio', id: 'o1', label: 'x', field: 'overallSoundscape', text: 'deszcz na szybie',
-    })
-    expect(withEmptyBefore.before).toBe('(nieopisane)')
-    const withEmptyAfter = describeOp(p, {
+    }))
+    expect(withEmptyBefore.before).toEqual({ kind: 'empty' })
+    const withEmptyAfter = expectApplicable(describeOp(p, {
       kind: 'setStyle', id: 'o2', label: 'x', text: '',
-    })
-    expect(withEmptyAfter.after).toBe('(nieopisane)')
+    }))
+    expect(withEmptyAfter.after).toEqual({ kind: 'empty' })
   })
 
   it('setStyle pokazuje prawdziwą bieżącą wartość jako "przed"', () => {
     const p = project()
-    const described = describeOp(p, { kind: 'setStyle', id: 'o1', label: 'x', text: 'nowy styl' })
-    expect(described.before).toBe(p.style)
-    expect(described.after).toBe('nowy styl')
+    const described = expectApplicable(describeOp(p, { kind: 'setStyle', id: 'o1', label: 'x', text: 'nowy styl' }))
+    expect(expectText(described.before)).toBe(p.style)
+    expect(expectText(described.after)).toBe('nowy styl')
   })
 
   it('setSpeakerDescriptor pokazuje prawdziwy opis mówcy jako "przed"', () => {
     const p = { ...project(), speakers: [speaker] }
-    const described = describeOp(p, {
+    const described = expectApplicable(describeOp(p, {
       kind: 'setSpeakerDescriptor', id: 'o1', label: 'x', speakerId: 'sp1', field: 'fullDescriptor', text: 'nowy opis',
-    })
-    expect(described.before).toBe('a woman in a blue coat')
-    expect(described.after).toBe('nowy opis')
+    }))
+    expect(expectText(described.before)).toBe('a woman in a blue coat')
+    expect(expectText(described.after)).toBe('nowy opis')
   })
 
   it('setShotText pokazuje bieżący i proponowany tekst segmentu', () => {
@@ -289,14 +308,14 @@ describe('describeOp', () => {
       ...base,
       shots: [{ ...(base.shots[0] ?? { id: shotId }), body: [{ kind: 'text', text: 'stary tekst' }] }],
     } as typeof base
-    const described = describeOp(p, {
+    const described = expectApplicable(describeOp(p, {
       kind: 'setShotText', id: 'o1', label: 'x', shotId, segmentIndex: 0, text: 'nowy tekst',
-    })
-    expect(described.before).toBe('stary tekst')
-    expect(described.after).toBe('nowy tekst')
+    }))
+    expect(expectText(described.before)).toBe('stary tekst')
+    expect(expectText(described.after)).toBe('nowy tekst')
   })
 
-  it('setShotText na segmencie innego rodzaju niż tekst mówi to wprost zamiast pokazywać diff', () => {
+  it('setShotText na segmencie innego rodzaju niż tekst zwraca status "inapplicable" z rodzajem segmentu', () => {
     const base = project()
     const shotId = base.shots[0]?.id ?? ''
     const p = {
@@ -306,9 +325,8 @@ describe('describeOp', () => {
     const described = describeOp(p, {
       kind: 'setShotText', id: 'o1', label: 'x', shotId, segmentIndex: 0, text: 'nie zastosuje się',
     })
-    expect(described.before).toBe(described.after)
-    expect(described.before).not.toBe('')
-    expect(described.before).not.toBe('nie zastosuje się')
+    if (described.status !== 'inapplicable') throw new Error('oczekiwano inapplicable')
+    expect(described.reason).toEqual({ kind: 'wrongSegmentKind', segmentKind: 'camera' })
   })
 
   it('setShotText poza zakresem segmentów i na złym rodzaju segmentu mówią różne rzeczy', () => {
@@ -324,65 +342,85 @@ describe('describeOp', () => {
     const wrongKind = describeOp(wrongKindProject, {
       kind: 'setShotText', id: 'o1', label: 'x', shotId, segmentIndex: 0, text: 'y',
     })
-    expect(outOfRange.before).not.toBe(wrongKind.before)
+    if (outOfRange.status !== 'inapplicable' || wrongKind.status !== 'inapplicable') {
+      throw new Error('oczekiwano inapplicable po obu stronach')
+    }
+    expect(outOfRange.reason).toEqual({ kind: 'missingSegment' })
+    expect(wrongKind.reason).toEqual({ kind: 'wrongSegmentKind', segmentKind: 'camera' })
   })
 
   it('setLabelField pokazuje prawdziwą treść etykiety jako "przed"', () => {
     const p = { ...project(), labels: [label] }
-    const described = describeOp(p, {
+    const described = expectApplicable(describeOp(p, {
       kind: 'setLabelField', id: 'o1', label: 'x', labelId: label.id, field: 'definition', text: 'nowa definicja',
-    })
-    expect(described.before).toBe(label.definition)
-    expect(described.after).toBe('nowa definicja')
+    }))
+    expect(expectText(described.before)).toBe(label.definition)
+    expect(expectText(described.after)).toBe('nowa definicja')
   })
 
-  it('setLabelField wskazujący nieistniejącą etykietę mówi to wprost zamiast pokazywać diff', () => {
+  it('setLabelField wskazujący nieistniejącą etykietę zwraca status "inapplicable"', () => {
     const p = { ...project(), labels: [label] }
     const described = describeOp(p, {
       kind: 'setLabelField', id: 'o1', label: 'x', labelId: 'brak', field: 'definition', text: 'y',
     })
-    expect(described.before).toBe(described.after)
-    expect(described.before).not.toBe('')
-    expect(described.before).not.toBe('y')
+    if (described.status !== 'inapplicable') throw new Error('oczekiwano inapplicable')
+    expect(described.reason).toEqual({ kind: 'missingLabel' })
   })
 
   it('setRetentionText (scope: summary) pokazuje prawdziwe ref.summaryText jako "przed"', () => {
     const p = { ...project(), ref: { ...project().ref, summaryText: 'stare podsumowanie' } }
-    const described = describeOp(p, {
+    const described = expectApplicable(describeOp(p, {
       kind: 'setRetentionText', id: 'o1', label: 'x', scope: { kind: 'summary' }, text: 'nowe podsumowanie',
-    })
-    expect(described.before).toBe('stare podsumowanie')
-    expect(described.after).toBe('nowe podsumowanie')
+    }))
+    expect(expectText(described.before)).toBe('stare podsumowanie')
+    expect(expectText(described.after)).toBe('nowe podsumowanie')
   })
 
   it('setRetentionText (scope: entry) pokazuje prawdziwe note wpisu jako "przed"', () => {
     const p = { ...project(), ref: { ...project().ref, retention: [retentionEntry] } }
-    const described = describeOp(p, {
+    const described = expectApplicable(describeOp(p, {
       kind: 'setRetentionText', id: 'o1', label: 'x',
       scope: { kind: 'entry', entryId: retentionEntry.id }, text: 'nowa notatka',
-    })
-    expect(described.before).toBe(retentionEntry.note)
-    expect(described.after).toBe('nowa notatka')
+    }))
+    expect(expectText(described.before)).toBe(retentionEntry.note)
+    expect(expectText(described.after)).toBe('nowa notatka')
   })
 
-  it('setRetentionText (scope: entry) wskazujący nieistniejący wpis mówi to wprost zamiast pokazywać diff', () => {
+  it('setRetentionText (scope: entry) wskazujący nieistniejący wpis zwraca status "inapplicable"', () => {
     const p = { ...project(), ref: { ...project().ref, retention: [retentionEntry] } }
     const described = describeOp(p, {
       kind: 'setRetentionText', id: 'o1', label: 'x', scope: { kind: 'entry', entryId: 'brak' }, text: 'y',
     })
-    expect(described.before).toBe(described.after)
-    expect(described.before).not.toBe('')
-    expect(described.before).not.toBe('y')
+    if (described.status !== 'inapplicable') throw new Error('oczekiwano inapplicable')
+    expect(described.reason).toEqual({ kind: 'missingRetentionEntry' })
   })
 
-  it('replaceShots przy równej liczbie ujęć pokazuje, ile faktycznie się różni', () => {
+  it('replaceShots liczy dodane/usunięte/zmienione ujęcia PO IDENTYFIKATORZE, nie po pozycji', () => {
     const p = project()
     const original = p.shots[0]
     if (original === undefined) throw new Error('fixture bez ujęcia')
-    const shots = [{ ...original, composition: 'zupełnie inna kompozycja' }]
-    const described = describeOp(p, { kind: 'replaceShots', id: 'o1', label: 'x', shots })
-    expect(described.before).toContain('1')
-    expect(described.after).toContain('1')
-    expect(described.after).toContain('zmienionych: 1')
+    const shots = [
+      { ...original, composition: 'zupełnie inna kompozycja' }, // ten sam id, inna treść → altered
+      { ...original, id: 'brand-new', composition: 'nowe drugie ujęcie' }, // nowy id → added
+    ]
+    const described = expectApplicable(describeOp(p, { kind: 'replaceShots', id: 'o1', label: 'x', shots }))
+    expect(described.before).toEqual({ kind: 'shotCount', count: 1 })
+    expect(described.after).toEqual({ kind: 'shotSummary', added: 1, removed: 0, altered: 1 })
+  })
+
+  it('replaceShots: ujęcie dopisane przez użytkownika PO wygenerowaniu łatki, którego nie ma w op.shots, liczy się jako usunięte — dokładnie scenariusz z recenzji', () => {
+    const p = project()
+    const original = p.shots[0]
+    if (original === undefined) throw new Error('fixture bez ujęcia')
+    // Żywy projekt ma teraz DWA ujęcia (użytkownik dopisał drugie po tym, jak
+    // łatka już powstała) — `op.shots` niesie tylko oryginalne, bo model go
+    // nie widział.
+    const liveProject = { ...p, shots: [original, { ...original, id: 'user-added', composition: 'nowe ujęcie użytkownika' }] }
+    const patchShots = [{ ...original, composition: 'poprawiona kompozycja od modelu' }]
+    const described = expectApplicable(describeOp(liveProject, { kind: 'replaceShots', id: 'o1', label: 'x', shots: patchShots }))
+    expect(described.before).toEqual({ kind: 'shotCount', count: 2 })
+    // Stara wersja (diff po pozycji) nazwałaby to „zmienionych: 2" — myląco,
+    // bo ujęcie użytkownika nie zmieniło się, TYLKO zniknęłoby po zatwierdzeniu.
+    expect(described.after).toEqual({ kind: 'shotSummary', added: 0, removed: 1, altered: 1 })
   })
 })
