@@ -289,3 +289,11 @@ to. Dopisane do listy przyjętych wyjątków obok `SPEECH_FITS`,
 
 Ten wpis istnieje dlatego, że przy trzech poprzednich wyjątkach zabrakło go w
 dokumentacji i każda kolejna recenzja odkrywała je od nowa jako rzekomą regresję.
+
+**Rozstrzygnięcie sporu z punktu 17 (kotwica wędruje czy zostaje):** kotwica
+**zostaje** na swoim ujęciu i reguła świeci na czerwono. Wędrowanie jest
+wygodniejsze, ale przenosi decyzję użytkownika o klatce kluczowej bez pytania —
+a to dokładnie to, czego zakazuje zasada wyprowadzona w Planie 4, zadanie 8:
+propozycja ani normalizacja nie decydują niczego za użytkownika. Odznaka
+`anchor.stale` jest już zbudowana tak, żeby przetrwałą kotwicę dało się zdjąć
+jednym kliknięciem, więc droga wyjścia istnieje i jest widoczna.
