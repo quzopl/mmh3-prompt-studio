@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
+import { buildPrompt } from '@mmh3/shared'
 import { LlmSettingsSchema, readSettings, redactSettings, writeSettings } from '../llm/settings.js'
 import { createProvider } from '../llm/provider.js'
 import { startManaged, stopManaged, managedState } from '../llm/managed.js'
@@ -8,6 +9,8 @@ import { structureTask, structureToPatch, type StructureInput } from '../llm/tas
 import {
   redactTask, redactToPatch, redactSourceText, RedactTargetSchema, type RedactInput,
 } from '../llm/tasks/redact.js'
+import { audioTask, audioToPatch, audioInputFromProject } from '../llm/tasks/audio.js'
+import { criticTask, criticToNotes, criticAllowedRefs, type CriticInput } from '../llm/tasks/critic.js'
 import { readProject } from '../storage/projectStore.js'
 import { SlugSchema } from './params.js'
 
@@ -21,13 +24,17 @@ const PutSettingsBody = LlmSettingsSchema.extend({
 })
 
 /**
- * Jedna trasa, `task` rozstrzyga, o które z czterech zadań chodzi — na razie
- * tylko „structure" (zadanie 6) jest zaimplementowane, kolejne trzy (zadania
- * 7–9) dojdą jako kolejne warianty tej samej unii. Tryb i długość projektu
- * ORAZ lista mówców pochodzą z projektu wczytanego po stronie serwera, nie od
- * klienta — klient dostarcza wyłącznie treść, której serwer nie ma skąd wziąć
- * (dwa zdania pomysłu). Dzięki temu model zawsze widzi aktualny stan projektu,
- * a nie kopię, którą przeglądarka mogła przesłać nieaktualną.
+ * Jedna trasa, `task` rozstrzyga, o które z czterech zadań chodzi — wszystkie
+ * cztery są teraz zaimplementowane jako warianty tej samej unii
+ * („structure" — zadanie 6, „redact" — zadanie 7, „audio" i „critic" —
+ * zadanie 8). Tryb, długość projektu, lista mówców, treść ujęć I skompilowany
+ * prompt pochodzą z projektu wczytanego po stronie serwera, nie od klienta —
+ * klient dostarcza wyłącznie treść, której serwer nie ma skąd wziąć (dwa
+ * zdania pomysłu dla „structure"). Dzięki temu model zawsze widzi aktualny
+ * stan projektu, a nie kopię, którą przeglądarka mogła przesłać nieaktualną.
+ * „audio" i „critic" nie niosą żadnego pola poza `projectSlug` — oba zadania
+ * czytają CAŁY projekt, nie fragment wskazany przez klienta (zob. brief
+ * zadania 8).
  */
 const RunBody = z.discriminatedUnion('task', [
   z.object({
@@ -40,6 +47,14 @@ const RunBody = z.discriminatedUnion('task', [
     task: z.literal('redact'),
     projectSlug: SlugSchema,
     target: RedactTargetSchema,
+  }),
+  z.object({
+    task: z.literal('audio'),
+    projectSlug: SlugSchema,
+  }),
+  z.object({
+    task: z.literal('critic'),
+    projectSlug: SlugSchema,
   }),
 ])
 
@@ -201,9 +216,34 @@ export function registerLlmRoutes(app: FastifyInstance): void {
             repaired: result.repaired,
           }
         }
+        case 'audio': {
+          const input = audioInputFromProject(project)
+          const result = await runTask(provider, audioTask, input, signal)
+          return {
+            patch: audioToPatch(result.value, project),
+            promptTokens: result.promptTokens,
+            completionTokens: result.completionTokens,
+            repaired: result.repaired,
+          }
+        }
+        case 'critic': {
+          // Krytyk nie zwraca łatki — `notes`, nie `patch`, żeby odpowiedź tej
+          // trasy sama w sobie odróżniała się od pozostałych trzech zadań i
+          // klient (panel walidacji) nie mógł jej pomylić z operacjami do
+          // przyjęcia/odrzucenia.
+          const allowedRefs = criticAllowedRefs(project)
+          const input: CriticInput = { promptText: buildPrompt(project).text, allowedRefs }
+          const result = await runTask(provider, criticTask, input, signal)
+          return {
+            notes: criticToNotes(result.value, allowedRefs),
+            promptTokens: result.promptTokens,
+            completionTokens: result.completionTokens,
+            repaired: result.repaired,
+          }
+        }
         default: {
           // Wyczerpujące dopasowanie: gdyby unia `RunBody` dostała kolejny
-          // wariant zadania (8–9) bez gałęzi tutaj, `parsed.data` przestałby się
+          // wariant zadania bez gałęzi tutaj, `parsed.data` przestałby się
           // dać zawęzić do `never` i `tsc --noEmit` przerwałby build — a nie
           // cichy `undefined` z handlera, jak przy `switch` bez `default`.
           //
