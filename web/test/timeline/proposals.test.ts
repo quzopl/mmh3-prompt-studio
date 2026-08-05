@@ -169,10 +169,67 @@ describe('applyProposal — scenetrans dzieli kwestię na cięciu', () => {
     // Rozpięte na CAŁĄ granicę zszycia (atrybucja mówcy → dialog → to, co
     // stało w `body` ujęcia b wcześniej), nie sam środek kwestii ("dwa
     // trzy") — krótszy substring przeszedłby nawet na sklejonym tekście bez
-    // atrybucji, dokładnie tę usterkę, którą ta runda naprawia. Kształt
-    // segmentu mówcy ('full', 'a woman (S1)') skopiowany z segmentu, który w
-    // `body` ujęcia a stał tuż przed segmentem dialogowym oryginału.
-    expect(text).toContain('a woman (S1) <scenetrans> says: <d>[English] dwa trzy</d> A wide street at dusk.')
+    // atrybucji, dokładnie tę usterkę, którą Runda 2 naprawiła. Forma
+    // 'short' ('the woman (S1)'), NIE 'full' jak w Rundzie 2 — mówca ma już
+    // wprowadzenie w TYM SAMYM ujęciu (`a`, tuż przed dialogiem oryginału),
+    // więc kontynuacja nie musi go przedstawiać drugi raz pełnym opisem
+    // (patrz `speakerSegmentFor`, naprawa z Rundy 3).
+    expect(text).toContain('the woman (S1) <scenetrans> says: <d>[English] dwa trzy</d> A wide street at dusk.')
+  })
+
+  it('mówca już wprowadzony wcześniej w historii (nie w samym ujęciu źródłowym) — kontynuacja dostaje formę skróconą, bez nowych diagnostyk', () => {
+    // Test na `buildPrompt(...).diagnostics`, nie na kształt segmentu — jak
+    // prosił koordynator: kształt segmentu to szczegół implementacji,
+    // diagnostyki to kontrakt. Mówca wprowadzony w ujęciu `a` (źródłowym),
+    // ujęcie `b` (docelowe) startuje puste — dokładnie sytuacja, w której
+    // `speakerSegmentFor` musi zajrzeć do historii PRZED ujęciem docelowym,
+    // nie tylko do własnego (docelowego) `body`.
+    const project: Project = {
+      ...baseProject([
+        {
+          ...emptyShot('a', 0, 0),
+          dialogue: [lineFixture('d1', ['s1'], 'slowo jeden dwa trzy', 3000, 5000)],
+          body: [
+            { kind: 'speaker', speakerIds: ['s1'], form: 'full' },
+            { kind: 'text', text: ' ' },
+            { kind: 'dialogue', eventId: 'd1' },
+          ],
+        },
+        emptyShot('b', 1, 4000),
+      ]),
+      speakers: [speaker('s1', 'S1')],
+    }
+    const before = buildPrompt(project).diagnostics.filter(d => d.ruleId === 'SPEAKER_FIRST_INTRO')
+    expect(before).toEqual([])
+
+    const next = applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })
+    const after = buildPrompt(next).diagnostics.filter(d => d.ruleId === 'SPEAKER_FIRST_INTRO')
+    expect(after).toEqual([])
+  })
+
+  it('mówca NIGDZIE wcześniej nie wprowadzony — kontynuacja sama staje się jego pierwszym wprowadzeniem i dostaje formę pełną, bez nowych diagnostyk', () => {
+    // Krytyczne znalezisko Rundy 3: domyślne 'short' z Rundy 2 (gdy źródło
+    // nie miało segmentu mówcy do skopiowania) potrafiło stać się PIERWSZYM
+    // wprowadzeniem mówcy w całym projekcie — kontynuacja ląduje zawsze na
+    // POCZĄTKU `body` ujęcia docelowego, więc w kolejności skanowania
+    // `SPEAKER_FIRST_INTRO` to WŁAŚNIE ona jest pierwsza. `body` ujęcia `a`
+    // ma tu tylko segment dialogowy (żadnego segmentu mówcy ani etykiety
+    // gdziekolwiek w projekcie) — mówca nigdy nie został wprowadzony, więc
+    // to jest naprawdę pierwsze pojawienie.
+    const project: Project = {
+      ...baseProject([
+        {
+          ...emptyShot('a', 0, 0),
+          dialogue: [lineFixture('d1', ['s1'], 'slowo jeden dwa trzy', 3000, 5000)],
+          body: [{ kind: 'dialogue', eventId: 'd1' }],
+        },
+        emptyShot('b', 1, 4000),
+      ]),
+      speakers: [speaker('s1', 'S1')],
+    }
+    const next = applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })
+    const diagnostics = buildPrompt(next).diagnostics.filter(d => d.ruleId === 'SPEAKER_FIRST_INTRO')
+    expect(diagnostics).toEqual([])
   })
 
   it('różnicowo: dwie flagi na jednym obiekcie łamią SCENETRANS_BOTH_SIDES, podział na dwa obiekty — nie', () => {
@@ -236,6 +293,30 @@ describe('applyProposal — cutoff i scenetrans na tej samej kwestii', () => {
 
     const diagnostics = buildPrompt(afterSplit).diagnostics.filter(d => d.ruleId === 'CUTOFF_AT_END')
     expect(diagnostics).toEqual([])
+  })
+
+  it('kwestia wystająca poza materiał, ale BEZ kliknięcia cutoff, nie dostaje go po cichu przy podziale — plakietka cutoff zostaje', () => {
+    // Runda 3: `cutoff: event.endMs > project.video.durationMs` (Runda 2)
+    // liczyła to z GEOMETRII kontynuacji, więc podział sam decydował za
+    // użytkownika — dokładnie to, przeciw czemu ta cała funkcja jest
+    // zbudowana (propozycja nigdy nie stosuje się sama). Ta kwestia
+    // geometrycznie wystaje (9000 > durationMs 8000), ale użytkownik NIGDY
+    // nie kliknął plakietki `cutoff` — tylko `scenetrans`.
+    const project = withDialogue(3000, 9000, {}, 'slowo jeden dwa trzy')
+    const next = applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })
+
+    const dialogue = next.shots.flatMap(s => s.dialogue)
+    const before = dialogue.find(e => e.id === 'd1')
+    const after = dialogue.find(e => e.id !== 'd1')
+    if (!before || !after) throw new Error('oczekiwano dwóch połówek kwestii')
+
+    expect(before.cutoff).toBe(false)
+    // Nie ustawione automatycznie, mimo że `after.endMs` (9000) > `durationMs`
+    // (8000) — użytkownik nie zdążył jeszcze o tym zdecydować.
+    expect(after.cutoff).toBe(false)
+    // Decyzja nie zniknęła — została jako osobna plakietka na nowej połówce,
+    // dokładnie tak, jak użytkownik mówi jej „tak".
+    expect(dialogueProposals(next)).toContainEqual({ eventId: after.id, kind: 'cutoff' })
   })
 })
 

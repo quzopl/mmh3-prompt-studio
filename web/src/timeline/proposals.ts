@@ -1,5 +1,5 @@
 import { CONTINUITY_PHRASES, type DialogueEvent, type Project, type Segment } from '@mmh3/shared'
-import { shotSpans } from './spans.js'
+import { shotSpans, type ShotSpan } from './spans.js'
 import { countWords } from './speech.js'
 
 export type ProposalKind = 'scenetrans' | 'cutoff'
@@ -108,36 +108,56 @@ const nextDialogueNumber = (project: Project): number =>
   })) + 1
 
 /**
- * Segment mówcy dla nowej połówki kwestii — TEN SAM kształt (`speakerIds`,
- * `descriptor`, `form`) co segment mówcy, który w `body` WŁASNEGO ujęcia
- * oryginału wprowadza jego segment dialogowy. Bez własnego segmentu mówcy
- * kontynuacja wylądowałaby w skompilowanym prompcie jako blok `<d>` bez
- * żadnej atrybucji do postaci — żadna reguła walidatora tego nie łapie (nic
- * nie sprawdza, czy segment dialogowy ma poprzedzający go segment mówcy),
- * więc błąd eksportowałby się po cichu.
- *
- * Szuka WSTECZ od segmentu dialogowego, przechodząc przez segmenty tekstowe
- * (`kind: 'text'`) — nie tylko sprawdza jeden poprzedni element. Prawdziwa
- * proza rzadko stawia segment mówcy TUŻ przed segmentem dialogowym: golden
- * fixture (`shared/test/golden/fixtures/base.ts`) ma między nimi opisowy
- * tekst („places a fresh loaf on the wooden counter and "), a nawet goły
- * separator to osobny segment tekstowy (jedna spacja). Napotkanie segmentu
- * innego rodzaju (kamera, etykieta, inny dialog) przerywa szukanie — to
- * oznacza, że wyszliśmy poza wprowadzenie TEJ kwestii.
- *
- * Gdy oryginał nie ma w ogóle takiego segmentu (np. `body` jeszcze nie
- * zredagowane ręcznie) — domyślny kształt to `'short'`: to kontynuacja
- * kwestii już w toku, nie jej pierwsze wystąpienie, które wymagałoby
- * `'full'` albo opisu (patrz reguła `SPEAKER_FIRST_INTRO`).
+ * Czy mówca ma już JAKIEKOLWIEK wprowadzenie (segment `speaker` wskazujący
+ * na niego, albo segment `label` z jego `speakerId`) w którymś z ujęć ŚCIŚLE
+ * PRZED podaną pozycją w `spans`. Ten sam zakres skanowania, którego używa
+ * `SPEAKER_FIRST_INTRO` (`shared/src/validate/rules/speech.ts`): kolejność
+ * ujęć po indeksie, potem kolejność segmentów w `body` — łącznie z formą
+ * segmentu, nie tylko jego istnieniem: nawet wprowadzenie, które SAMO łamie
+ * regułę (forma `'short'` bez opisu przy pierwszym pojawieniu), i tak zdejmuje
+ * mówcę ze zbioru „świeżych" w oczach tej reguły (`introduced.add(id)`
+ * wykonuje się TAM zanim reguła w ogóle sprawdzi formę), więc liczy się też
+ * tutaj — poprawianie cudzego istniejącego naruszenia nie jest naszą sprawą.
  */
-function speakerSegmentLike(ownerBody: Segment[], eventId: string, event: DialogueEvent): Segment {
-  const dialogueIndex = ownerBody.findIndex(seg => seg.kind === 'dialogue' && seg.eventId === eventId)
-  for (let i = dialogueIndex - 1; i >= 0; i -= 1) {
-    const candidate = ownerBody[i]
-    if (candidate?.kind === 'speaker') return { ...candidate }
-    if (candidate?.kind !== 'text') break
-  }
-  return { kind: 'speaker', speakerIds: event.speakerIds, form: 'short' }
+function speakerIntroducedBefore(spans: ShotSpan[], beforePosition: number, speakerId: string): boolean {
+  return spans.slice(0, beforePosition).some(span =>
+    span.shot.body.some(seg =>
+      (seg.kind === 'speaker' && seg.speakerIds.includes(speakerId))
+      || (seg.kind === 'label' && seg.speakerId === speakerId)))
+}
+
+/**
+ * Segment mówcy dla nowej połówki kwestii. Forma liczy się z historii
+ * wprowadzeń w ujęciach PRZED ujęciem DOCELOWYM (tym, do którego trafia
+ * kontynuacja) — nie ze skopiowanego kształtu segmentu w ujęciu ŹRÓDŁOWYM,
+ * jak w odrzuconej wersji z Rundy 2. Ten sam rachunek naprawia dwie
+ * usterki tamtej wersji naraz:
+ *
+ * 1. Gdy źródło nie miało segmentu mówcy przed swoim segmentem dialogowym
+ *    (np. `body` jeszcze nie zredagowane ręcznie), domyślne `'short'` z
+ *    Rundy 2 mogło stać się PIERWSZYM wprowadzeniem tego mówcy w całym
+ *    projekcie — kontynuacja ląduje zawsze na POCZĄTKU `body` ujęcia
+ *    docelowego (patrz `splitAtSceneTrans`), więc w kolejności skanowania
+ *    `SPEAKER_FIRST_INTRO` to WŁAŚNIE nasz nowy segment byłby świeżym
+ *    wprowadzeniem — `'short'` włączało regułę na projekcie, który przed
+ *    kliknięciem był czysty. Uzasadnienie w Rundzie 2 („to kontynuacja, nie
+ *    pierwsze wystąpienie") było odwrócone dokładnie w tym przypadku:
+ *    pozycyjnie, w oczach reguły, to BYŁO pierwsze wystąpienie.
+ * 2. Gdy źródło WŁAŚNIE wprowadzało mówcę pełną formą tuż przed swoim
+ *    segmentem dialogowym, kopiowanie tego kształtu powtarzało pełny opis
+ *    DRUGI raz w kontynuacji, zamiast skrócić się do `'short'`, skoro mówca
+ *    został wprowadzony chwilę wcześniej (w tym samym lub poprzednim
+ *    ujęciu) i nie trzeba go przedstawiać ponownie.
+ *
+ * Sprawdzenie „czy WSZYSCY mówcy tej kwestii mają już wprowadzenie" (nie
+ * „czy KTÓRYKOLWIEK") — `SPEAKER_FIRST_INTRO` wymaga formy pełnej / opisu,
+ * gdy CHOĆ JEDEN z `speakerIds` segmentu jest wciąż świeży; `'short'` jest
+ * bezpieczne tylko wtedy, gdy żaden nie jest.
+ */
+function speakerSegmentFor(spans: ShotSpan[], ownerPosition: number, event: DialogueEvent): Segment {
+  const allAlreadyIntroduced = event.speakerIds
+    .every(speakerId => speakerIntroducedBefore(spans, ownerPosition + 1, speakerId))
+  return { kind: 'speaker', speakerIds: event.speakerIds, form: allAlreadyIntroduced ? 'short' : 'full' }
 }
 
 /**
@@ -166,20 +186,34 @@ function splitTextAtFraction(text: string, fraction: number): { before: string; 
  * faktycznie przyjmuje — reguła szuka OSOBNEJ kwestii w sąsiednim ujęciu,
  * nie dwóch flag na jednym obiekcie.
  *
- * `cutoff` liczy się NIEZALEŻNIE dla każdej połówki z jej WŁASNEGO nowego
- * `endMs` względem `durationMs` — nie kopiuje się ze `...event`. Bez tego
- * (odrzucona wersja z Rundy 2) oryginał, spreadowany z `...event`, zostawał
- * z `cutoff: true` mimo że jego nowy koniec (granica cięcia) leży w środku
- * materiału, a nowa połówka dostawała na sztywno `cutoff: false` mimo że to
- * WŁAŚNIE ona dziedziczy przekraczający koniec oryginału. Kolejność kliknięć
- * „najpierw `cutoff`, potem `scenetrans`" na tym samym klipie (obie
- * plakietki potrafią stać razem, patrz `DialogueTracks.tsx`) jest zwykłą
- * ścieżką, nie naciąganym przypadkiem — i bez tej naprawy zostawiała
- * `CUTOFF_AT_END` włączone na obu połówkach zamiast na żadnej.
+ * `cutoff` na ORYGINALE (`trimmedOriginal`) liczy się GEOMETRYCZNIE z jego
+ * WŁASNEGO nowego `endMs` (granica cięcia) względem `durationMs` — nie
+ * kopiuje się ze `...event`. Ta połówka strukturalnie prawie nigdy nie
+ * wystaje poza materiał (granica cięcia leży w środku niego), więc geometria
+ * sama daje właściwą odpowiedź: `false`. Bez tego (odrzucona wersja z Rundy
+ * 2) oryginał, spreadowany z `...event`, zostawał z `cutoff: true` mimo że
+ * jego nowy koniec leży w środku materiału — `CUTOFF_AT_END` włączało się
+ * na połówce, która wcale nie wystaje.
+ *
+ * `cutoff` na KONTYNUACJI nie liczy się z geometrii wcale — DZIEDZICZY się
+ * wprost z `event.cutoff`, czyli z decyzji, którą użytkownik już podjął (albo
+ * nie podjął) o CAŁEJ kwestii przed podziałem. To jest osobna naprawa od
+ * powyższej, z Rundy 3: geometryczne przeliczanie kontynuacji
+ * (`event.endMs > durationMs`, wersja z Rundy 2) po cichu ZAPALAŁO
+ * `<cutoff>` na wystającej kwestii, której użytkownik nigdy nie oznaczył —
+ * dokładnie ta decyzja za użytkownika, przeciw której cała ta funkcja jest
+ * zbudowana (propozycja nigdy nie stosuje się sama). Kwestia wystająca, ale
+ * BEZ oznaczonego `cutoff`, zostaje po podziale nadal bez niego — i nadal
+ * dostaje własną plakietkę `cutoff` (patrz `dialogueProposals`), żeby
+ * użytkownik mógł się na to świadomie zgodzić. Kwestia z JUŻ oznaczonym
+ * `cutoff` (kolejność kliknięć „najpierw cutoff, potem scenetrans" — obie
+ * plakietki potrafią stać razem, patrz `DialogueTracks.tsx` — zwykła
+ * ścieżka, nie naciągany przypadek) przekazuje `true` tej połówce, która
+ * faktycznie wystaje.
  *
  * Nowy obiekt trzeba też dopiąć do `body` NASTĘPNEGO ujęcia — nie samym
  * segmentem `{ kind: 'dialogue', eventId }`, jak w pierwszej wersji tej
- * funkcji, tylko razem z segmentem mówcy (`speakerSegmentLike`) i separatorami
+ * funkcji, tylko razem z segmentem mówcy (`speakerSegmentFor`) i separatorami
  * tekstowymi po obu stronach. Bez segmentu mówcy kontynuacja nie ma żadnej
  * atrybucji głosu w prompcie; bez separatorów `renderSegments`
  * (`shared/src/compile/renderShot.ts`) skleja sąsiednie segmenty bez spacji
@@ -225,10 +259,10 @@ function splitAtSceneTrans(project: Project, eventId: string): Project {
     sceneTransBefore: true,
     sceneTransAfter: false,
     continuityPhrase: undefined,
-    cutoff: event.endMs > project.video.durationMs,
+    cutoff: event.cutoff,
   }
   const continuationSegments: Segment[] = [
-    speakerSegmentLike(owner.shot.body, eventId, event),
+    speakerSegmentFor(spans, ownerPosition, event),
     { kind: 'text', text: ' ' },
     { kind: 'dialogue', eventId: continuationId },
     { kind: 'text', text: ' ' },

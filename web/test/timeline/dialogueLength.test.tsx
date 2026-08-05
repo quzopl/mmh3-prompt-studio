@@ -63,11 +63,17 @@ describe('naturalna długość na klipie dialogowym', () => {
     // kwestii, ale nie złapałyby złamanej proporcjonalności samej formuły:
     // podstawienie `naturalDurationMs` stałą wartością (np. zawsze 500)
     // dawałoby identyczny — bo policzony tą samą podmienioną funkcją —
-    // wynik po obu stronach porównania, i test przechodziłby mimo że cień
-    // przestał cokolwiek mówić o liczbie słów. Zweryfikowane różnicowo:
-    // podmiana `naturalDurationMs` na funkcję zwracającą zawsze 500
-    // zaczerwienia WŁAŚNIE poniższe dwie asercje, zostawiając resztę pliku
-    // zieloną.
+    // wynik po obu stronach porównania, i TE DWIE asercje przechodziłyby
+    // mimo że cień przestał cokolwiek mówić o liczbie słów. Zweryfikowane
+    // różnicowo: podmiana `naturalDurationMs` na funkcję zwracającą zawsze
+    // 500 czerwieni w praktyce 5 z 6 testów w tym pliku (prawie wszystko tu
+    // zależy od realnego czasu trwania policzonego z liczby słów, nie tylko
+    // te dwie asercje) — ale WŁAŚNIE te dwie, poniżej, są jedynymi, które
+    // BEZ tej podmiany i tak by przeszły, gdyby produkcyjna formuła sama
+    // przestała liczyć proporcjonalnie do liczby słów (np. zaokrąglała się
+    // do stałego kroku). To ich rolę jako testu proporcjonalności trzeba
+    // było przywrócić, nie fakt, że reszta pliku jest na tę konkretną
+    // podmianę ślepa — nie jest.
     //
     // Przy DEFAULT_WORDS_PER_MINUTE = WORDS_PER_SECOND * 60 = 162 i
     // pxPerMs = 800/8000 = 0,1:
