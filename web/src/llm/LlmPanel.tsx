@@ -1,0 +1,467 @@
+import { useEffect, useState, type ReactNode } from 'react'
+import { useProject } from '../store/projectStore.js'
+import { useT, type Translate } from '../i18n/useT.js'
+import { settingsApi, type LlmMode, type LlmSettings, type ManagedState } from './settingsApi.js'
+import { useLlmRun, type LlmRunRequest } from './useLlmRun.js'
+
+const MODES: LlmMode[] = ['off', 'endpoint', 'managed']
+
+const MODE_LABEL: Record<LlmMode, (t: Translate) => string> = {
+  off: t => t('llm.modeOff'),
+  endpoint: t => t('llm.modeEndpoint'),
+  managed: t => t('llm.modeManaged'),
+}
+
+const MANAGED_STATE_LABEL: Record<ManagedState['status'], (t: Translate) => string> = {
+  stopped: t => t('llm.managedStateStopped'),
+  starting: t => t('llm.managedStateStarting'),
+  ready: t => t('llm.managedStateReady'),
+  failed: t => t('llm.managedStateFailed'),
+}
+
+/** Cel redakcji — podzbiór `RedactTarget` z `server/src/llm/tasks/redact.ts`.
+ * Wariant `shotText` (redakcja pojedynczego segmentu ujęcia) celowo zostaje
+ * poza tym panelem: wymaga wyboru konkretnego ujęcia i indeksu segmentu, co
+ * należy do inspektora ujęcia (poza plikami tego zadania), nie do panelu
+ * dostawcy. Pozostałe trzy warianty nie potrzebują żadnego innego kontekstu
+ * niż projekt już wczytany w `useProject`. */
+type RedactTarget =
+  | { kind: 'style' }
+  | { kind: 'audio'; field: 'overallSoundscape' | 'nonDiegeticMusic' }
+  | { kind: 'speaker'; speakerId: string; field: 'fullDescriptor' | 'shortDescriptor' }
+
+interface RedactOption {
+  value: string
+  label: string
+  target: RedactTarget
+}
+
+function redactOptions(t: Translate, speakers: { id: string; code: string }[]): RedactOption[] {
+  const options: RedactOption[] = [
+    { value: 'style', label: t('llm.redactStyle'), target: { kind: 'style' } },
+    {
+      value: 'audio:overallSoundscape',
+      label: t('llm.redactSoundscape'),
+      target: { kind: 'audio', field: 'overallSoundscape' },
+    },
+    {
+      value: 'audio:nonDiegeticMusic',
+      label: t('llm.redactMusic'),
+      target: { kind: 'audio', field: 'nonDiegeticMusic' },
+    },
+  ]
+  for (const speaker of speakers) {
+    options.push({
+      value: `speaker:${speaker.id}:fullDescriptor`,
+      label: t('llm.redactSpeakerFull', { code: speaker.code }),
+      target: { kind: 'speaker', speakerId: speaker.id, field: 'fullDescriptor' },
+    })
+    options.push({
+      value: `speaker:${speaker.id}:shortDescriptor`,
+      label: t('llm.redactSpeakerShort', { code: speaker.code }),
+      target: { kind: 'speaker', speakerId: speaker.id, field: 'shortDescriptor' },
+    })
+  }
+  return options
+}
+
+/**
+ * Przycisk sterowalny klawiaturą bez natywnego `<button>`. Natywny przycisk
+ * puszcza zdarzenie `keydown` spacji dalej do `window` — a tam
+ * `useTimelineShortcuts` tą samą spacją przełącza odtwarzanie. Cztery zadania
+ * poprzedniego planu wypuściły dokładnie ten błąd (patrz `ShotTrack.tsx` po
+ * ten sam wzorzec). `preventDefault`/`stopPropagation` lecą na Enterze i
+ * spacji, zanim decyzja o aktywacji w ogóle zapadnie.
+ */
+function ActionButton({
+  label, onClick, disabled = false, pressed,
+}: { label: string; onClick: () => void; disabled?: boolean; pressed?: boolean }) {
+  const activate = (): void => { if (!disabled) onClick() }
+  return (
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
+      aria-pressed={pressed}
+      onClick={activate}
+      onKeyDown={event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        event.stopPropagation()
+        activate()
+      }}
+      className={`rounded border px-2 py-1 text-xs ${
+        pressed ? 'border-sky-600 bg-sky-950 text-sky-100' : 'border-neutral-700 hover:border-neutral-500'
+      } ${disabled ? 'pointer-events-none opacity-40' : 'cursor-pointer'}`}
+    >
+      {label}
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block text-xs">
+      <span className="mb-1 block text-neutral-500">{label}</span>
+      {children}
+    </label>
+  )
+}
+
+const inputClass = 'w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm'
+
+const toInt = (raw: string, previous: number): number => {
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : previous
+}
+
+/** Draft formularza ustawień — pola tekstowe/numeryczne jako `string`, żeby
+ * pole liczbowe dało się chwilowo wyczyścić w trakcie pisania, tak jak
+ * `CutTimeField` w `Inspector.tsx`. Klucz API NIE jest tu inicjalizowany z
+ * odpowiedzi serwera pod żadnym warunkiem — `GET` redaguje go do pustego
+ * ciągu, a nawet gdyby kiedyś tego nie zrobił, panel i tak nie ma wiązać pola
+ * z niczym, co przyszło z sieci: puste pole zawsze znaczy „bez zmian". */
+interface Draft {
+  mode: LlmMode
+  baseUrl: string
+  apiKey: string
+  model: string
+  serverBinary: string
+  modelPath: string
+  gpuLayers: string
+  contextSize: string
+}
+
+const draftFrom = (settings: LlmSettings): Draft => ({
+  mode: settings.mode,
+  baseUrl: settings.endpoint.baseUrl,
+  apiKey: '',
+  model: settings.endpoint.model,
+  serverBinary: settings.managed.serverBinary,
+  modelPath: settings.managed.modelPath,
+  gpuLayers: String(settings.managed.gpuLayers),
+  contextSize: String(settings.managed.contextSize),
+})
+
+const EMPTY_DRAFT: Draft = {
+  mode: 'off', baseUrl: '', apiKey: '', model: '',
+  serverBinary: '', modelPath: '', gpuLayers: '0', contextSize: '8192',
+}
+
+export function LlmPanel() {
+  const t = useT()
+  const slug = useProject(state => state.slug)
+  const project = useProject(state => state.project)
+  const run = useLlmRun()
+
+  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
+  const [managed, setManaged] = useState<ManagedState | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [managedError, setManagedError] = useState<string | null>(null)
+  const [managedBusy, setManagedBusy] = useState(false)
+
+  const [ideaA, setIdeaA] = useState('')
+  const [ideaB, setIdeaB] = useState('')
+  const speakers = project?.speakers ?? []
+  const redactChoices = redactOptions(t, speakers)
+  const [redactValue, setRedactValue] = useState(redactChoices[0]?.value ?? 'style')
+
+  useEffect(() => {
+    let cancelled = false
+    // Odczyt przy montowaniu NIE MOŻE zostawić nieobsłużonego odrzucenia
+    // obietnicy — sieć bywa niedostępna (serwer padł, offline), a aplikacja
+    // ma działać w pełni bez skonfigurowanego modelu. Panel po prostu
+    // zostaje przy trybie wyłączonym i pokazuje komunikat, zamiast wywracać
+    // resztę aplikacji efektem ubocznym nieudanego zapytania.
+    settingsApi.getSettings()
+      .then(settings => { if (!cancelled) setDraft(draftFrom(settings)) })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setLoadError(error instanceof Error ? error.message : String(error))
+      })
+    settingsApi.getManagedState()
+      .then(state => { if (!cancelled) setManaged(state) })
+      .catch(() => {
+        // Stan zarządzanego serwera jest opcjonalny (dotyczy tylko trybu
+        // `managed`) — brak odpowiedzi nie zasługuje na drugi komunikat
+        // błędu obok tego z `getSettings` powyżej.
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  const busy = run.status === 'running'
+
+  const configured = draft.mode === 'endpoint'
+    ? draft.baseUrl.trim() !== ''
+    : draft.mode === 'managed'
+      ? managed?.status === 'ready'
+      : false
+
+  const tasksEnabled = configured && slug !== null && !busy
+
+  const saveSettings = async (): Promise<void> => {
+    setSaveError(null)
+    try {
+      const next = await settingsApi.putSettings({
+        mode: draft.mode,
+        endpoint: { baseUrl: draft.baseUrl, apiKey: draft.apiKey, model: draft.model },
+        managed: {
+          serverBinary: draft.serverBinary,
+          modelPath: draft.modelPath,
+          gpuLayers: toInt(draft.gpuLayers, 0),
+          contextSize: toInt(draft.contextSize, 8192),
+        },
+      })
+      setDraft(draftFrom(next))
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const startManagedServer = async (): Promise<void> => {
+    setManagedError(null)
+    setManagedBusy(true)
+    try {
+      setManaged(await settingsApi.startManaged())
+    } catch (error) {
+      setManagedError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setManagedBusy(false)
+    }
+  }
+
+  const stopManagedServer = async (): Promise<void> => {
+    setManagedError(null)
+    setManagedBusy(true)
+    try {
+      setManaged(await settingsApi.stopManaged())
+    } catch (error) {
+      setManagedError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setManagedBusy(false)
+    }
+  }
+
+  const startRun = (request: LlmRunRequest): void => {
+    if (slug === null) return
+    run.run(request)
+  }
+
+  const runStructure = (): void => startRun({ task: 'structure', projectSlug: slug ?? '', ideaA, ideaB })
+
+  const runRedact = (): void => {
+    const choice = redactChoices.find(option => option.value === redactValue) ?? redactChoices[0]
+    if (!choice) return
+    startRun({ task: 'redact', projectSlug: slug ?? '', target: choice.target })
+  }
+
+  const runAudio = (): void => startRun({ task: 'audio', projectSlug: slug ?? '' })
+  const runCritic = (): void => startRun({ task: 'critic', projectSlug: slug ?? '' })
+  const runTranslateAll = (): void => startRun({ task: 'translateAll', projectSlug: slug ?? '' })
+
+  const canRunStructure = tasksEnabled && ideaA.trim() !== '' && ideaB.trim() !== ''
+
+  const statusLabel = (() => {
+    if (run.status === 'running' && run.retrying) return t('llm.retrying')
+    switch (run.status) {
+      case 'idle': return t('llm.statusIdle')
+      case 'running': return t('llm.statusRunning')
+      case 'done': return run.patch ? t('llm.opsReady', { count: run.patch.ops.length }) : t('llm.statusDone')
+      case 'error': return t('llm.statusError')
+      case 'cancelled': return t('llm.statusCancelled')
+    }
+  })()
+
+  return (
+    <section aria-label={t('llm.title')} className="flex h-full flex-col gap-4 overflow-auto p-3 text-sm">
+      <div>
+        <span className="mb-2 block text-xs uppercase tracking-wide text-neutral-500">
+          {t('llm.settingsTitle')}
+        </span>
+        <div role="group" aria-label={t('llm.settingsTitle')} className="mb-2 flex gap-1">
+          {MODES.map(mode => (
+            <ActionButton
+              key={mode}
+              label={MODE_LABEL[mode](t)}
+              pressed={draft.mode === mode}
+              disabled={busy}
+              onClick={() => setDraft(current => ({ ...current, mode }))}
+            />
+          ))}
+        </div>
+
+        {draft.mode === 'endpoint' && (
+          <div className="flex flex-col gap-2">
+            <Field label={t('llm.endpointBaseUrl')}>
+              <input
+                className={inputClass}
+                value={draft.baseUrl}
+                disabled={busy}
+                onChange={event => setDraft(current => ({ ...current, baseUrl: event.target.value }))}
+              />
+            </Field>
+            <Field label={t('llm.endpointApiKey')}>
+              <input
+                type="password"
+                className={inputClass}
+                value={draft.apiKey}
+                placeholder={t('llm.endpointApiKeyHint')}
+                disabled={busy}
+                onChange={event => setDraft(current => ({ ...current, apiKey: event.target.value }))}
+              />
+            </Field>
+            <Field label={t('llm.endpointModel')}>
+              <input
+                className={inputClass}
+                value={draft.model}
+                disabled={busy}
+                onChange={event => setDraft(current => ({ ...current, model: event.target.value }))}
+              />
+            </Field>
+          </div>
+        )}
+
+        {draft.mode === 'managed' && (
+          <div className="flex flex-col gap-2">
+            <Field label={t('llm.managedBinary')}>
+              <input
+                className={inputClass}
+                value={draft.serverBinary}
+                disabled={busy}
+                onChange={event => setDraft(current => ({ ...current, serverBinary: event.target.value }))}
+              />
+            </Field>
+            <Field label={t('llm.managedModelPath')}>
+              <input
+                className={inputClass}
+                value={draft.modelPath}
+                disabled={busy}
+                onChange={event => setDraft(current => ({ ...current, modelPath: event.target.value }))}
+              />
+            </Field>
+            <Field label={t('llm.managedGpuLayers')}>
+              <input
+                type="number"
+                className={inputClass}
+                value={draft.gpuLayers}
+                disabled={busy}
+                onChange={event => setDraft(current => ({ ...current, gpuLayers: event.target.value }))}
+              />
+            </Field>
+            <Field label={t('llm.managedContextSize')}>
+              <input
+                type="number"
+                className={inputClass}
+                value={draft.contextSize}
+                disabled={busy}
+                onChange={event => setDraft(current => ({ ...current, contextSize: event.target.value }))}
+              />
+            </Field>
+            <div className="flex items-center gap-2">
+              <ActionButton
+                label={t('llm.managedStart')}
+                disabled={busy || managedBusy}
+                onClick={() => void startManagedServer()}
+              />
+              <ActionButton
+                label={t('llm.managedStop')}
+                disabled={busy || managedBusy}
+                onClick={() => void stopManagedServer()}
+              />
+              <span className="text-xs text-neutral-400">
+                {t('llm.managedStatus')}: {managed ? MANAGED_STATE_LABEL[managed.status](t) : '—'}
+              </span>
+            </div>
+            {managedError && <p className="text-xs text-red-400">{managedError}</p>}
+          </div>
+        )}
+
+        <div className="mt-2">
+          <ActionButton label={t('llm.saveSettings')} disabled={busy} onClick={() => void saveSettings()} />
+        </div>
+        {saveError && <p className="mt-1 text-xs text-red-400">{t('llm.saveError', { message: saveError })}</p>}
+        {loadError && <p className="mt-1 text-xs text-red-400">{t('llm.loadError', { message: loadError })}</p>}
+      </div>
+
+      {!configured && (
+        <div>
+          <p className="text-xs text-amber-400">{t('llm.notConfigured')}</p>
+          <p className="text-xs text-neutral-500">{t('llm.notConfiguredHint')}</p>
+        </div>
+      )}
+
+      {slug === null && <p className="text-xs text-neutral-500">{t('llm.noProject')}</p>}
+
+      <div className="flex flex-col gap-3">
+        <span className="text-xs uppercase tracking-wide text-neutral-500">{t('llm.tasksTitle')}</span>
+
+        <div className="flex flex-col gap-1">
+          <Field label={t('llm.ideaA')}>
+            <textarea
+              className={inputClass}
+              rows={2}
+              value={ideaA}
+              disabled={busy}
+              onChange={event => setIdeaA(event.target.value)}
+            />
+          </Field>
+          <Field label={t('llm.ideaB')}>
+            <textarea
+              className={inputClass}
+              rows={2}
+              value={ideaB}
+              disabled={busy}
+              onChange={event => setIdeaB(event.target.value)}
+            />
+          </Field>
+          <ActionButton label={t('llm.taskStructure')} disabled={!canRunStructure} onClick={runStructure} />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Field label={t('llm.redactTarget')}>
+            <select
+              className={inputClass}
+              value={redactValue}
+              disabled={busy}
+              onChange={event => setRedactValue(event.target.value)}
+            >
+              {redactChoices.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </Field>
+          <ActionButton label={t('llm.taskRedact')} disabled={!tasksEnabled} onClick={runRedact} />
+        </div>
+
+        <ActionButton label={t('llm.taskAudio')} disabled={!tasksEnabled} onClick={runAudio} />
+        <ActionButton label={t('llm.taskCritic')} disabled={!tasksEnabled} onClick={runCritic} />
+        <ActionButton label={t('llm.taskTranslateAll')} disabled={!tasksEnabled} onClick={runTranslateAll} />
+      </div>
+
+      {run.status !== 'idle' && (
+        <div className="flex flex-col gap-1 border-t border-neutral-800 pt-2">
+          <div className="flex items-center gap-2">
+            <span>{t('llm.status')}: {statusLabel}</span>
+            {busy && <ActionButton label={t('common.cancel')} onClick={run.cancel} />}
+          </div>
+          <span className="text-xs text-neutral-400">
+            {t('llm.tokens')}: {run.promptTokens ?? '—'} / {run.completionTokens ?? '—'}
+          </span>
+          <span className="text-xs text-neutral-400">
+            {t('llm.time')}: {(run.elapsedMs / 1000).toFixed(1)} s
+          </span>
+          {run.status === 'running' && (
+            <pre
+              aria-label={t('llm.streamPreview')}
+              className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded border border-neutral-800 bg-neutral-950 p-2 font-mono text-[10px]"
+            >
+              {run.text}
+            </pre>
+          )}
+          {run.status === 'error' && run.error && <p className="text-xs text-red-400">{run.error}</p>}
+        </div>
+      )}
+    </section>
+  )
+}
