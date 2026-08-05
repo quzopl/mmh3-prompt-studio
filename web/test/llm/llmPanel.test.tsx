@@ -214,6 +214,70 @@ describe('LlmPanel — klucz API nigdy nie trafia do DOM', () => {
   })
 })
 
+describe('LlmPanel — czyszczenie klucza API (fix round 1/5, punkt 1)', () => {
+  /** `PUT` przyjmuje trzy znaczenia `apiKey` (`server/src/routes/llm.ts`):
+   * niepusty ciąg ustawia, pusty ciąg `''` zostawia obecny bez zmian, `null`
+   * czysta go. Zapisany klucz nigdy nie wraca w odpowiedzi `GET`, więc test
+   * sprawdza SAMO ŻĄDANIE — to jedyne miejsce, gdzie widać, co panel
+   * faktycznie zamierza zrobić z kluczem. */
+  async function renderWithPutCapture() {
+    const putCalls: Array<Record<string, unknown>> = []
+    const handlers = {
+      ...baseHandlers(settingsEndpoint),
+      'PUT /api/llm/settings': (init?: RequestInit) => {
+        putCalls.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return json(settingsEndpoint)
+      },
+    }
+    vi.stubGlobal('fetch', routedFetch(handlers))
+    render(<LlmPanel />)
+    const user = userEvent.setup()
+    // Pole klucza (i sam przycisk „Wyczyść klucz") renderują się tylko w
+    // trybie `endpoint` — a to dotarło z sieci, więc to jest wiarygodny
+    // sygnał, że ustawienia się już wczytały (w przeciwieństwie do „Zapisz
+    // ustawienia", które jest aktywne od razu, niezależnie od stanu).
+    await screen.findByLabelText('Klucz API')
+    return { user, putCalls }
+  }
+
+  const expectedManaged = { serverBinary: '', modelPath: '', gpuLayers: 0, contextSize: 8192 }
+
+  it('zapis bez dotykania pola klucza wysyła pusty ciąg — "zostaw bez zmian"', async () => {
+    const { user, putCalls } = await renderWithPutCapture()
+    await user.click(screen.getByRole('button', { name: 'Zapisz ustawienia' }))
+
+    expect(putCalls).toEqual([{
+      mode: 'endpoint',
+      endpoint: { baseUrl: 'http://localhost:1234/v1', apiKey: '', model: 'qwen' },
+      managed: expectedManaged,
+    }])
+  })
+
+  it('"Wyczyść klucz" wysyła null, pokazuje potwierdzenie, a pole zostaje puste — nie brudnopis sprzed czyszczenia', async () => {
+    const { user, putCalls } = await renderWithPutCapture()
+    await user.click(screen.getByRole('button', { name: 'Wyczyść klucz' }))
+
+    expect(putCalls).toEqual([{
+      mode: 'endpoint',
+      endpoint: { baseUrl: 'http://localhost:1234/v1', apiKey: null, model: 'qwen' },
+      managed: expectedManaged,
+    }])
+
+    expect(await screen.findByText('Klucz wyczyszczony.')).toBeInTheDocument()
+    const keyField = screen.getByLabelText('Klucz API') as HTMLInputElement
+    expect(keyField).toHaveValue('')
+  })
+
+  it('wpisanie nowego znaku po wyczyszczeniu chowa potwierdzenie — nie zostaje jako stały, mylący napis', async () => {
+    const { user } = await renderWithPutCapture()
+    await user.click(screen.getByRole('button', { name: 'Wyczyść klucz' }))
+    expect(await screen.findByText('Klucz wyczyszczony.')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Klucz API'), 'x')
+    expect(screen.queryByText('Klucz wyczyszczony.')).not.toBeInTheDocument()
+  })
+})
+
 describe('LlmPanel — uruchamianie zadań: kliknięcie woła trasę z właściwym rodzajem', () => {
   it('"Podpowiedź audio" woła trasę z task=audio i identyfikatorem projektu', async () => {
     const { user, calls } = await renderReady()
@@ -342,6 +406,58 @@ describe('LlmPanel — anulowanie i błędy', () => {
     await waitFor(() => {
       expect(screen.getByText(/Tokeny: — \/ —/)).toBeInTheDocument()
     })
+  })
+
+  it('licznik naprawdę zerowy pokazuje 0, nie kreskę — fix round 1/5, punkt 2', async () => {
+    // Uzupełnienie pary z testem wyżej: `??` i `||` dają identyczny wynik dla
+    // `null`, ale rozjeżdżają się dla `0` (`0 || '—'` daje kreskę, `0 ?? '—'`
+    // daje `0`). Bez tego testu podmiana operatora nie czerwieniłaby niczego.
+    const { stream, send, close } = controllableStream()
+    const handlers = {
+      ...baseHandlers(settingsEndpoint),
+      'POST /api/llm/run': () => new Response(stream),
+    }
+    vi.stubGlobal('fetch', routedFetch(handlers))
+    render(<LlmPanel />)
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Podpowiedź audio' })).toHaveAttribute('aria-disabled', 'false')
+    })
+    await user.click(screen.getByRole('button', { name: 'Podpowiedź audio' }))
+    await screen.findByText(/W toku…/)
+
+    send('done', { patch: { ops: [] }, promptTokens: 0, completionTokens: 0, repaired: false })
+    close()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Tokeny: 0 \/ 0/)).toBeInTheDocument()
+    })
+  })
+})
+
+describe('LlmPanel — stan zarządzanego serwera (fix round 1/5, punkt 3)', () => {
+  it('błąd pobrania stanu zarządzanego serwera pokazuje powód zamiast milczącej kreski', async () => {
+    const settingsManaged = {
+      mode: 'managed' as const,
+      endpoint: { baseUrl: '', apiKey: '', model: '' },
+      managed: { serverBinary: '/bin/llama', modelPath: '/models/m.gguf', gpuLayers: 10, contextSize: 8192 },
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/llm/settings') return json(settingsManaged)
+      if (url === '/api/llm/managed/state') throw new TypeError('Failed to fetch')
+      throw new Error(`Brak mocka dla ${url}`)
+    }))
+    render(<LlmPanel />)
+
+    // Pola trybu `managed` renderują się dopiero po wczytaniu ustawień —
+    // wiarygodny sygnał, że efekt montowania już się rozstrzygnął (obie
+    // gałęzie: udana `getSettings`, nieudana `getManagedState`).
+    await screen.findByLabelText('Ścieżka binarki serwera')
+    expect(await screen.findByText(/Nie udało się pobrać stanu serwera/)).toBeInTheDocument()
+    // Kreska bez wyjaśnienia (poprzednie zachowanie) nie pojawia się —
+    // komunikat ZASTĘPUJE ją, nie stoi obok niej.
+    expect(screen.queryByText(/Stan serwera: —/)).not.toBeInTheDocument()
   })
 })
 

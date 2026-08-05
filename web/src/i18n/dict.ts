@@ -187,6 +187,13 @@ const pl = {
   // powrotem — odczyt go redaguje), więc pole zawsze startuje puste, nawet
   // gdy klucz jest zapisany na serwerze.
   'llm.endpointApiKeyHint': 'Puste pole zostawia zapisany klucz bez zmian.',
+  // Fix round 1/5, punkt 1: `null` w PUT czyści klucz (zadanie 1), ale bez
+  // tego przycisku nic w panelu nigdy nie wysyłało `null` — tylko pusty ciąg
+  // (co znaczy „zostaw bez zmian") albo nowy klucz. Bez jawnej akcji „wyczyść"
+  // ta gałąź API była nieosiągalna z jedynego miejsca, gdzie ktoś jej realnie
+  // potrzebuje: cofnięcie klucza wklejonego wcześniej na współdzieloną maszynę.
+  'llm.clearKey': 'Wyczyść klucz',
+  'llm.keyCleared': 'Klucz wyczyszczony.',
   'llm.endpointModel': 'Identyfikator modelu',
   'llm.managedBinary': 'Ścieżka binarki serwera',
   'llm.managedModelPath': 'Ścieżka pliku modelu (.gguf)',
@@ -199,6 +206,7 @@ const pl = {
   'llm.managedStateStarting': 'Uruchamianie…',
   'llm.managedStateReady': 'Gotowy',
   'llm.managedStateFailed': 'Nie udało się uruchomić',
+  'llm.managedStateError': 'Nie udało się pobrać stanu serwera: {message}',
   'llm.saveSettings': 'Zapisz ustawienia',
   'llm.saveError': 'Nie udało się zapisać ustawień: {message}',
   'llm.loadError': 'Nie udało się wczytać ustawień dostawcy: {message}',
@@ -387,6 +395,8 @@ const en: Record<TKey, string> = {
   'llm.endpointBaseUrl': 'Endpoint address',
   'llm.endpointApiKey': 'API key',
   'llm.endpointApiKeyHint': 'An empty field leaves the saved key unchanged.',
+  'llm.clearKey': 'Clear key',
+  'llm.keyCleared': 'Key cleared.',
   'llm.endpointModel': 'Model id',
   'llm.managedBinary': 'Server binary path',
   'llm.managedModelPath': 'Model file path (.gguf)',
@@ -399,6 +409,7 @@ const en: Record<TKey, string> = {
   'llm.managedStateStarting': 'Starting…',
   'llm.managedStateReady': 'Ready',
   'llm.managedStateFailed': 'Failed to start',
+  'llm.managedStateError': 'Could not fetch server status: {message}',
   'llm.saveSettings': 'Save settings',
   'llm.saveError': 'Could not save settings: {message}',
   'llm.loadError': 'Could not load provider settings: {message}',

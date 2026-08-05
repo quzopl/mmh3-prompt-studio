@@ -327,3 +327,31 @@ Zadanie 15 Planu 5 zastosowało tu regułę roboczą, którą warto zachować:
 **tłumaczy się to, co model wideo przeczyta**. Pola bez konsumenta zostały poza
 tłumaczeniem całego projektu, bo przekładanie tekstu, którego nikt nie zobaczy,
 kosztuje kontekst modelu i niczego nie poprawia.
+
+## 20. `RedactTarget.shotText` istnieje po stronie serwera, ale żaden interfejs go nie woła
+
+Lustrzane odbicie punktu 19 — tam pole edytowalne w interfejsie nie ma
+konsumenta w modelu; tutaj zdolność serwera nie ma konsumenta w interfejsie.
+
+Trasa `POST /api/llm/run` z zadaniem `redact` (Plan 5, zadanie 7,
+`server/src/llm/tasks/redact.ts`) przyjmuje cztery kształty `target`: `style`,
+`audio` (dwa pola stałe), `speaker` (dwa pola na mówcę, mówca ma stabilny
+`id`/`code`) i `shotText` — pojedynczy segment tekstowy wewnątrz `shot.body`,
+wskazany parą `shotId`/`segmentIndex`. Wszystkie cztery są zwalidowane
+Zodem (`RedactTargetSchema`) i mają pełne pokrycie testami po stronie serwera.
+
+Panel LLM (Plan 5, zadanie 10, `web/src/llm/LlmPanel.tsx`) buduje rozwijaną
+listę celów redakcji z bieżącego projektu i pokrywa pierwsze trzy warianty —
+`shotText` został poza nią świadomie, nie przez przeoczenie: w przeciwieństwie
+do stylu/audio/mówcy (identyfikują się same, dają się wypisać płaską listą bez
+dodatkowego kontekstu), `shotText` wymaga wskazania KONKRETNEGO ujęcia i
+KONKRETNEGO segmentu jego `body`. To miejsce, gdzie użytkownik już patrzy na
+treść tego segmentu — inspektor ujęcia albo klip na osi czasu — nie rozwijana
+lista w panelu dostawcy, z dala od projektu, którego dotyczy.
+
+**Co by to domknęło:** przycisk „redaguj" przy polu tekstowym segmentu w
+`Inspector.tsx` (albo bezpośrednio na klipie osi czasu), wołający ten sam
+`POST /api/llm/run` z `target: { kind: 'shotText', shotId, segmentIndex }` —
+dokładnie ten kształt, który trasa już przyjmuje i waliduje. Nic po stronie
+serwera nie wymaga zmiany; brakuje wyłącznie miejsca w interfejsie, z którego
+dałoby się to wywołać.

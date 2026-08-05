@@ -24,7 +24,8 @@ const MANAGED_STATE_LABEL: Record<ManagedState['status'], (t: Translate) => stri
  * poza tym panelem: wymaga wyboru konkretnego ujęcia i indeksu segmentu, co
  * należy do inspektora ujęcia (poza plikami tego zadania), nie do panelu
  * dostawcy. Pozostałe trzy warianty nie potrzebują żadnego innego kontekstu
- * niż projekt już wczytany w `useProject`. */
+ * niż projekt już wczytany w `useProject`. Zapisane jako dług — punkt 20,
+ * `docs/superpowers/specs/2026-08-04-uwagi-do-planu-2.md`. */
 type RedactTarget =
   | { kind: 'style' }
   | { kind: 'audio'; field: 'overallSoundscape' | 'nonDiegeticMusic' }
@@ -158,8 +159,19 @@ export function LlmPanel() {
   const [managed, setManaged] = useState<ManagedState | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // Stan zarządzanego serwera jest osobnym zapytaniem od ustawień — jego
+  // porażka (serwer padł, sieć odcięta) dostaje WŁASNY komunikat w miejscu,
+  // gdzie stan by się pokazał, zamiast po cichu zostawiać kreskę bez
+  // wyjaśnienia. Fix round 1/5: cisza w tym miejscu wyglądała tak samo jak
+  // „serwer zatrzymany", więc użytkownik nie miał jak odróżnić dwóch
+  // zupełnie różnych sytuacji.
+  const [managedStateError, setManagedStateError] = useState<string | null>(null)
   const [managedError, setManagedError] = useState<string | null>(null)
   const [managedBusy, setManagedBusy] = useState(false)
+  // Potwierdzenie po kliknięciu „Wyczyść klucz" — bez niego użytkownik nie ma
+  // jak się upewnić, że coś się w ogóle stało: pole było puste PRZED
+  // wyczyszczeniem tak samo, jak jest puste po nim (fix round 1/5, punkt 1).
+  const [keyCleared, setKeyCleared] = useState(false)
 
   const [ideaA, setIdeaA] = useState('')
   const [ideaB, setIdeaB] = useState('')
@@ -182,10 +194,9 @@ export function LlmPanel() {
       })
     settingsApi.getManagedState()
       .then(state => { if (!cancelled) setManaged(state) })
-      .catch(() => {
-        // Stan zarządzanego serwera jest opcjonalny (dotyczy tylko trybu
-        // `managed`) — brak odpowiedzi nie zasługuje na drugi komunikat
-        // błędu obok tego z `getSettings` powyżej.
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setManagedStateError(error instanceof Error ? error.message : String(error))
       })
     return () => { cancelled = true }
   }, [])
@@ -202,6 +213,7 @@ export function LlmPanel() {
 
   const saveSettings = async (): Promise<void> => {
     setSaveError(null)
+    setKeyCleared(false)
     try {
       const next = await settingsApi.putSettings({
         mode: draft.mode,
@@ -224,6 +236,10 @@ export function LlmPanel() {
     setManagedBusy(true)
     try {
       setManaged(await settingsApi.startManaged())
+      // Świeży stan właśnie przyszedł — jeśli poprzedni odczyt przy
+      // montowaniu padł, ten udany zastępuje go, więc stary komunikat błędu
+      // nie ma już czego opisywać.
+      setManagedStateError(null)
     } catch (error) {
       setManagedError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -236,10 +252,40 @@ export function LlmPanel() {
     setManagedBusy(true)
     try {
       setManaged(await settingsApi.stopManaged())
+      setManagedStateError(null)
     } catch (error) {
       setManagedError(error instanceof Error ? error.message : String(error))
     } finally {
       setManagedBusy(false)
+    }
+  }
+
+  /**
+   * Wyczyszczenie klucza z jedynego miejsca, które do tego prowadzi (zadanie
+   * 1 przewidziało `null` w `PUT` dokładnie po to, żeby dało się cofnąć klucz
+   * wklejony wcześniej na tę maszynę) — puste pole samo w sobie ZAWSZE znaczy
+   * „zostaw bez zmian" (`draft.apiKey` w zwykłym zapisie), więc wyczyszczenie
+   * to osobna, jawna akcja z osobnym żądaniem, a nie efekt uboczny pustego
+   * pola. Fix round 1/5, punkt 1.
+   */
+  const clearApiKey = async (): Promise<void> => {
+    setSaveError(null)
+    setKeyCleared(false)
+    try {
+      const next = await settingsApi.putSettings({
+        mode: draft.mode,
+        endpoint: { baseUrl: draft.baseUrl, apiKey: null, model: draft.model },
+        managed: {
+          serverBinary: draft.serverBinary,
+          modelPath: draft.modelPath,
+          gpuLayers: toInt(draft.gpuLayers, 0),
+          contextSize: toInt(draft.contextSize, 8192),
+        },
+      })
+      setDraft(draftFrom(next))
+      setKeyCleared(true)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error))
     }
   }
 
@@ -301,16 +347,39 @@ export function LlmPanel() {
                 onChange={event => setDraft(current => ({ ...current, baseUrl: event.target.value }))}
               />
             </Field>
-            <Field label={t('llm.endpointApiKey')}>
-              <input
-                type="password"
-                className={inputClass}
-                value={draft.apiKey}
-                placeholder={t('llm.endpointApiKeyHint')}
+            {/*
+              Przycisk „Wyczyść klucz" MUSI zostać poza `<label>` — element
+              wewnątrz etykiety dokłada swój własny tekst do nazwy dostępnej
+              tej etykiety (przeglądarka i `getByLabelText` liczą CAŁY tekst
+              potomków, nie tylko `<span>`), więc „Klucz API" zmieniłoby się w
+              „Klucz APIWyczyść klucz" i przestało dawać się znaleźć po
+              nazwie pola. Złapane przez własne testy tego zadania (fix round
+              1/5, punkt 1) — dwa istniejące testy poczerwieniały, zanim ten
+              układ powstał.
+            */}
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Field label={t('llm.endpointApiKey')}>
+                  <input
+                    type="password"
+                    className={inputClass}
+                    value={draft.apiKey}
+                    placeholder={t('llm.endpointApiKeyHint')}
+                    disabled={busy}
+                    onChange={event => {
+                      setKeyCleared(false)
+                      setDraft(current => ({ ...current, apiKey: event.target.value }))
+                    }}
+                  />
+                </Field>
+              </div>
+              <ActionButton
+                label={t('llm.clearKey')}
                 disabled={busy}
-                onChange={event => setDraft(current => ({ ...current, apiKey: event.target.value }))}
+                onClick={() => void clearApiKey()}
               />
-            </Field>
+            </div>
+            {keyCleared && <p className="text-xs text-emerald-400">{t('llm.keyCleared')}</p>}
             <Field label={t('llm.endpointModel')}>
               <input
                 className={inputClass}
@@ -370,7 +439,11 @@ export function LlmPanel() {
                 onClick={() => void stopManagedServer()}
               />
               <span className="text-xs text-neutral-400">
-                {t('llm.managedStatus')}: {managed ? MANAGED_STATE_LABEL[managed.status](t) : '—'}
+                {t('llm.managedStatus')}: {
+                  managedStateError
+                    ? <span className="text-red-400">{t('llm.managedStateError', { message: managedStateError })}</span>
+                    : managed ? MANAGED_STATE_LABEL[managed.status](t) : '—'
+                }
               </span>
             </div>
             {managedError && <p className="text-xs text-red-400">{managedError}</p>}
