@@ -45,6 +45,8 @@ const pl = {
   'timeline.trackDialogueOther': 'Dialog bez mówcy',
   'timeline.trackScreenText': 'Tekst na ekranie',
   'timeline.trackSfx': 'SFX',
+  'timeline.trackSoundscape': 'Pejzaż dźwiękowy',
+  'timeline.trackMusic': 'Muzyka',
   'timeline.clipLabel': 'Ujęcie {number}, od {start} ms do {end} ms',
   'timeline.boundaryHandle': 'Ujęcie {number} — przeciągnij granicę, aby zmienić czas cięcia',
   'timeline.addShot': 'Dodaj ujęcie',
@@ -69,6 +71,13 @@ const pl = {
   'sfx.clipLabel': 'Dźwięk: {description} (nr {position} w ujęciu {shot})',
   'sfx.dragStart': 'Przesuń początek dźwięku {description}',
   'sfx.dragEnd': 'Przesuń koniec dźwięku {description}',
+
+  // {text} niesie treść opisu (albo `audio.empty`, gdy pusty) — tak samo jak
+  // `text`/`description` w etykietach innych ścieżek: czytnik ekranu ma
+  // usłyszeć to samo, co widzi osoba widząca na klipie.
+  'audio.soundscapeClip': 'Pejzaż dźwiękowy całego wideo: {text}',
+  'audio.musicClip': 'Muzyka całego wideo: {text}',
+  'audio.empty': 'nie opisano',
 
   'proposal.scenetrans': 'Kwestia przechodzi przez cięcie — dodaj <scenetrans>',
   'proposal.cutoff': 'Kwestia wystaje poza koniec materiału — oznacz <cutoff>',
@@ -170,6 +179,8 @@ const en: Record<TKey, string> = {
   'timeline.trackDialogueOther': 'Dialogue without speaker',
   'timeline.trackScreenText': 'On-screen text',
   'timeline.trackSfx': 'SFX',
+  'timeline.trackSoundscape': 'Soundscape',
+  'timeline.trackMusic': 'Music',
   'timeline.clipLabel': 'Shot {number}, from {start} ms to {end} ms',
   'timeline.boundaryHandle': 'Shot {number} — drag the boundary to change the cut time',
   'timeline.addShot': 'Add shot',
@@ -191,6 +202,10 @@ const en: Record<TKey, string> = {
   'sfx.clipLabel': 'Sound: {description} (#{position} in shot {shot})',
   'sfx.dragStart': 'Move start of sound {description}',
   'sfx.dragEnd': 'Move end of sound {description}',
+
+  'audio.soundscapeClip': 'Soundscape of the whole video: {text}',
+  'audio.musicClip': 'Music of the whole video: {text}',
+  'audio.empty': 'not described',
 
   'proposal.scenetrans': 'Line crosses a cut — add <scenetrans>',
   'proposal.cutoff': 'Line runs past the end of the material — mark <cutoff>',
