@@ -19,6 +19,7 @@ Wynik każdego zadania to `ProjectPatch` — lista nazwanych operacji na modelu,
 - **Akcja interfejsu nie ma prawa wyprodukować diagnostyki walidatora w projekcie, ktory jej nie miał.** Przyjęte wyjątki: `SPEECH_FITS`, `SOUNDSCAPE_NA_ONLY_IF_SILENT`, `SPEAKER_SILENT_NO_ID`, `FL2VA_PREFER_SINGLE_SHOT`. Zastosowanie łatki jest taką akcją.
 - **Bez skonfigurowanego modelu aplikacja działa w pełni.** Panel LLM jest wtedy wyszarzony z wyjaśnieniem, a żadna inna funkcja nie może się o to potknąć.
 - Klucz do endpointu nie trafia do `project.json`, do eksportu ani do odpowiedzi API.
+- **Prompt jest po angielsku. Zawsze.** Użytkownik wolno pisze po polsku — od tego jest redakcja, która na końcu przekłada cały projekt na angielski. Żadne zadanie językowe nie produkuje polskiej treści do modelu wideo; polszczyzna żyje w interfejsie i w tym, co człowiek wpisuje, nie w tym, co wychodzi.
 - YAGNI; test, który przeszedłby na zaślepce, to usterka.
 - Każdy zapis do modelu idzie przez `normalizeProject` z `web/src/timeline/normalizeProject.ts`.
 
@@ -1397,6 +1398,93 @@ Po udanym zwolnieniu w trybie zarządzanym stan serwera wraca do `stopped`, wię
 npm test && npm run typecheck
 git add server/src/llm/unload.ts server/src/routes/llm.ts server/src/llm/managed.ts web/src/llm/LlmPanel.tsx web/src/i18n/dict.ts server/test/llm/unload.test.ts web/test/llm/unloadButton.test.tsx
 git commit -m "feat: zwolnienie modelu z pamieci karty dla trybu zarzadzanego i Ollamy"
+```
+
+---
+
+### Task 15: Redakcja całego projektu na finalnym etapie
+
+Zadanie 7 przekłada **jedno pole**. To jest za drobne na sposób, w jaki ludzie faktycznie pracują: pisze się cały projekt po polsku, bo tak się szybciej myśli, a dopiero na końcu chce się z tego angielski prompt. Klikanie po kolei w każde pole jest karą za wygodę.
+
+To zadanie robi jeden przebieg po wszystkim, co jest prozą, i zwraca **jedną łatkę z wieloma operacjami** — każdą do przyjęcia osobno, bo tłumaczenie bywa nierówne i użytkownik ma prawo wziąć osiem zdań, a dziewiąte poprawić ręcznie.
+
+**Files:**
+- Create: `server/src/llm/tasks/translateAll.ts`
+- Modify: `server/src/routes/llm.ts`
+- Modify: `web/src/i18n/dict.ts`
+- Test: `server/test/llm/tasks/translateAll.test.ts`
+
+**Interfaces:**
+- Produces: `translateAllTask: TaskDefinition<{ fields: Array<{ id: string; english: string }> }>` oraz `translateAllToPatch(result, project): ProjectPatch`
+
+- [ ] **Krok 1: Ustal, co jest prozą, a co nie**
+
+Przekładowi podlegają: `style`, segmenty tekstowe w `body` każdego ujęcia, `composition` ujęć, `overallSoundscape`, `nonDiegeticMusic`, `fullDescriptor` i `shortDescriptor` każdego mówcy, `definition` i `role` każdej etykiety, `description` każdego dźwięku diegetycznego, `summaryText` i `note` wpisów retencji.
+
+**Nie podlega**: treść bloku `<d>`. Kwestia idzie do modelu wideo dosłownie, a jej język opisuje osobne pole — postać mówiąca po polsku to zamierzona treść, nie niedoróbka do naprawienia. Zadanie 7 ustaliło to na poziomie typów i tu obowiązuje tak samo.
+
+Nie podlegają też pola słownikowe: `cutPhrase`, `verb`, typy ruchów kamery, znaczniki retencji. To wartości z zamkniętych list guide'a, nie proza.
+
+- [ ] **Krok 2: Napisz testy**
+
+Każdy w pełni, w stylu `server/test/llm/tasks/redact.test.ts`:
+
+- pole już po angielsku nie tworzy operacji — nic do przyjęcia;
+- pole puste nie tworzy operacji;
+- każdy rodzaj pola daje operację właściwego rodzaju, z właściwym identyfikatorem;
+- **treść `<d>` nie pojawia się w wejściu wysyłanym do modelu** — sprawdź to na zbudowanym wejściu, nie na wierze;
+- **treść `<d>` nie zmienia się po zastosowaniu całej łatki**, nawet gdy model odeśle dla niej propozycję: identyfikator, którego nie wystawiliśmy, jest odrzucany;
+- pole słownikowe (na przykład `cutPhrase`) nie trafia do wejścia i nie da się go zmienić łatką;
+- łatka zastosowana do czystego projektu nie wprowadza diagnostyki poza przyjętymi wyjątkami — jako **różnica zbiorów** z `buildPrompt(project).diagnostics`, nie przez `validate`/`compile`, które bez rejestracji reguł daje dwa puste zbiory i nic nie wykrywa;
+- wynik przechodzi `parseProject`;
+- projekt bez żadnej polskiej treści daje łatkę pustą, a nie łatkę operacji bez zmian.
+
+- [ ] **Krok 3: Napisz zadanie**
+
+Wejście do modelu to lista par: stabilny identyfikator pola i jego obecna treść. Identyfikator nadaje kod, nie model — ta sama zasada, co w zadaniu 6: model opisuje, kod adresuje. Odpowiedź wiąże się z polami po tym identyfikatorze, a identyfikator spoza listy jest odrzucany bez śladu w modelu.
+
+Prompt systemowy mówi to samo, co przy redakcji pojedynczego pola — konwencja guide'a, obraz zamiast nastroju, czas teraźniejszy — plus jedno zdanie więcej: **pole już będące po angielsku ma wrócić bez zmian**, żeby ponowne uruchomienie na przetłumaczonym projekcie nie produkowało dziesięciu operacji przestawiających przecinki.
+
+Uważaj na rozmiar: projekt z dwunastoma ujęciami ma kilkadziesiąt pól. Jeśli wejście przekracza rozsądny budżet kontekstu, tnij je na partie i złóż łatkę z kilku przebiegów — ale **nie** rób z tego pętli bez końca. Powiedz w raporcie, jaki próg wybrałeś i dlaczego.
+
+- [ ] **Krok 4: Dodaj do trasy i słownika**
+
+Piąty wariant zadania na trasie `POST /api/llm/run`. Kontrola wyczerpania unii jest już poprawna po zadaniu 7 — sprawdź, że dodanie wariantu bez obsługi nadal nie kompiluje się.
+
+- [ ] **Krok 5: Uruchom całość i commit**
+
+```bash
+npm test && npm run typecheck
+git add server/src/llm/tasks/translateAll.ts server/src/routes/llm.ts web/src/i18n/dict.ts server/test/llm/tasks/translateAll.test.ts
+git commit -m "feat: redakcja calego projektu na angielski jako jedna latka"
+```
+
+---
+
+### Task 16: Struktura pisze po angielsku
+
+Drobna korekta do zadania 6. Kazałem tam przepuszczać język z odpowiedzi modelu do pola `language` kwestii, żeby polska odpowiedź nie była opisana jako angielska. To było rozwiązanie złego problemu: zadanie generujące strukturę ma **pisać po angielsku**, a nie opisywać, że napisało po polsku.
+
+**Files:**
+- Modify: `server/src/llm/tasks/structure.ts`
+- Test: `server/test/llm/tasks/structure.test.ts`
+
+- [ ] **Krok 1: Popraw prompt i schemat**
+
+Prompt systemowy mówi wprost: cała treść wychodzi po angielsku, niezależnie od języka pomysłu, który przychodzi na wejściu. Pole `language` w schemacie wyjścia znika — kwestia dostaje `'English'`.
+
+Zostaw możliwość, żeby użytkownik ustawił inny język mówiony **w inspektorze**, bo postać mówiąca po polsku w kadrze to zamierzona treść. Zadanie generujące jej nie zgaduje.
+
+- [ ] **Krok 2: Popraw testy**
+
+Test „polska odpowiedź daje polski znacznik" znika i zastępuje go test odwrotny: pomysł po polsku daje kwestie oznaczone jako angielskie. Sprawdź też, że w prompcie systemowym stoi żądanie angielszczyzny — to jedyna rzecz, która ten wynik wymusza po stronie modelu.
+
+- [ ] **Krok 3: Uruchom całość i commit**
+
+```bash
+npm test && npm run typecheck
+git add server/src/llm/tasks/structure.ts server/test/llm/tasks/structure.test.ts
+git commit -m "fix: struktura pisze po angielsku niezaleznie od jezyka pomyslu"
 ```
 
 ---
