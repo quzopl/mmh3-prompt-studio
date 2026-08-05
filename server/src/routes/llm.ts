@@ -114,7 +114,11 @@ export function registerLlmRoutes(app: FastifyInstance): void {
       return reply.status(404).send({ error: `Projekt "${parsed.data.projectSlug}" nie istnieje` })
     }
 
-    const signal = new AbortController().signal
+    // Sygnał ŻĄDANIA, nie świeży `AbortController`, którego nic nigdy nie
+    // przerwie — Fastify 5 wystawia `request.signal`, który odpala się, gdy
+    // klient się rozłączy w trakcie oczekiwania na model. Bez tego rozłączenie
+    // klienta zostawiało wywołanie modelu działające dalej w tle, bez adresata.
+    const { signal } = request
     try {
       switch (parsed.data.task) {
         case 'structure': {
@@ -132,6 +136,14 @@ export function registerLlmRoutes(app: FastifyInstance): void {
             completionTokens: result.completionTokens,
             repaired: result.repaired,
           }
+        }
+        default: {
+          // Wyczerpujące dopasowanie: gdyby unia `RunBody` dostała kolejny
+          // wariant zadania (7–9) bez gałęzi tutaj, `parsed.data.task` przestałby
+          // się dać zawęzić do `never` i `tsc --noEmit` przerwałby build — a nie
+          // cichy `undefined` z handlera, jak przy `switch` bez `default`.
+          const exhaustive: never = parsed.data.task
+          return reply.status(500).send({ error: `Nieobsłużone zadanie: ${String(exhaustive)}` })
         }
       }
     } catch (error) {

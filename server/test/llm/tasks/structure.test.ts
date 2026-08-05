@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyOps,
-  compile,
+  buildPrompt,
   isFrameAligned,
+  orderStartTimes,
   parseProject,
-  validate,
   type Diagnostic,
+  type Label,
+  type Mode,
   type Project,
   type Speaker,
 } from '@mmh3/shared'
@@ -32,14 +34,30 @@ const ACCEPTED_NEW_DIAGNOSTICS = new Set([
   'SPEECH_FITS', 'SOUNDSCAPE_NA_ONLY_IF_SILENT', 'SPEAKER_SILENT_NO_ID', 'FL2VA_PREFER_SINGLE_SHOT',
 ])
 
+/**
+ * `buildPrompt` — NIE gołe `validate(project, compile(project))` — bo to
+ * `buildPrompt` rejestruje wszystkie reguły przez efekt uboczny
+ * (`registerAllRules`, `shared/src/validate/rules/index.ts`). Runda 1
+ * recenzji: wcześniejsza wersja tego pliku wołała `validate` bezpośrednio, bez
+ * nigdy nie zarejestrowanych reguł — `allRules()` zwracał pustą listę,
+ * `newDiagnostics` zawsze wychodziło puste, i test „żadna nowa diagnostyka"
+ * przechodził niezależnie od tego, co robił kod. Ten sam wzorzec co
+ * `web/test/timeline/createOnTrack.test.ts` (`diagnosticIds`).
+ */
 function diagnosticsOf(project: Project): Diagnostic[] {
-  return validate(project, compile(project))
+  return buildPrompt(project).diagnostics
 }
 
 /** Zbiór różnicowy: diagnostyki obecne PO, których nie było PRZED. */
 function newDiagnostics(before: Diagnostic[], after: Diagnostic[]): Diagnostic[] {
   const beforeKeys = new Set(before.map(d => JSON.stringify(d)))
   return after.filter(d => !beforeKeys.has(JSON.stringify(d)))
+}
+
+function assertNoUnexpectedDiagnostics(before: Project, after: Project): void {
+  const added = newDiagnostics(diagnosticsOf(before), diagnosticsOf(after))
+  const unexpected = added.filter(d => !ACCEPTED_NEW_DIAGNOSTICS.has(d.ruleId))
+  expect(unexpected).toEqual([])
 }
 
 describe('structureToPatch — puste ujęcia', () => {
@@ -97,6 +115,30 @@ describe('structureToPatch — czas', () => {
     expect(starts[1]).toBeGreaterThan(starts[0] ?? 0)
     expect(starts[2]).toBeGreaterThan(starts[1] ?? 0)
   })
+
+  it('ujęcia z structureToPatch są już punktem stałym algorytmu porządkującego — dalsze przepuszczenie przez niego niczego nie rusza', () => {
+    // `normalizeShots` (`web/src/timeline/normalize.ts`) sortuje po `startMs` i
+    // woła DOKŁADNIE ten sam `orderStartTimes` z `@mmh3/shared`, którego używa
+    // `structureToPatch` (runda 1 recenzji: wcześniej miały dwie osobne kopie
+    // tego algorytmu, i się rozjechały o stałą `MIN_SHOT_FRAMES`). `server/`
+    // nie importuje z `web/` (patrz brief zadania 6), ale może dowieść tej samej
+    // własności — że wynik tego zadania jest już punktem stałym normalizacji —
+    // wołając wprost tę jedną, wspólną definicję zamiast funkcji z `web/`.
+    const result: StructureResult = {
+      shots: [
+        { startSeconds: 6, composition: 'a', action: 'trzecia' },
+        { startSeconds: 0, composition: 'b', action: 'pierwsza' },
+        { startSeconds: 3.2, composition: 'c', action: 'druga' },
+      ],
+    }
+    const project = newProject()
+    const patch = structureToPatch(result, project)
+    const op = patch.ops[0]
+    if (op === undefined || op.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
+
+    const starts = op.shots.map(s => s.startMs)
+    expect(orderStartTimes(starts, project.video.durationMs)).toEqual(starts)
+  })
 })
 
 describe('StructureShotSchema — słownik ruchów kamery', () => {
@@ -121,6 +163,66 @@ describe('StructureShotSchema — słownik ruchów kamery', () => {
   })
 })
 
+describe('structureToPatch — ruch kamery', () => {
+  it('ruch kamery trafia do cameraMoves, ma odpowiadający segment w body i pojawia się w skompilowanym tekście', () => {
+    const result: StructureResult = {
+      shots: [{
+        startSeconds: 0,
+        composition: 'a wide shot of a harbor at dusk',
+        action: 'a lone figure walks along the pier',
+        cameraMove: 'push-in',
+      }],
+    }
+    const before = newProject()
+    const patch = structureToPatch(result, before)
+    const op = patch.ops[0]
+    if (op === undefined || op.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
+    const shot = op.shots[0]
+    if (shot === undefined) throw new Error('brak ujęcia')
+
+    expect(shot.cameraMoves).toHaveLength(1)
+    expect(shot.cameraMoves[0]?.type).toBe('push-in')
+
+    const cameraSegmentIndex = shot.body.findIndex(seg => seg.kind === 'camera')
+    expect(cameraSegmentIndex).toBeGreaterThan(-1)
+    const cameraSegment = shot.body[cameraSegmentIndex]
+    expect(cameraSegment?.kind === 'camera' && cameraSegment.moveId).toBe(shot.cameraMoves[0]?.id)
+
+    const after = applyOps(before, patch.ops)
+    const { text } = buildPrompt(after)
+    expect(text).toContain('The camera pushes in')
+  })
+})
+
+describe('structureToPatch — proza skompilowana czytelnie', () => {
+  it('segmenty w body są rozdzielone spacją, a nie sklejone w jeden ciąg', () => {
+    // Odtwarza dokładnie znalezisko z recenzji: `renderSegments` skleja `body`
+    // pustym stringiem, więc tekst, ruch kamery, mówca i dialog dopisane bez
+    // separatora dają "suitcase.The camera pushes ina woman...says:" —
+    // poprawny, kompilowalny projekt, ale nieczytelna proza, której żadna
+    // reguła walidatora nie łapie.
+    const result: StructureResult = {
+      shots: [{
+        startSeconds: 0,
+        composition: 'a medium shot of a departure hall',
+        action: 'a woman grips the handle of her suitcase.',
+        cameraMove: 'push-in',
+        speaker: 'S1',
+        line: 'I am not getting on that train.',
+      }],
+    }
+    const before = projectWithSpeaker()
+    const patch = structureToPatch(result, before)
+    const after = applyOps(before, patch.ops)
+    const { text } = buildPrompt(after)
+
+    expect(text).toContain('suitcase. The camera pushes in')
+    expect(text).not.toContain('suitcase.The camera')
+    expect(text).toContain('(S1) says:')
+    expect(text).not.toContain(')says:')
+  })
+})
+
 describe('structureToPatch — mówca kwestii', () => {
   it('kwestia z pasującym mówcą tworzy DialogueEvent przypisany do jego id', () => {
     const result: StructureResult = {
@@ -140,8 +242,30 @@ describe('structureToPatch — mówca kwestii', () => {
 
     expect(shot.dialogue).toHaveLength(1)
     expect(shot.dialogue[0]?.speakerIds).toEqual(['sp1'])
+    expect(shot.dialogue[0]?.language).toBe('English')
     expect(shot.body.some(seg => seg.kind === 'dialogue')).toBe(true)
     expect(shot.body.some(seg => seg.kind === 'speaker')).toBe(true)
+  })
+
+  it('kwestia w innym języku niż angielski niesie ten język do DialogueEvent zamiast domyślnego "English"', () => {
+    const result: StructureResult = {
+      shots: [{
+        startSeconds: 0,
+        composition: 'zbliżenie na kobietę',
+        action: 'kobieta odwraca się w stronę okna',
+        speaker: 'S1',
+        line: 'Jeszcze zdążę zmienić zdanie.',
+        language: 'Polish',
+      }],
+    }
+    const patch = structureToPatch(result, projectWithSpeaker())
+    const op = patch.ops[0]
+    if (op === undefined || op.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
+    expect(op.shots[0]?.dialogue[0]?.language).toBe('Polish')
+
+    const before = projectWithSpeaker()
+    const after = applyOps(before, patch.ops)
+    expect(buildPrompt(after).text).toContain('<d>[Polish] Jeszcze zdążę zmienić zdanie.</d>')
   })
 
   it('kwestia bez pasującego mówcy nie tworzy DialogueEvent bez speakerIds i zostaje opisana w etykiecie operacji', () => {
@@ -184,6 +308,89 @@ describe('structureToPatch — mówca kwestii', () => {
   })
 })
 
+describe('structureToPatch — kotwice referencyjne', () => {
+  function pictureLabel(id: string, index: number): Label {
+    return { id, kind: 'picture', index, assetIds: [], definition: 'obraz referencyjny', role: 'ustanawiający', standalone: true }
+  }
+
+  function anchoredProject(mode: Mode, labels: Label[], anchors: Project['shots'][number]['anchors']): Project {
+    const project = newProject()
+    const shot = project.shots[0]
+    if (shot === undefined) throw new Error('fixture bez ujęcia')
+    return {
+      ...project,
+      mode,
+      labels,
+      shots: [{ ...shot, anchors }],
+      // `newProject()` zostawia `overallSoundscape` puste, co samo w sobie
+      // łamie `SOUNDSCAPE_SENTENCES` — niezwiązane z kotwicami, ale psułoby
+      // sanity-check „projekt czysty przed operacją" tych testów. Wypełniamy,
+      // żeby jedyną zmienną w grze były kotwice.
+      audio: { ...project.audio, overallSoundscape: 'Distant traffic hums beyond the platform.' },
+    }
+  }
+
+  it('I2VA: kotwica "picture-first" jest przenoszona na nowe pierwsze ujęcie', () => {
+    const before = anchoredProject('I2VA', [pictureLabel('lbl1', 1)], ['picture-first'])
+    expect(diagnosticsOf(before).filter(d => d.severity === 'error')).toEqual([])
+
+    const result: StructureResult = {
+      shots: [
+        { startSeconds: 0, composition: 'a', action: 'pierwsza scena' },
+        { startSeconds: 3, composition: 'b', action: 'druga scena' },
+      ],
+    }
+    const patch = structureToPatch(result, before)
+    const after = applyOps(before, patch.ops)
+
+    expect(after.shots[0]?.anchors).toContain('picture-first')
+    expect(after.shots[1]?.anchors).not.toContain('picture-first')
+    assertNoUnexpectedDiagnostics(before, after)
+  })
+
+  it('L2VA: kotwica "picture-last" jest przenoszona na nowe ostatnie ujęcie', () => {
+    const before = anchoredProject('L2VA', [pictureLabel('lbl1', 1)], ['picture-last'])
+    expect(diagnosticsOf(before).filter(d => d.severity === 'error')).toEqual([])
+
+    const result: StructureResult = {
+      shots: [
+        { startSeconds: 0, composition: 'a', action: 'pierwsza scena' },
+        { startSeconds: 3, composition: 'b', action: 'druga scena' },
+      ],
+    }
+    const patch = structureToPatch(result, before)
+    const after = applyOps(before, patch.ops)
+
+    expect(after.shots[after.shots.length - 1]?.anchors).toContain('picture-last')
+    expect(after.shots[0]?.anchors).not.toContain('picture-last')
+    assertNoUnexpectedDiagnostics(before, after)
+  })
+
+  it('FL2VA: obie kotwice trafiają na jedyne ujęcie, gdy model zwraca tylko jedno', () => {
+    const before = anchoredProject('FL2VA', [pictureLabel('lbl1', 1), pictureLabel('lbl2', 2)], ['picture-first', 'picture-last'])
+    expect(diagnosticsOf(before).filter(d => d.severity === 'error')).toEqual([])
+
+    const result: StructureResult = {
+      shots: [{ startSeconds: 0, composition: 'a', action: 'jedyna scena' }],
+    }
+    const patch = structureToPatch(result, before)
+    const after = applyOps(before, patch.ops)
+
+    expect(after.shots).toHaveLength(1)
+    expect(after.shots[0]?.anchors).toEqual(expect.arrayContaining(['picture-first', 'picture-last']))
+    assertNoUnexpectedDiagnostics(before, after)
+  })
+
+  it('projekt bez wcześniejszej kotwicy nie dostaje żadnej znikąd', () => {
+    const before = newProject() // T2VA, bez etykiet i bez kotwic
+    const result: StructureResult = { shots: [{ startSeconds: 0, composition: 'a', action: 'scena' }] }
+    const patch = structureToPatch(result, before)
+    const op = patch.ops[0]
+    if (op === undefined || op.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
+    expect(op.shots[0]?.anchors).toEqual([])
+  })
+})
+
 describe('structureToPatch — niezmienniki projektu', () => {
   const buildResult = (): StructureResult => ({
     shots: [
@@ -205,15 +412,9 @@ describe('structureToPatch — niezmienniki projektu', () => {
 
   it('łatka zastosowana do czystego projektu nie wprowadza diagnostyki poza przyjętymi wyjątkami', () => {
     const before = projectWithSpeaker()
-    const beforeDiagnostics = diagnosticsOf(before)
-
     const patch = structureToPatch(buildResult(), before)
     const after = applyOps(before, patch.ops)
-    const afterDiagnostics = diagnosticsOf(after)
-
-    const added = newDiagnostics(beforeDiagnostics, afterDiagnostics)
-    const unexpected = added.filter(d => !ACCEPTED_NEW_DIAGNOSTICS.has(d.ruleId))
-    expect(unexpected).toEqual([])
+    assertNoUnexpectedDiagnostics(before, after)
   })
 
   it('wynik zastosowania łatki przechodzi parseProject', () => {

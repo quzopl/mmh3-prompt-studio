@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import {
   CameraMotionSchema,
-  MS_PER_FRAME,
-  snapToFrame,
+  orderStartTimes,
+  type Anchor,
   type CameraMove,
   type DialogueEvent,
   type Mode,
@@ -31,6 +31,14 @@ export const StructureShotSchema = z.object({
   cameraMove: CameraMotionSchema.optional(),
   speaker: z.string().min(1).optional(),
   line: z.string().min(1).optional(),
+  // Runda 1 recenzji: pomysł jest po polsku i model — mimo instrukcji, żeby
+  // opisy pisać po angielsku — może odpowiedzieć kwestią w tym samym języku,
+  // w którym dostał pomysł. Bez tego pola kompilator zawsze wypisywał
+  // `<d>[English] ...</d>` wokół kwestii, która wcale po angielsku nie była —
+  // kłamstwo wprost w prompcie dla modelu wideo. Opcjonalne: brak wartości
+  // znaczy „English", zgodnie z konwencją reszty promptów w tym repo
+  // (zob. `shared/test/golden/expected/*.txt`).
+  language: z.string().min(1).optional(),
 })
 
 export const StructureSchema = z.object({
@@ -39,6 +47,8 @@ export const StructureSchema = z.object({
 
 export type StructureShot = z.infer<typeof StructureShotSchema>
 export type StructureResult = z.infer<typeof StructureSchema>
+
+const DEFAULT_LANGUAGE = 'English'
 
 /**
  * Dane wejściowe zadania. Mówcy, tryb i długość pochodzą z projektu po
@@ -88,6 +98,7 @@ const structureJsonSchema = {
           cameraMove: { type: 'string', enum: [...CameraMotionSchema.options] },
           speaker: { type: 'string', minLength: 1 },
           line: { type: 'string', minLength: 1 },
+          language: { type: 'string', minLength: 1 },
         },
       },
     },
@@ -110,6 +121,10 @@ const SYSTEM_PROMPT = [
   'A camera move, if any, must be chosen from the vocabulary enforced by the '
     + 'schema. Leave "cameraMove" out entirely when the shot is static or you '
     + 'are unsure.',
+  '"line" is the spoken dialogue verbatim. It may be in the same language as '
+    + 'the idea — do not translate it into English. If it is not in English, set '
+    + '"language" to name the language it is actually in (e.g. "Polish"); leave '
+    + '"language" out when the line is in English.',
   '"startSeconds" is your best estimate of when the shot starts, in seconds '
     + 'from the beginning of the video — it will be snapped to the exact frame '
     + 'grid by the caller, so approximate values are fine.',
@@ -153,55 +168,27 @@ export const structureTask: TaskDefinition<StructureResult> = {
   },
 }
 
-const frameIndex = (ms: number): number => Math.round(snapToFrame(ms) / MS_PER_FRAME)
-const msOfFrame = (frame: number): number => Math.round(frame * MS_PER_FRAME)
-
 /**
- * Czasy od modelu są w sekundach, dowolne i w dowolnej kolejności. Ta funkcja
- * daje im dokładnie te własności, których pilnuje `normalizeShots` w
- * `web/src/timeline/normalize.ts` przy edycji ręcznej — siatka klatek,
- * rosnąco, pierwsze ujęcie na zero, żadne dwa na tej samej klatce — ALE bez
- * importu z `web/`: `server/` nie ma prawa przekroczyć tej granicy (patrz
- * brief zadania 6). Dubluje więc ten sam, krótki algorytm zamiast go
- * importować.
+ * Czasy od modelu są w sekundach, dowolne i w dowolnej kolejności. Sortujemy
+ * je tu (razem z treścią, którą opisują — sortowanie samych liczb w oderwaniu
+ * od zawartości pomieszałoby, które ujęcie mówi co), a resztę — siatkę klatek,
+ * pierwsze ujęcie na zero, brak dwóch ujęć na tej samej klatce, przycięcie do
+ * końca materiału — liczy `orderStartTimes` (`shared/src/time/shotOrder.ts`).
+ * Ta sama funkcja stoi za `normalizeShots` w `web/src/timeline/normalize.ts`:
+ * jedna definicja obu niezmienników, nie dwie, które się zgadzają tylko z
+ * oglądu (runda 1 recenzji: miały, i się rozjechały o stałą `MIN_SHOT_FRAMES`).
  *
- * Różnica względem `normalizeShots`: tam wejściem są istniejące ujęcia, które
- * mogą wykroczyć poza `durationMs` dopiero w trakcie przeciągania; tu
- * budujemy ujęcia od zera z odpowiedzi modelu, która nie zna długości
- * projektu inaczej niż z promptu — więc ten sam przebieg wsteczny, przycinający
- * do końca materiału, jest tu pierwszą i jedyną linią obrony przed
- * `SHOT_TIME_IN_RANGE` (reguła, która NIE jest przyjętym wyjątkiem).
- *
- * Zwraca listę `{ shot, startMs }` w kolejności chronologicznej (posortowanej) —
- * to jest też docelowa kolejność `index` w wynikowych ujęciach.
+ * Przycinanie do końca materiału jest tu też jedyną linią obrony przed
+ * `SHOT_TIME_IN_RANGE` (reguła, która NIE jest przyjętym wyjątkiem) — model,
+ * mimo długości podanej w promptcie, formalnie mógłby zwrócić czas poza nią.
  */
 function assignChronologicalStarts(
   shots: StructureShot[],
   durationMs: number,
 ): Array<{ shot: StructureShot; startMs: number }> {
   const ordered = [...shots].sort((a, b) => a.startSeconds - b.startSeconds)
-  const count = ordered.length
-
-  const frames: number[] = []
-  let previous = -1
-  ordered.forEach((shot, position) => {
-    const wanted = position === 0 ? 0 : frameIndex(shot.startSeconds * 1000)
-    const frame = Math.max(previous + 1, wanted)
-    frames.push(frame)
-    previous = frame
-  })
-
-  const lastFrame = Math.max(0, frameIndex(durationMs) - 1)
-  frames[count - 1] = Math.min(frames[count - 1] ?? 0, lastFrame)
-  for (let i = count - 2; i >= 0; i -= 1) {
-    frames[i] = Math.min(frames[i] ?? 0, (frames[i + 1] ?? 0) - 1)
-  }
-  const head = frames[0] ?? 0
-  if (head < 0) {
-    for (let i = 0; i < count; i += 1) frames[i] = (frames[i] ?? 0) - head
-  }
-
-  return ordered.map((shot, position) => ({ shot, startMs: msOfFrame(frames[position] ?? 0) }))
+  const starts = orderStartTimes(ordered.map(shot => shot.startSeconds * 1000), durationMs)
+  return ordered.map((shot, position) => ({ shot, startMs: starts[position] ?? 0 }))
 }
 
 /**
@@ -238,6 +225,45 @@ function composeBodyText(composition: string, action: string): string {
 }
 
 /**
+ * Wstawia pojedynczą spację między KAŻDĄ parą sąsiednich segmentów.
+ * `renderSegments` (`shared/src/compile/renderShot.ts`) skleja `body` pustym
+ * stringiem, więc bez separatora sąsiednie segmenty zlepiają się w jeden ciąg
+ * bez odstępu — `web/src/timeline/createOnTrack.ts::appendToBody` rozwiązało
+ * dokładnie ten sam problem (z tym samym uzasadnieniem w komentarzu) dla
+ * dopisywania na końcu istniejącego `body`; tu segmenty budujemy od zera, więc
+ * potrzebny jest odstęp między wszystkimi, nie tylko na styku starej i nowej
+ * treści. Żaden test schematu ani reguła walidatora tego nie łapie — sklejona
+ * proza wciąż jest poprawnym, kompilowalnym projektem, tylko nieczytelnym —
+ * stąd jedyna ochrona to test czytający skompilowany tekst wprost.
+ */
+function withSpacing(segments: Segment[]): Segment[] {
+  return segments.flatMap((segment, index) => (
+    index === 0 ? [segment] : [{ kind: 'text', text: ' ' } satisfies Segment, segment]
+  ))
+}
+
+/**
+ * Kotwice, które warto przenieść ze STAREGO kompletu ujęć na nowy. Model nie
+ * wie nic o etykietach ani obrazach referencyjnych (`project.labels`), więc
+ * nie ma z czego zbudować nowej kotwicy — ale jeśli projekt już miał
+ * poprawnie umieszczoną, `replaceShots` (który wymienia WSZYSTKIE ujęcia
+ * naraz) nie ma prawa jej po cichu zgubić. Zgubienie zamienia projekt, który
+ * wcześniej się eksportował, w projekt, który przestaje — `ANCHOR_REQUIRED` i
+ * (w L2VA) `L2VA_ANCHOR_LAST_SHOT` to BŁĘDY, nie przyjęte wyjątki od reguły
+ * „żadna nowa diagnostyka", a `isExportReady` blokuje eksport na każdym
+ * błędzie. Przenosimy więc dokładnie to, co któraś reguła sprawdza —
+ * `picture-first` na nowe PIERWSZE ujęcie, `picture-last` na nowe OSTATNIE —
+ * i nic ponad to (`keyframe` nie jest dziś sprawdzany przez żadną regułę).
+ */
+function anchorsToCarry(oldShots: Shot[]): { first: boolean; last: boolean } {
+  const allAnchors = oldShots.flatMap(shot => shot.anchors)
+  return {
+    first: allAnchors.includes('picture-first'),
+    last: allAnchors.includes('picture-last'),
+  }
+}
+
+/**
  * Buduje `replaceShots` z opisu modelu. Pusta lista ujęć w odpowiedzi to
  * poprawny, choć bezużyteczny wynik (model np. nie miał nic do zaproponowania) —
  * daje łatkę bez operacji, NIE ujęcie zerowej długości: `StructureSchema`
@@ -252,6 +278,8 @@ export function structureToPatch(result: StructureResult, project: Project): Pro
   const nextShotId = idGenerator('s', project.shots.map(s => s.id))
   const nextMoveId = idGenerator('move', project.shots.flatMap(s => s.cameraMoves.map(m => m.id)))
   const nextLineId = idGenerator('line', project.shots.flatMap(s => s.dialogue.map(d => d.id)))
+  const carry = anchorsToCarry(project.shots)
+  const lastPosition = assigned.length - 1
 
   // Kwestie bez pasującego mówcy: `DialogueEventSchema` wymaga co najmniej
   // jednego `speakerId`, więc kwestii, której nie da się do nikogo przypisać,
@@ -262,16 +290,17 @@ export function structureToPatch(result: StructureResult, project: Project): Pro
   const shots: Shot[] = assigned.map(({ shot: input, startMs }, position) => {
     const nextStartMs = assigned[position + 1]?.startMs ?? project.video.durationMs
 
-    const body: Segment[] = [{ kind: 'text', text: composeBodyText(input.composition, input.action) }]
+    const textSegment: Segment = { kind: 'text', text: composeBodyText(input.composition, input.action) }
     const cameraMoves: CameraMove[] = []
     const dialogue: DialogueEvent[] = []
+    const segments: Segment[] = [textSegment]
 
     if (input.cameraMove !== undefined) {
       const moveId = nextMoveId()
       // Ruch obejmuje cały czas trwania ujęcia — dokładnie granice, których
       // pilnuje `CAM_IN_SHOT_BOUNDS`, więc żaden nowy ruch nie może jej złamać.
       cameraMoves.push({ id: moveId, type: input.cameraMove, startMs, endMs: nextStartMs })
-      body.push({ kind: 'camera', moveId })
+      segments.push({ kind: 'camera', moveId })
     }
 
     if (input.line !== undefined) {
@@ -286,7 +315,7 @@ export function structureToPatch(result: StructureResult, project: Project): Pro
           speakerIds: [speaker.id],
           verb: 'says',
           punctuation: ':',
-          language: 'English',
+          language: input.language ?? DEFAULT_LANGUAGE,
           text: input.line,
           voiceover: false,
           sceneTransBefore: false,
@@ -299,10 +328,15 @@ export function structureToPatch(result: StructureResult, project: Project): Pro
         // PIERWSZYM wystąpieniu mówcy w projekcie, ale powtórzenie jej przy
         // kolejnych nie jest błędem, a śledzenie „czy to już pierwsze
         // wystąpienie" w poprzek ujęć nie dodaje tu żadnej wartości.
-        body.push({ kind: 'speaker', speakerIds: [speaker.id], form: 'full' })
-        body.push({ kind: 'dialogue', eventId })
+        segments.push({ kind: 'speaker', speakerIds: [speaker.id], form: 'full' })
+        segments.push({ kind: 'dialogue', eventId })
       }
     }
+
+    const anchors: Anchor[] = [
+      ...(carry.first && position === 0 ? (['picture-first'] as const) : []),
+      ...(carry.last && position === lastPosition ? (['picture-last'] as const) : []),
+    ]
 
     return {
       id: nextShotId(),
@@ -311,13 +345,13 @@ export function structureToPatch(result: StructureResult, project: Project): Pro
       cutType: 'cut',
       cutPhrase: 'the camera cuts to',
       composition: input.composition,
-      body,
+      body: withSpacing(segments),
       cameraMoves,
       dialogue,
       screenText: [],
       diegeticSfx: [],
       labelRefs: [],
-      anchors: [],
+      anchors,
     }
   })
 
