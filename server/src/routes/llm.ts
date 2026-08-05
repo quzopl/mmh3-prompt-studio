@@ -12,6 +12,7 @@ import {
 } from '../llm/tasks/redact.js'
 import { audioTask, audioToPatch, audioInputFromProject } from '../llm/tasks/audio.js'
 import { criticTask, criticToNotes, criticAllowedRefs, type CriticInput } from '../llm/tasks/critic.js'
+import { runTranslateAll } from '../llm/tasks/translateAll.js'
 import { readProject } from '../storage/projectStore.js'
 import { SlugSchema } from './params.js'
 
@@ -25,17 +26,18 @@ const PutSettingsBody = LlmSettingsSchema.extend({
 })
 
 /**
- * Jedna trasa, `task` rozstrzyga, o które z czterech zadań chodzi — wszystkie
- * cztery są teraz zaimplementowane jako warianty tej samej unii
+ * Jedna trasa, `task` rozstrzyga, o które z pięciu zadań chodzi — wszystkie
+ * pięć są teraz zaimplementowane jako warianty tej samej unii
  * („structure" — zadanie 6, „redact" — zadanie 7, „audio" i „critic" —
- * zadanie 8). Tryb, długość projektu, lista mówców, treść ujęć I skompilowany
- * prompt pochodzą z projektu wczytanego po stronie serwera, nie od klienta —
- * klient dostarcza wyłącznie treść, której serwer nie ma skąd wziąć (dwa
- * zdania pomysłu dla „structure"). Dzięki temu model zawsze widzi aktualny
- * stan projektu, a nie kopię, którą przeglądarka mogła przesłać nieaktualną.
- * „audio" i „critic" nie niosą żadnego pola poza `projectSlug` — oba zadania
- * czytają CAŁY projekt, nie fragment wskazany przez klienta (zob. brief
- * zadania 8).
+ * zadanie 8, „translateAll" — zadanie 15). Tryb, długość projektu, lista
+ * mówców, treść ujęć I skompilowany prompt pochodzą z projektu wczytanego po
+ * stronie serwera, nie od klienta — klient dostarcza wyłącznie treść, której
+ * serwer nie ma skąd wziąć (dwa zdania pomysłu dla „structure"). Dzięki temu
+ * model zawsze widzi aktualny stan projektu, a nie kopię, którą przeglądarka
+ * mogła przesłać nieaktualną. „audio", „critic" i „translateAll" nie niosą
+ * żadnego pola poza `projectSlug` — wszystkie trzy czytają CAŁY projekt, nie
+ * fragment wskazany przez klienta (zob. brief zadania 8, ta sama zasada dla
+ * zadania 15).
  */
 const RunBody = z.discriminatedUnion('task', [
   z.object({
@@ -55,6 +57,10 @@ const RunBody = z.discriminatedUnion('task', [
   }),
   z.object({
     task: z.literal('critic'),
+    projectSlug: SlugSchema,
+  }),
+  z.object({
+    task: z.literal('translateAll'),
     projectSlug: SlugSchema,
   }),
 ])
@@ -288,6 +294,25 @@ export function registerLlmRoutes(app: FastifyInstance): void {
               const result = await runTask(fwd, criticTask, input, signal, onRepairStart)
               return {
                 notes: criticToNotes(result.value, allowedRefs),
+                promptTokens: result.promptTokens,
+                completionTokens: result.completionTokens,
+                repaired: result.repaired,
+              }
+            },
+          }
+        }
+        case 'translateAll': {
+          // `runTranslateAll` (zadanie 15, `llm/tasks/translateAll.ts`)
+          // niesie CAŁĄ orkiestrację — zbiera pola projektu, tnie je na
+          // partie i woła `runTask` raz na partię — bo jedno wywołanie
+          // `runTask` odpowiada JEDNEMU zapytaniu do modelu, a projekt z
+          // kilkunastoma ujęciami może potrzebować więcej niż jednego.
+          return {
+            ok: true,
+            run: async (fwd, signal, onRepairStart) => {
+              const result = await runTranslateAll(fwd, project, signal, onRepairStart)
+              return {
+                patch: result.patch,
                 promptTokens: result.promptTokens,
                 completionTokens: result.completionTokens,
                 repaired: result.repaired,
