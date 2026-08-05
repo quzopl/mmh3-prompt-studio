@@ -203,9 +203,22 @@ export function registerLlmRoutes(app: FastifyInstance): void {
     return { capability: await detectUnloadCapability(settings) }
   })
 
-  app.post('/api/llm/unload', async () => {
+  // `capability` jest OPCJONALNE — panel podaje możliwość, którą już
+  // wykrył i pokazał przy przycisku, żeby `unloadModel` nie sondowało
+  // dostawcy PONOWNIE (do dwóch sekund) tuż przed samym zwolnieniem. Bez
+  // tego pola (wywołanie trasy wprost, nie przez panel) `unloadModel` samo
+  // wykrywa — patrz `knownCapability` w `llm/unload.ts`.
+  const UnloadBody = z.object({
+    capability: z.enum(['managed', 'ollama', 'lmstudio', 'none']).optional(),
+  })
+
+  app.post('/api/llm/unload', async (request, reply) => {
+    const parsed = UnloadBody.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Żądanie niezgodne ze schematem zwolnienia pamięci' })
+    }
     const settings = await readSettings(app.dataRoot)
-    return await unloadModel(settings)
+    return await unloadModel(settings, parsed.data.capability)
   })
 
   app.post('/api/llm/run', async (request, reply) => {

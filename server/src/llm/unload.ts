@@ -166,9 +166,16 @@ async function unloadLmStudio(endpoint: LlmSettings['endpoint']): Promise<{ free
  * Tryb zarządzany woła `stopManaged()` i nic więcej — VRAM zwalnia się razem
  * z zatrzymanym procesem `llama-server`; to pełne zwolnienie, bo po nim
  * serwer w ogóle przestaje działać.
+ *
+ * `knownCapability` pozwala pominąć ponowne wykrywanie, gdy wołający JUŻ je
+ * zna (panel pokazał je z `GET /api/llm/unload/capability` przed kliknięciem)
+ * — bez tego każde kliknięcie sondowałoby endpoint od nowa, do dwóch
+ * dodatkowych sekund, zanim cokolwiek faktycznie by się zwolniło. Bez tego
+ * argumentu (wywołanie wprost, nie przez panel) wykrywanie zostaje jako
+ * bezpieczny domyślny fallback.
  */
-export async function unloadModel(settings: LlmSettings): Promise<UnloadResult> {
-  const how = await detectUnloadCapability(settings)
+export async function unloadModel(settings: LlmSettings, knownCapability?: UnloadCapability): Promise<UnloadResult> {
+  const how = knownCapability ?? await detectUnloadCapability(settings)
 
   if (how === 'none') return { freed: false, how }
 

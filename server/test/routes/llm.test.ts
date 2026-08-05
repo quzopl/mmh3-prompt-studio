@@ -449,3 +449,54 @@ describe('POST /api/llm/run — kształt odpowiedzi zależny od zadania', () => 
     expect(body.patch).toBeUndefined()
   })
 })
+
+// Zadanie 14, fix round 1/5, punkt 3: `capability` w ciele `POST` pozwala
+// panelowi ominąć powtórne sondowanie dostawcy tuż przed zwolnieniem — panel
+// zna możliwość z wcześniejszego `GET /unload/capability`. Testy tu
+// sprawdzają samo PRZEWODOWANIE trasy (ciało → `unloadModel`), nie logikę
+// wykrywania/zwalniania samą w sobie — ta jest pokryta w `unload.test.ts`.
+describe('trasy /api/llm/unload/*', () => {
+  it('GET zwraca wykrytą możliwość', async () => {
+    await enableProvider()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url.includes('/api/tags') ? new Response('{"models":[]}') : new Response('', { status: 404 })))
+
+    const res = await app.inject({ method: 'GET', url: '/api/llm/unload/capability' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ capability: 'ollama' })
+  })
+
+  it('POST z podaną możliwością pomija ponowne sondowanie — /api/tags i /api/v0/models nie są wołane', async () => {
+    await enableProvider()
+    const calledPaths: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calledPaths.push(url)
+      if (url.includes('/api/tags') || url.includes('/api/v0/models')) return new Response('', { status: 404 })
+      return new Response('{}')
+    }))
+
+    const res = await app.inject({ method: 'POST', url: '/api/llm/unload', payload: { capability: 'ollama' } })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ freed: true, how: 'ollama' })
+    expect(calledPaths.some(url => url.includes('/api/tags'))).toBe(false)
+    expect(calledPaths.some(url => url.includes('/api/v0/models'))).toBe(false)
+  })
+
+  it('POST bez ciała nadal działa — wykrywa sam, jak przed tym poprawkiem', async () => {
+    await enableProvider()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url.includes('/api/tags') ? new Response('{"models":[]}') : new Response('{}')))
+
+    const res = await app.inject({ method: 'POST', url: '/api/llm/unload' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ freed: true, how: 'ollama' })
+  })
+
+  it('POST z niepoprawną wartością capability odrzuca żądanie', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/llm/unload', payload: { capability: 'bzdura' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+})

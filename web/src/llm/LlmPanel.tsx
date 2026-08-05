@@ -329,13 +329,20 @@ export function LlmPanel() {
    * zwolnienie oznacza zatrzymany proces — stan lokalny wraca do `stopped`
    * od razu, bez osobnego odpytania `GET /managed/state`, bo to właśnie
    * gwarantuje `unloadModel` po stronie serwera dla tej gałęzi.
+   *
+   * `unloadCapability` idzie do żądania wprost — panel go już zna (właśnie
+   * go pokazuje przy przycisku), więc nie ma po co każe kliknięcie miałoby
+   * kazać serwerowi sondować dostawcę od nowa (do dwóch sekund) tuż przed
+   * samym zwolnieniem. Przycisk jest zresztą nieaktywny, dopóki
+   * `unloadCapability` jest `null`, więc tu zawsze jest to już rozstrzygnięta
+   * wartość.
    */
   const runUnload = async (): Promise<void> => {
     setUnloadError(null)
     setUnloadMessage(null)
     setUnloadBusy(true)
     try {
-      const result = await settingsApi.unload()
+      const result = await settingsApi.unload(unloadCapability ?? undefined)
       if (result.freed) {
         setUnloadMessage(t('llm.unloadDone'))
         if (result.how === 'managed') {

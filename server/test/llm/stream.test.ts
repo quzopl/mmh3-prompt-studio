@@ -13,7 +13,11 @@ import { createOpenAiProvider } from '../../src/llm/openai.js'
 
 const settings = { baseUrl: 'http://model.local/v1', apiKey: 'tajne', model: 'qwen' }
 
-afterEach(() => { vi.restoreAllMocks() })
+// `vi.restoreAllMocks()` sam nie cofa `vi.stubGlobal` — bez
+// `unstubAllGlobals` ostatni podmieniony `fetch` przeciekłby do kolejnego
+// pliku testowego, który mógłby polegać na prawdziwej sieci (zob. komentarz w
+// `openai.test.ts`).
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 const mockFetch = (handler: () => Response) =>
   vi.stubGlobal('fetch', vi.fn(async () => handler()))

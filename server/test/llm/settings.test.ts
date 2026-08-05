@@ -221,7 +221,11 @@ describe('trasa /api/llm/models', () => {
 
   afterEach(async () => {
     await app.close()
+    // `vi.restoreAllMocks()` sam nie cofa `vi.stubGlobal` — bez
+    // `unstubAllGlobals` ostatni podmieniony `fetch` przeciekłby do kolejnego
+    // pliku testowego, który mógłby polegać na prawdziwej sieci.
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     await rm(apiRoot, { recursive: true, force: true })
   })
 

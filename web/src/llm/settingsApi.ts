@@ -83,6 +83,12 @@ export const settingsApi = {
 
   /** Odpowiada dwusetką nawet wtedy, gdy zwolnienie się nie udało (`freed`
    * fałszywe) — to WYNIK operacji, nie błąd protokołu; `request` rzuciłby
-   * tylko przy prawdziwym błędzie HTTP (sieć padła, serwer nie odpowiada). */
-  unload: () => request<UnloadResult>('/api/llm/unload', { method: 'POST' }),
+   * tylko przy prawdziwym błędzie HTTP (sieć padła, serwer nie odpowiada).
+   *
+   * `capability` to możliwość, którą panel JUŻ zna (pokazał ją przy
+   * przycisku) — przekazana tutaj oszczędza serwerowi ponownego sondowania
+   * dostawcy tuż przed zwolnieniem (do dwóch sekund). Bez niej trasa sama
+   * wykrywa, patrz `knownCapability` w `server/src/llm/unload.ts`. */
+  unload: (capability?: UnloadCapability) =>
+    request<UnloadResult>('/api/llm/unload', { method: 'POST', body: JSON.stringify({ capability }) }),
 }
