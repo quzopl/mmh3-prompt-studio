@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { parseProject } from './model/schema.js'
+import { repairDuplicateIds } from './model/repairIds.js'
 import { buildPrompt, isExportReady } from './api.js'
 
 const path = process.argv[2]
@@ -10,7 +11,7 @@ if (!path) {
 
 let project
 try {
-  project = parseProject(JSON.parse(readFileSync(path, 'utf8')))
+  project = parseProject(repairDuplicateIds(JSON.parse(readFileSync(path, 'utf8'))))
 } catch (err) {
   console.error(`Nie udało się wczytać projektu z ${path}: ${err instanceof Error ? err.message : String(err)}`)
   process.exit(2)

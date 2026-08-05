@@ -9,11 +9,13 @@ import { shotSpans } from './spans.js'
  * razem, gdy jakieś ujęcie zniknie, więc drugie cięcie postawione w tym samym
  * czasie co kiedyś dostawało identyfikator żywego ujęcia. Skutek nie jest
  * kosmetyczny: `useDragBoundary`, `AnchorBadges.toggle`, `removeShots` i
- * zaznaczenie dopasowują ujęcie po `shot.id`, a `ProjectSchema` nie wymusza
- * unikalności, więc autozapis utrwalał uszkodzony projekt na dysku. Maksimum
- * powiększone o jeden jest zawsze większe od każdego zajętego numeru, więc
- * kolizja jest niemożliwa niezależnie od historii usunięć — ten sam idiom, co
- * numerowanie etykiet i mówców w `AssetBin`.
+ * zaznaczenie dopasowują ujęcie po `shot.id`. `ProjectSchema` dziś odrzuci
+ * taki duplikat, ale to obrona drugiej linii — to numerowanie ma nie
+ * dopuścić, żeby duplikat w ogóle powstał, bo odrzucenie przez schemat i tak
+ * oznaczałoby utracony autozapis. Maksimum powiększone o jeden jest zawsze
+ * większe od każdego zajętego numeru, więc kolizja jest niemożliwa
+ * niezależnie od historii usunięć — ten sam idiom, co numerowanie etykiet
+ * i mówców w `AssetBin`.
  */
 const nextShotNumber = (shots: Shot[]): number =>
   Math.max(0, ...shots.map(shot => {

@@ -21,6 +21,24 @@ describe('ProjectSchema — unikalność identyfikatorów', () => {
     expect(result.success).toBe(false)
   })
 
+  it('odrzuca dwóch mówców o tym samym id', () => {
+    const project = newProject()
+    const speaker = {
+      id: 'sp1', code: 'S1', characterType: 'baker', age: 'middle-aged', gender: 'male',
+      pitch: 'low', timbre: 'raspy', rate: 'calm', accent: 'neutral', onScreen: true,
+      fullDescriptor: 'the baker', shortDescriptor: 'the baker',
+    }
+    const result = ProjectSchema.safeParse({ ...project, speakers: [speaker, { ...speaker, code: 'S2' }] })
+    expect(result.success).toBe(false)
+  })
+
+  it('odrzuca dwa assety o tym samym id', () => {
+    const project = newProject()
+    const asset = { id: 'a1', kind: 'image' as const, path: 'assets/one.png', fileName: 'one.png' }
+    const result = ProjectSchema.safeParse({ ...project, assets: [asset, { ...asset, path: 'assets/two.png' }] })
+    expect(result.success).toBe(false)
+  })
+
   it('przyjmuje projekt o różnych identyfikatorach', () => {
     expect(ProjectSchema.safeParse(newProject()).success).toBe(true)
   })
