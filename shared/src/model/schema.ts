@@ -120,7 +120,7 @@ export const RetentionEntrySchema = z.object({
   note: z.string(),
 })
 
-export const ProjectSchema = z.object({
+const ProjectShapeSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string(),
   name: z.string(),
@@ -155,6 +155,29 @@ export const ProjectSchema = z.object({
     summaryText: z.string(),
     retention: z.array(RetentionEntrySchema),
   }),
+})
+
+const hasDuplicate = (ids: string[]): boolean => new Set(ids).size !== ids.length
+
+/**
+ * Identyfikatory muszą być unikalne w obrębie swojej rodziny, bo cały interfejs
+ * adresuje obiekty po nich: zaznaczenie, przeciąganie granicy, przełączanie
+ * kotwicy. Przy duplikacie gest wymierzony w jeden obiekt trafia we wszystkie
+ * o tym samym identyfikatorze — zmierzone w recenzji Planu 3: jedno
+ * przeciągnięcie zeruje długość drugiego ujęcia.
+ */
+export const ProjectSchema = ProjectShapeSchema.superRefine((project, ctx) => {
+  const families: Array<[string, string[]]> = [
+    ['shots', project.shots.map(s => s.id)],
+    ['labels', project.labels.map(l => l.id)],
+    ['speakers', project.speakers.map(s => s.id)],
+    ['assets', project.assets.map(a => a.id)],
+  ]
+  for (const [path, ids] of families) {
+    if (hasDuplicate(ids)) {
+      ctx.addIssue({ code: 'custom', path: [path], message: `powtórzony identyfikator w ${path}` })
+    }
+  }
 })
 
 export function parseProject(input: unknown): Project {
