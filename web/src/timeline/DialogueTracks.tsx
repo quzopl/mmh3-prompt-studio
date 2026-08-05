@@ -1,11 +1,13 @@
 import type { DialogueEvent } from '@mmh3/shared'
 import { useProject } from '../store/projectStore.js'
 import { same, useSelection } from '../store/selectionStore.js'
+import { useSpeechRate } from '../store/speechRateStore.js'
 import { useT } from '../i18n/useT.js'
 import { msToPx, type Scale } from './scale.js'
 import { clipBox } from './clips.js'
 import { useDragClip } from './useDragClip.js'
 import { shotSpans } from './spans.js'
+import { naturalDurationMs } from './speech.js'
 
 /**
  * Kwestia dwóch mówców pojawia się w obu pasach — to ta sama kwestia widziana
@@ -47,6 +49,12 @@ export function DialogueTracks({ scale }: { scale: Scale }) {
   const selected = useSelection(state => state.selected)
   const select = useSelection(state => state.select)
   const toggle = useSelection(state => state.toggle)
+  // Subskrypcja, nie `useSpeechRate.getState()` w ciele pętli renderu — ten
+  // sam błąd znaleziony już dwa razy w tym projekcie (`state.isSelected` w
+  // `ShotTrack` i w `PromptPanel`): odczyt przez `getState()` w renderze nie
+  // rejestruje komponentu jako subskrybenta, więc zmiana tempa w store nie
+  // przemalowałaby cienia ani ostrzeżenia.
+  const wordsPerMinute = useSpeechRate(state => state.wordsPerMinute)
 
   const spans = project ? shotSpans(project.shots, project.video.durationMs) : []
 
@@ -128,6 +136,9 @@ export function DialogueTracks({ scale }: { scale: Scale }) {
                 shot: span.shot.index + 1,
                 text: event.text,
               })
+              const naturalMs = naturalDurationMs(event.text, wordsPerMinute)
+              const actualMs = event.endMs - event.startMs
+              const fits = naturalMs <= actualMs
               return (
                 <div
                   key={event.id}
@@ -161,6 +172,70 @@ export function DialogueTracks({ scale }: { scale: Scale }) {
                     przyciętych do MIN_CLIP_PX (8px).
                   */}
                   <span className="block h-full overflow-hidden">{event.text}</span>
+                  {/*
+                    Cień naturalnej długości liczonej z liczby słów i tempa z
+                    magazynu widoku — patrz komentarz przy `useSpeechRate`
+                    wyżej. `pointer-events-none`, bo to tylko wizualna
+                    podpowiedź: nie ma własnego gestu i nie może zasłaniać
+                    kliknięcia w klip ani w uchwyty krawędzi pod spodem.
+
+                    Celowo POZA drzewem dostępności (`aria-hidden`, bez
+                    `aria-label`) — gdy kwestia się mieści, cień powtarza fakt,
+                    który czytnik ekranu już usłyszał w etykiecie klipu; gdy
+                    się nie mieści, tę samą informację (obie liczby sekund)
+                    niesie ostrzeżenie niżej. Osobna etykieta na cieniu byłaby
+                    więc drugim przystankiem Tabu na to samo, a przy więcej niż
+                    jednej kwestii w pasie (kwestia dwóch mówców pojawia się w
+                    obu pasach, patrz komentarz nad komponentem) stały,
+                    niesparametryzowany tekst nie dawałby się jednoznacznie
+                    zapytać przez `getByLabelText` — stąd zamiast etykiety,
+                    `data-natural-length` jako hak do zapytań w testach,
+                    jak `data-frame-tick` w `Ruler`.
+
+                    Świadomie rysowany bez ograniczenia szerokości klipu —
+                    długa kwestia przy wolnym tempie da cień szerszy niż sam
+                    klip. To czytelne, nie szkodliwe: `pointer-events-none`
+                    nie blokuje niczego pod spodem, a klip ma `overflow`
+                    tylko na etykiecie, nie na kontenerze, więc przelew nie
+                    psuje layoutu klipu, w którym mieszka. Tam, gdzie przelewa
+                    się na pusty odcinek pasa, pokazuje ile miejsca kwestii
+                    naprawdę trzeba; tam, gdzie sięga kolejnego klipu, ten
+                    klip renderuje się później w DOM-ie tego samego pasa i bez
+                    ustawionego `z-index` maluje się NAD cieniem (późniejszy
+                    element w kolejności dokumentu przykrywa wcześniejszy), a
+                    jego tło (`bg-neutral-900`/`bg-emerald-950`) nie jest
+                    przezroczyste — więc przelew chowa się pod sąsiednim
+                    klipem zamiast go zasłaniać.
+                  */}
+                  <span
+                    aria-hidden="true"
+                    data-natural-length
+                    className="pointer-events-none absolute inset-y-0 left-0 border-r border-dashed border-emerald-300/60"
+                    style={{ width: msToPx(scale, naturalMs) }}
+                  />
+                  {!fits && (
+                    <button
+                      type="button"
+                      aria-label={t('dialogue.tooShort', {
+                        needed: (naturalMs / 1000).toFixed(1),
+                        actual: (actualMs / 1000).toFixed(1),
+                      })}
+                      onPointerDown={pointerEvent => pointerEvent.stopPropagation()}
+                      onClick={clickEvent => {
+                        // Zatrzymaj propagację do klipu-rodzica: bez tego
+                        // kliknięcie w plakietkę wywołałoby DRUGI raz
+                        // `select`/`toggle` z `onClick` klipu (bąbelkowanie),
+                        // a przy Shift+kliknięciu `toggle` zaraz odwróciłby
+                        // zaznaczenie, które ta plakietka właśnie ustawiła —
+                        // dokładnie ten rodzaj podwójnego wyzwolenia w
+                        // zagnieżdżonych elementach interaktywnych, który już
+                        // raz ugryzł ten projekt.
+                        clickEvent.stopPropagation()
+                        select(ref)
+                      }}
+                      className="absolute -top-1 right-0 h-2 w-2 rounded-full bg-amber-400"
+                    />
+                  )}
                   <div
                     role="separator"
                     aria-label={t('dialogue.dragStart', { speaker: codeOf(event) || '—' })}

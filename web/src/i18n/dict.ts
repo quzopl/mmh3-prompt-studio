@@ -57,6 +57,7 @@ const pl = {
   'dialogue.clipLabel': 'Kwestia {speaker} nr {position} w ujęciu {shot}: {text}',
   'dialogue.dragStart': 'Przesuń początek kwestii {speaker}',
   'dialogue.dragEnd': 'Przesuń koniec kwestii {speaker}',
+  'dialogue.tooShort': 'Kwestia nie mieści się w klipie: potrzeba {needed} s, jest {actual} s',
 
   'monitor.title': 'Monitor',
   'monitor.empty': 'Playhead nie stoi nad żadnym ujęciem.',
@@ -167,6 +168,7 @@ const en: Record<TKey, string> = {
   'dialogue.clipLabel': 'Line by {speaker} #{position} in shot {shot}: {text}',
   'dialogue.dragStart': 'Move start of line by {speaker}',
   'dialogue.dragEnd': 'Move end of line by {speaker}',
+  'dialogue.tooShort': 'Line does not fit the clip: needs {needed} s, has {actual} s',
 
   'monitor.title': 'Monitor',
   'monitor.empty': 'The playhead is not over any shot.',
