@@ -1,9 +1,11 @@
 import { useProject } from '../store/projectStore.js'
+import { usePlayhead } from '../store/playheadStore.js'
 import { same, useSelection } from '../store/selectionStore.js'
 import { useT } from '../i18n/useT.js'
 import { msToPx, type Scale } from './scale.js'
 import { clipBox } from './clips.js'
 import { shotSpans } from './spans.js'
+import { addScreenText } from './createOnTrack.js'
 
 /** Wysokość jednego wiersza klipu — jak `h-8` gdzie indziej na tej osi. */
 const ROW_HEIGHT_PX = 32
@@ -51,6 +53,16 @@ export function ScreenTextTrack({ scale }: { scale: Scale }) {
       className="relative border-b border-neutral-800"
       style={{ width: msToPx(scale, scale.durationMs), height: rows * ROW_HEIGHT_PX }}
     >
+      {/* Jak w `CameraTrack`: przycisk w rogu ścieżki do przeniesienia do nagłówka w zadaniu 12. */}
+      <button
+        type="button"
+        aria-label={t('track.addScreenText')}
+        onClick={() => useProject.getState().apply(
+          candidate => addScreenText(candidate, usePlayhead.getState().ms))}
+        className="absolute left-0 top-0 z-10 px-1 text-[10px] text-neutral-400 hover:text-neutral-100"
+      >
+        +
+      </button>
       {spans.flatMap(span =>
         span.shot.screenText.map((entry, position) => {
           const ref = { kind: 'screenText' as const, id: entry.id }

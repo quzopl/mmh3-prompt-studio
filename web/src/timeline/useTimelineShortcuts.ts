@@ -4,6 +4,7 @@ import { useProject } from '../store/projectStore.js'
 import { usePlayhead } from '../store/playheadStore.js'
 import { useSelection } from '../store/selectionStore.js'
 import { removeShots, splitAtMs } from './shotOperations.js'
+import { removeSelected } from './createOnTrack.js'
 
 /**
  * Skrót nie może wystrzelić, gdy użytkownik pisze — inaczej „s" dzieliłoby
@@ -97,13 +98,21 @@ export function useTimelineShortcuts(): void {
       }
 
       if (event.key === 'Delete' && isBareKey(event)) {
-        const ids = useSelection.getState().selected
-          .filter(ref => ref.kind === 'shot')
-          .map(ref => ref.id)
-        if (ids.length === 0) return
+        const selected = useSelection.getState().selected
+        if (selected.length === 0) return
         handled()
         if (event.repeat) return
-        useProject.getState().apply(current => removeShots(current, ids))
+        const shotIds = selected.filter(ref => ref.kind === 'shot').map(ref => ref.id)
+        const trackRefs = selected.filter(ref => ref.kind !== 'shot')
+        // Jedno wywołanie `apply`, nawet gdy zaznaczenie miesza ujęcia i
+        // obiekty ścieżek — to jeden gest użytkownika (jedno naciśnięcie
+        // klawisza), więc ma zostać jednym wpisem historii cofania, a nie
+        // dwoma. `removeSelected` na pustej liście referencji oddaje ten sam
+        // obiekt projektu (patrz `createOnTrack.ts`), więc zaznaczenie samych
+        // ujęć przechodzi przez nią bez zmiany i trafia do `removeShots`
+        // dokładnie tak samo jak przed tym zadaniem.
+        useProject.getState().apply(current =>
+          removeShots(removeSelected(current, trackRefs), shotIds))
         useSelection.getState().clear()
         return
       }

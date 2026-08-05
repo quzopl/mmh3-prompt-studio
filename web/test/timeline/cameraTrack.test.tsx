@@ -34,7 +34,10 @@ const moveOf = (id: string) =>
 describe('CameraTrack', () => {
   it('rysuje po jednym klipie na ruch kamery', () => {
     render(<CameraTrack scale={scale} />)
-    expect(screen.getAllByRole('button', { name: /ruch kamery/i })).toHaveLength(2)
+    // Zakotwiczone na początku etykiety („Ruch kamery ...") — bez tego pasowałby
+    // też przycisk dodawania z zadania 14 („Dodaj ruch kamery na playheadzie"),
+    // który zawiera tę samą frazę jako podciąg.
+    expect(screen.getAllByRole('button', { name: /^ruch kamery/i })).toHaveLength(2)
   })
 
   it('klip stoi tam, gdzie ruch zaczyna się w czasie', () => {

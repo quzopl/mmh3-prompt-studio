@@ -53,6 +53,22 @@ const pl = {
   'timeline.addShot': 'Dodaj ujęcie',
   'timeline.shortcuts': 'Spacja odtwarza, S dzieli ujęcie, Delete usuwa zaznaczone',
 
+  // Etykiety przycisków dodawania na ścieżkach (zadanie 14) — treść
+  // interfejsu, więc idzie przez słownik normalnie w obu językach.
+  'track.addCamera': 'Dodaj ruch kamery na playheadzie',
+  'track.addDialogue': 'Dodaj kwestię na playheadzie',
+  'track.addScreenText': 'Dodaj tekst na ekranie w tym ujęciu',
+  'track.addSfx': 'Dodaj dźwięk na playheadzie',
+  // Poniższe trzy klucze to treść MODELU (tekst nowo utworzonych obiektów),
+  // nie interfejsu — prompt idzie do modelu po angielsku niezależnie od
+  // języka aplikacji. Mimo to trzymamy je w słowniku (a nie jako gołe stringi
+  // w `createOnTrack.ts`), żeby treść placeholdera miała jedno źródło prawdy;
+  // kod, który z nich korzysta, zawsze czyta wersję angielską (`DICT.en`),
+  // nigdy `useT()` — patrz komentarz przy użyciu w `createOnTrack.ts`.
+  'track.newDialogue': 'nowa kwestia',
+  'track.newScreenText': 'TEKST',
+  'track.newSfx': 'nowy dźwięk',
+
   'camera.clipLabel': 'Ruch kamery {type} nr {position} w ujęciu {shot}',
   'camera.dragStart': 'Przesuń początek ruchu {type}',
   'camera.dragEnd': 'Przesuń koniec ruchu {type}',
@@ -190,6 +206,14 @@ const en: Record<TKey, string> = {
   'timeline.boundaryHandle': 'Shot {number} — drag the boundary to change the cut time',
   'timeline.addShot': 'Add shot',
   'timeline.shortcuts': 'Space plays, S splits a shot, Delete removes the selection',
+
+  'track.addCamera': 'Add camera move at the playhead',
+  'track.addDialogue': 'Add line at the playhead',
+  'track.addScreenText': 'Add on-screen text in this shot',
+  'track.addSfx': 'Add sound at the playhead',
+  'track.newDialogue': 'new line',
+  'track.newScreenText': 'TEXT',
+  'track.newSfx': 'new sound',
 
   'camera.clipLabel': 'Camera move {type} #{position} in shot {shot}',
   'camera.dragStart': 'Move start of {type}',

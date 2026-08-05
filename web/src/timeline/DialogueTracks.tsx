@@ -1,5 +1,6 @@
 import type { DialogueEvent } from '@mmh3/shared'
 import { useProject } from '../store/projectStore.js'
+import { usePlayhead } from '../store/playheadStore.js'
 import { same, useSelection } from '../store/selectionStore.js'
 import { useSpeechRate } from '../store/speechRateStore.js'
 import { useT } from '../i18n/useT.js'
@@ -9,6 +10,7 @@ import { useDragClip } from './useDragClip.js'
 import { shotSpans } from './spans.js'
 import { fitsClip, naturalDurationMs } from './speech.js'
 import { applyProposal, dialogueProposals } from './proposals.js'
+import { addDialogue } from './createOnTrack.js'
 
 /**
  * Kwestia dwóch mówców pojawia się w obu pasach — to ta sama kwestia widziana
@@ -126,6 +128,28 @@ export function DialogueTracks({ scale }: { scale: Scale }) {
           className="relative h-8 border-b border-neutral-800"
           style={{ width: msToPx(scale, scale.durationMs) }}
         >
+          {/*
+            Jeden przycisk na CAŁĄ `DialogueTracks` (nie jeden na pas) — celowo
+            na pasie „bez mówcy": `addDialogue(project, atMs, speakerId)`
+            przyjmuje `speakerId`, a mały „+" nie ma jak zapytać, KTÓREGO
+            mówcę wybrać. Pas „bez mówcy" istnieje zawsze (patrz komentarz nad
+            komponentem), więc to jedyne miejsce, gdzie `speakerId: null` ma
+            sens jako jedyna, bezwarunkowo poprawna odpowiedź. Przypisanie
+            kwestii do konkretnego mówcy zostaje więc ręczną edycją w
+            inspektorze — poza zakresem tego zadania (jak reszta ścieżek do
+            przeniesienia do nagłówka w zadaniu 12).
+          */}
+          {lane.key === 'none' && (
+            <button
+              type="button"
+              aria-label={t('track.addDialogue')}
+              onClick={() => useProject.getState().apply(
+                candidate => addDialogue(candidate, usePlayhead.getState().ms, null))}
+              className="absolute left-0 top-0 z-10 px-1 text-[10px] text-neutral-400 hover:text-neutral-100"
+            >
+              +
+            </button>
+          )}
           {spans.flatMap(span => span.shot.dialogue
             .map((event, position) => ({ event, position }))
             .filter(({ event }) => lane.matches(event))
