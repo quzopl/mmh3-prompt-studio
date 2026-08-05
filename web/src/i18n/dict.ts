@@ -41,6 +41,8 @@ const pl = {
   'timeline.pause': 'Zatrzymaj',
   'timeline.trackShots': 'Ujęcia',
   'timeline.trackCamera': 'Kamera',
+  'timeline.trackDialogue': 'Dialog {speaker}',
+  'timeline.trackDialogueOther': 'Dialog bez mówcy',
   'timeline.clipLabel': 'Ujęcie {number}, od {start} ms do {end} ms',
   'timeline.boundaryHandle': 'Ujęcie {number} — przeciągnij granicę, aby zmienić czas cięcia',
   'timeline.addShot': 'Dodaj ujęcie',
@@ -51,6 +53,10 @@ const pl = {
   'camera.dragEnd': 'Przesuń koniec ruchu {type}',
   'camera.add': 'Dodaj ruch kamery',
   'camera.remove': 'Usuń ruch kamery',
+
+  'dialogue.clipLabel': 'Kwestia {speaker} nr {position} w ujęciu {shot}: {text}',
+  'dialogue.dragStart': 'Przesuń początek kwestii {speaker}',
+  'dialogue.dragEnd': 'Przesuń koniec kwestii {speaker}',
 
   'monitor.title': 'Monitor',
   'monitor.empty': 'Playhead nie stoi nad żadnym ujęciem.',
@@ -145,6 +151,8 @@ const en: Record<TKey, string> = {
   'timeline.pause': 'Pause',
   'timeline.trackShots': 'Shots',
   'timeline.trackCamera': 'Camera',
+  'timeline.trackDialogue': 'Dialogue {speaker}',
+  'timeline.trackDialogueOther': 'Dialogue without speaker',
   'timeline.clipLabel': 'Shot {number}, from {start} ms to {end} ms',
   'timeline.boundaryHandle': 'Shot {number} — drag the boundary to change the cut time',
   'timeline.addShot': 'Add shot',
@@ -155,6 +163,10 @@ const en: Record<TKey, string> = {
   'camera.dragEnd': 'Move end of {type}',
   'camera.add': 'Add camera move',
   'camera.remove': 'Remove camera move',
+
+  'dialogue.clipLabel': 'Line by {speaker} #{position} in shot {shot}: {text}',
+  'dialogue.dragStart': 'Move start of line by {speaker}',
+  'dialogue.dragEnd': 'Move end of line by {speaker}',
 
   'monitor.title': 'Monitor',
   'monitor.empty': 'The playhead is not over any shot.',

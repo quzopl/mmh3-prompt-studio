@@ -1,0 +1,183 @@
+import type { DialogueEvent } from '@mmh3/shared'
+import { useProject } from '../store/projectStore.js'
+import { same, useSelection } from '../store/selectionStore.js'
+import { useT } from '../i18n/useT.js'
+import { msToPx, type Scale } from './scale.js'
+import { clipBox } from './clips.js'
+import { useDragClip } from './useDragClip.js'
+import { shotSpans } from './spans.js'
+
+/**
+ * Kwestia dwóch mówców pojawia się w obu pasach — to ta sama kwestia widziana
+ * dwa razy, nie dwie kwestie. `read`/`bounds`/`snapPoints`/`write` w
+ * `useDragClip` przyjmują identyfikator KWESTII (nie pasa), a `write` szuka
+ * jej po id w całym projekcie — więc klucz sklejania historii w
+ * `useProject.apply` pochodzi z tożsamości kwestii, nie z pasa, w którym
+ * akurat zaczęto gest. Dwa osobne gesty na tym samym obiekcie (jeden zaczęty
+ * w pasie mówcy A, drugi w pasie mówcy B) zostają więc dwoma osobnymi wpisami
+ * cofania — tak jak dwa osobne gesty gdziekolwiek indziej — a nie sklejają
+ * się ani nie rozjeżdżają w dwie niezależne kopie.
+ *
+ * `bounds` obejmuje cały materiał (`0` do `scale.durationMs`), nie własne
+ * ujęcie jak w `CameraTrack` — kwestia świadomie może przekroczyć cięcie:
+ * model tego nie zabrania (żadna reguła walidatora nie wymaga, żeby kwestia
+ * mieściła się w jednym ujęciu) i późniejsze zadanie w planie proponuje na
+ * taką sytuację `<scenetrans>`. Zawężenie granic gestu do własnego ujęcia,
+ * jak przy ruchu kamery, zamknęłoby tę furtkę bez potrzeby.
+ *
+ * Trzy decyzje z `CameraTrack` przenoszą się tu bez zmian, jako wzorzec dla
+ * tej samej maszynerii klipów: etykieta klipu niesie numer kwestii w obrębie
+ * własnego ujęcia (sam mówca i tekst nie rozróżniają dwóch kwestii — dwie
+ * kwestie tego samego mówcy o identycznym tekście są dopuszczalne przez
+ * model, dokładnie jak dwa ruchy kamery tego samego typu); Shift+klik dokłada
+ * do zaznaczenia zamiast je zastępować, jak w `ShotTrack`; a uchwyty krawędzi
+ * to `role="separator"` bez `tabIndex` z tego samego powodu co tam — zmiana
+ * rozmiaru klawiaturą nie istnieje nigdzie w tej maszynerii klipów.
+ *
+ * Pas renderuje się dla każdego mówcy z listy projektu i osobno dla kwestii
+ * bez mówcy, NAWET gdy akurat jest pusty — to stały wiersz przypisany do
+ * stałego elementu projektu (mówcy albo „reszty”), a nie widok filtrowany po
+ * bieżącej zawartości. Znikający i pojawiający się wiersz przy każdej zmianie
+ * przypisania mówcy w kwestii byłby mylący; puste pasy są normalne w
+ * edytorach wideo (pusty pas dźwiękowy nie znika, gdy nic na nim nie leży).
+ */
+export function DialogueTracks({ scale }: { scale: Scale }) {
+  const t = useT()
+  const project = useProject(state => state.project)
+  const selected = useSelection(state => state.selected)
+  const select = useSelection(state => state.select)
+  const toggle = useSelection(state => state.toggle)
+
+  const spans = project ? shotSpans(project.shots, project.video.durationMs) : []
+
+  const findEvent = (eventId: string) => {
+    for (const span of spans) {
+      const event = span.shot.dialogue.find(candidate => candidate.id === eventId)
+      if (event) return { span, event }
+    }
+    return undefined
+  }
+
+  const startDrag = useDragClip(scale, {
+    read: eventId => {
+      const found = findEvent(eventId)
+      return found && { id: eventId, startMs: found.event.startMs, endMs: found.event.endMs }
+    },
+    // Cały materiał, nie własne ujęcie — patrz komentarz nad komponentem.
+    bounds: () => ({ lowestMs: 0, highestMs: scale.durationMs }),
+    snapPoints: () => spans.map(span => span.startMs),
+    toleranceMs: 80,
+    write: (eventId, next, coalesceKey) => {
+      useProject.getState().apply(
+        candidate => ({
+          ...candidate,
+          shots: candidate.shots.map(shot => ({
+            ...shot,
+            dialogue: shot.dialogue.map(event =>
+              event.id === eventId ? { ...event, ...next } : event),
+          })),
+        }),
+        { coalesceKey },
+      )
+    },
+  })
+
+  if (!project) return null
+
+  const codeOf = (event: DialogueEvent): string =>
+    event.speakerIds
+      .map(id => project.speakers.find(speakerRecord => speakerRecord.id === id)?.code ?? id)
+      .join(', ')
+
+  const lanes: Array<{ key: string; label: string; matches: (event: DialogueEvent) => boolean }> = [
+    ...project.speakers.map(speakerRecord => ({
+      key: speakerRecord.id,
+      label: t('timeline.trackDialogue', { speaker: speakerRecord.code }),
+      matches: (event: DialogueEvent) => event.speakerIds.includes(speakerRecord.id),
+    })),
+    {
+      key: 'none',
+      label: t('timeline.trackDialogueOther'),
+      matches: (event: DialogueEvent) => event.speakerIds.length === 0,
+    },
+  ]
+
+  return (
+    <>
+      {lanes.map(lane => (
+        <div
+          key={lane.key}
+          data-track={`dialogue-${lane.key}`}
+          aria-label={lane.label}
+          className="relative h-8 border-b border-neutral-800"
+          style={{ width: msToPx(scale, scale.durationMs) }}
+        >
+          {spans.flatMap(span => span.shot.dialogue
+            .map((event, position) => ({ event, position }))
+            .filter(({ event }) => lane.matches(event))
+            .map(({ event, position }) => {
+              const ref = { kind: 'dialogue' as const, id: event.id }
+              const isSelected = selected.some(candidate => same(candidate, ref))
+              const label = t('dialogue.clipLabel', {
+                speaker: codeOf(event) || '—',
+                // 1-liczbowy numer kwestii w obrębie WŁASNEGO ujęcia — patrz
+                // komentarz nad komponentem. Ta sama wartość niezależnie od
+                // tego, w którym pasie klip akurat się renderuje, bo liczy
+                // się z `span.shot.dialogue`, nie z zawartości pasa.
+                position: position + 1,
+                shot: span.shot.index + 1,
+                text: event.text,
+              })
+              return (
+                <div
+                  key={event.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
+                  aria-label={label}
+                  onClick={clickEvent => (clickEvent.shiftKey ? toggle(ref) : select(ref))}
+                  onKeyDown={keyEvent => {
+                    if (keyEvent.key !== 'Enter' && keyEvent.key !== ' ') return
+                    keyEvent.preventDefault()
+                    // Jak w `ShotTrack`/`CameraTrack`: klip obsłużył ten
+                    // klawisz, więc nie może polecieć dalej do globalnego
+                    // skrótu na `window`, gdzie sama spacja przełącza
+                    // odtwarzanie.
+                    keyEvent.stopPropagation()
+                    select(ref)
+                  }}
+                  onPointerDown={pointerEvent => startDrag(event.id, 'move', pointerEvent)}
+                  className={`absolute top-1 h-6 rounded border px-1 text-left text-[10px] ${
+                    isSelected
+                      ? 'border-emerald-500 bg-emerald-950 text-emerald-100'
+                      : 'border-neutral-700 bg-neutral-900 hover:border-neutral-500'
+                  }`}
+                  style={clipBox(scale, event)}
+                >
+                  {/*
+                    Jak w `ShotTrack`/`CameraTrack`: overflow-hidden tylko na
+                    etykiecie, nie na całym klipie — gdyby obcinał całą
+                    zawartość, uchwyty krawędzi byłyby nieklikalne na klipach
+                    przyciętych do MIN_CLIP_PX (8px).
+                  */}
+                  <span className="block h-full overflow-hidden">{event.text}</span>
+                  <div
+                    role="separator"
+                    aria-label={t('dialogue.dragStart', { speaker: codeOf(event) || '—' })}
+                    onPointerDown={pointerEvent => startDrag(event.id, 'start', pointerEvent)}
+                    className="absolute inset-y-0 left-0 w-1 cursor-ew-resize bg-emerald-500/40"
+                  />
+                  <div
+                    role="separator"
+                    aria-label={t('dialogue.dragEnd', { speaker: codeOf(event) || '—' })}
+                    onPointerDown={pointerEvent => startDrag(event.id, 'end', pointerEvent)}
+                    className="absolute inset-y-0 right-0 w-1 cursor-ew-resize bg-emerald-500/40"
+                  />
+                </div>
+              )
+            }))}
+        </div>
+      ))}
+    </>
+  )
+}
