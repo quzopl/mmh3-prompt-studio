@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 /**
  * Interfejs startuje po polsku (`useLang` czyta `localStorage['mmh3.lang']`,
@@ -76,6 +76,12 @@ test('praca na ścieżkach kamery, dialogu i referencji', async ({ page }) => {
 
   // Nagłówki ścieżek stoją, choć obszar klipów da się przewinąć.
   await expect(page.getByText('Kamera', { exact: true })).toBeVisible()
+  // „SFX” samo w sobie NIE dowodzi języka — `dict.ts` ma identyczny napis w
+  // `pl` i `en` (jedyny taki klucz w tym pliku), więc przy pomyłkowo
+  // przełączonym domyślnym języku ta linia przeszłaby bez zmian. Pilnowanie
+  // języka bierze na siebie „Kamera” wyżej i reszta polskich selektorów w
+  // tym pliku (np. „linijka czasu”, „ujęcie 2” niżej) — ta asercja sprawdza
+  // wyłącznie obecność samego nagłówka ścieżki SFX.
   await expect(page.getByText('SFX', { exact: true })).toBeVisible()
 
   // --- Ruch kamery: dodanie przez interfejs, potem prawdziwe przeciągnięcie ---
@@ -141,6 +147,25 @@ test('praca na ścieżkach kamery, dialogu i referencji', async ({ page }) => {
   await expect(page.locator('[data-track^="dialogue-"]')).toHaveCount(4)
   await assertRowsAligned(page, T2VA_ROWS)
 
+  // --- Zwinięcie ścieżki WIELOWIERSZOWEJ: tu żyje błąd z rundy poprawek 1 ---
+  //
+  // Kamera (niżej) ma jeden wiersz (`rowCount: 1`) — `rowCount × unitHeight`
+  // i `unitHeight` są tam identyczne z KONSTRUKCJI niezależnie od stanu
+  // zwinięcia, więc błąd „nagłówek zwiniętego wiersza zostaje pełnej
+  // wysokości, treść spada do zera” fizycznie nie może się tam objawić.
+  // Dialogi przy trzech mówcach mają CZTERY wiersze (`dialogueLaneCount` =
+  // mówcy + pas zbiorczy) — to jedyne miejsce w tym pliku, gdzie ten dokładny
+  // błąd byłby widoczny (nagłówek 4×32=128px kontra treść 32px, 96px
+  // rozjazdu). Sprawdzone przez chwilowe cofnięcie naprawy w `TrackStack.tsx`
+  // (patrz raport zadania) — bez niej ta konkretna asercja, nie żadna dalsza,
+  // wychodzi czerwona.
+  const collapseDialogue = page.getByRole('button', { name: /zwiń ścieżkę dialogi/i })
+  await collapseDialogue.click()
+  await expect(page.getByRole('button', { name: /rozwiń ścieżkę dialogi/i })).toBeVisible()
+  await assertRowsAligned(page, T2VA_ROWS)
+  await page.getByRole('button', { name: /rozwiń ścieżkę dialogi/i }).click()
+  await assertRowsAligned(page, T2VA_ROWS)
+
   // --- Zwinięcie ścieżki: przez PRAWDZIWĄ klawiaturę, nie klik ---
   //
   // `locator.press` fokusuje element i dopiero wtedy wysyła zdarzenie
@@ -150,18 +175,41 @@ test('praca na ścieżkach kamery, dialogu i referencji', async ({ page }) => {
   // przycisku) złapano w tym planie cztery razy — `TrackStack.tsx` broni się
   // przed nim `stopPropagation` w `activateOnKey`.
   const collapseCamera = page.getByRole('button', { name: /zwiń ścieżkę kamera/i })
-  const playButton = page.getByRole('button', { name: /^odtwarzaj$/i })
-  await expect(playButton).toBeVisible()
+  // Przycisk odtwarzania NIE po nazwie dostępnej — ta zmienia się między
+  // „Odtwarzaj” i „Zatrzymaj” wraz ze stanem, a to właśnie ten stan badamy.
+  // Pierwszy `<button>` w `[role="region"][name="Oś czasu"]` to zawsze on
+  // (`Timeline.tsx`), niezależnie od etykiety.
+  const timeline = page.getByRole('region', { name: /^oś czasu$/i })
+  const playButton = timeline.locator('button').first()
+  const playLabelBeforeCollapse = (await playButton.textContent())?.trim()
+  expect(playLabelBeforeCollapse).toBe('Odtwarzaj')
+
   await collapseCamera.press(' ')
   await expect(page.getByRole('button', { name: /rozwiń ścieżkę kamera/i })).toBeVisible()
-  // Odtwarzanie NIE wystartowało — przycisk dalej mówi „Odtwarzaj”, nie „Zatrzymaj”.
-  await expect(playButton).toBeVisible()
+  /**
+   * Odczyt PUNKTOWY, zaraz po zdarzeniu klawiatury — nie `expect(...).toBeVisible()`
+   * ani `toHaveText`. Te dwie próbują przez domyślne 5s: gdyby `stopPropagation`
+   * w `activateOnKey` zniknęło, spacja odpaliłaby globalny skrót
+   * (`usePlayhead.toggle()`) i odtwarzanie by wystartowało — ale materiał demo
+   * jest krótki, więc odtwarzanie zdążyłoby się samo zatrzymać (koniec
+   * materiału) i etykieta wróciłaby na „Odtwarzaj” PRZED upływem okna
+   * asercji z retry. Test wychodziłby zielony na tej linii i czerwony dopiero
+   * na niepowiązanej asercji „Dopasuj” niżej — dokładnie tak, jak to się
+   * stało przy pierwszej wersji tego testu. Czytamy tekst raz, bez retry:
+   * pytanie brzmi „czy odtwarzanie wystartowało w tej klatce”, nie „czy stoi
+   * teraz”.
+   */
+  const playLabelAfterCollapse = (await playButton.textContent())?.trim()
+  expect(playLabelAfterCollapse).toBe(playLabelBeforeCollapse)
+
   // Nagłówek zostaje czytelny mimo zwinięcia (treść brzmienia zadania).
   await expect(page.getByText('Kamera', { exact: true })).toBeVisible()
   // Zwinięcie jednego wiersza nie może przesunąć wierszy PONIŻEJ względem ich
   // nagłówków — dokładnie błąd z rundy poprawek 1 tego planu (nagłówek
   // zwiniętego wiersza zostawał pełnej wysokości, treść znikała do zera, a
-  // wszystko niżej jechało w dół o tę różnicę).
+  // wszystko niżej jechało w dół o tę różnicę). Dla samej kamery (rowCount: 1)
+  // to nie złapie TEGO błędu (patrz komentarz przy zwinięciu dialogów wyżej),
+  // ale nadal pilnuje, że zwinięcie nie zepsuło niczego innego w geometrii.
   await assertRowsAligned(page, T2VA_ROWS)
 
   await page.getByRole('button', { name: /rozwiń ścieżkę kamera/i }).click()
@@ -220,8 +268,16 @@ test('ścieżka referencji w trybie REF ma nagłówki zgodne z liczbą etykiet',
   await assertRowsAligned(page, ['shots', 'camera', 'references'])
 
   // Kratka referencji jest osiągalna i przełącza się — dowód, że ścieżka w
-  // tym trybie nie tylko stoi wyrównana, ale też działa.
-  const firstCell: Locator = page.locator('[data-track^="references-"]').first().getByRole('button').first()
+  // tym trybie nie tylko stoi wyrównana, ale też działa. Po NAZWIE dostępnej
+  // (`references.cell` w `dict.ts`), nie po pozycji w DOM — pierwszy upload
+  // to zawsze pierwszy asset obrazkowy, więc jego etykieta to zawsze
+  // `<Picture 1>`, a jedyne ujęcie w tym projekcie (bez podziału w tym
+  // teście) to zawsze „ujęcie 1”. Selektor pozycyjny wyglądałby dziś
+  // identycznie, bo w tym momencie testu istnieje tylko jeden wiersz i jedno
+  // ujęcie — ale ten plik sam zaleca nazwę, nie pozycję (patrz komentarz przy
+  // `assertRowsAligned` wyżej), a poprzedni plan stracił popołudnie na
+  // selektorze pozycyjnym, który zaczął pasować do dwóch elementów naraz.
+  const firstCell = page.getByRole('button', { name: /^etykieta <picture 1> w ujęciu 1$/i })
   await expect(firstCell).toHaveAttribute('aria-pressed', 'false')
   await firstCell.click()
   await expect(firstCell).toHaveAttribute('aria-pressed', 'true')
