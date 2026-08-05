@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { Project, ProjectPatch } from '@mmh3/shared'
 import type { ChatMessage, Provider } from '../provider.js'
@@ -12,30 +13,45 @@ import { redactToPatch, type RedactTarget } from './redact.js'
  * a `translateAllToPatch` zamienia to na JEDNĄ łatkę z wieloma operacjami,
  * każdą do przyjęcia osobno (zob. brief: tłumaczenie bywa nierówne).
  *
- * Świadomie NIE reimplementuje mechaniki `redactToPatch` (puste/niezmienione
- * wyniki, odmowa dla segmentu nietekstowego, etykiety operacji) — dla
- * każdego przyjętego pola woła `redactToPatch({ english }, target, project)`
- * wprost i skleja wynikowe `ops`. Jedna definicja „co znaczy żadna zmiana",
- * nie dwie, które mogłyby się rozjechać (patrz `translateAllToPatch` niżej).
+ * Dla czterech celów odziedziczonych z zadania 7 (`style`, `shotText`,
+ * `audio`, `speaker`) świadomie NIE reimplementuje mechaniki `redactToPatch`
+ * (puste/niezmienione wyniki, odmowa dla segmentu nietekstowego, etykiety
+ * operacji) — woła `redactToPatch({ english }, target, project)` wprost i
+ * skleja wynikowe `ops`. Jedna definicja „co znaczy żadna zmiana", nie dwie,
+ * które mogłyby się rozjechać (patrz `translateAllToPatch` niżej). Dla dwóch
+ * celów doszłych w rundzie 1 poprawek (`label`, `retention`) ta sama zasada
+ * jest powielona LOKALNIE (`labelFieldToPatch`/`retentionTextToPatch` niżej),
+ * bo `redact.ts` (zadanie 7) ich nie zna i nie jest w plikach tego zadania.
  *
- * ## Zakres: cztery rodzaje pola, nie dziewięć z briefu
+ * ## Zakres: sześć rodzajów pola, nie dziewięć z Kroku 1 briefu
  *
- * Brief (Krok 1) wymienia jako prozę też: `composition` ujęć, `definition` i
- * `role` etykiet, `description` dźwięku diegetycznego oraz `summaryText` i
- * `note` wpisów retencji. Żadne z tych pięciu pól NIE MA odpowiednika w
- * `shared/src/patch/types.ts` — `PatchOp` to zamknięta unia pięciu wariantów
- * (`replaceShots`, `setShotText`, `setAudio`, `setStyle`,
- * `setSpeakerDescriptor`), a zadanie 4 tego planu ustaliło to jako
- * ROZSTRZYGNIĘCIE, nie przeoczenie: „Cztery zadania językowe potrzebują
- * dokładnie tylu rodzajów" (plan, sekcja Task 4, Krok 1). Dodanie nowych
- * rodzajów operacji nie jest w plikach tego zadania (brief nie wymienia
- * `shared/src/patch/*`) i jest decyzją architektoniczną spoza zakresu tego
- * zadania — zgłoszone w raporcie, NIE obchodzone tworzeniem operacji, których
- * `applyOps`/`describeOp` i tak by nie obsłużyły.
+ * Brief (Krok 1) wymienia jako prozę też: `composition` ujęć i `description`
+ * dźwięku diegetycznego. Fix round 1 (uwagi koordynatora) rozstrzygnął to
+ * pytaniem „czy model wideo w OGÓLE to przeczyta", nie samym istnieniem
+ * operacji w `PatchOp`:
  *
- * Zaimplementowane pole po polu odpowiadają dokładnie czterem celom
- * `RedactTarget` z zadania 7 (`style`, `shotText`, `audio`, `speaker`) —
- * PatchOp dla `composition`/etykiet/SFX/retencji po prostu nie istnieje.
+ * - `style`, segmenty tekstowe `body`, obie ścieżki audio, oba opisy mówcy —
+ *   czytane w KAŻDYM trybie (`shared/src/compile/emitBase.ts`/`renderShot.ts`).
+ * - `Label.definition` (WYŁĄCZNIE dla etykiet `standalone`) i
+ *   `RetentionEntry.note`/`ref.summaryText` — czytane WYŁĄCZNIE w trybie REF
+ *   (`shared/src/compile/emitRef.ts`: `renderSubjectDefinitions` filtruje po
+ *   `standalone`, `renderSummary`/`renderRetention` idą bez filtra, obie
+ *   funkcje wołane tylko z `emitRef`, wołanego tylko gdy `project.mode ===
+ *   'REF'` — `shared/src/compile/compile.ts`). `collectTranslatableFields`
+ *   odzwierciedla DOKŁADNIE te same warunki, nie tylko „PatchOp istnieje".
+ * - `Label.role` — MIMO że koordynator wymienił je razem z `definition`,
+ *   sprawdzone wprost: `role` nie występuje w ŻADNYM pliku
+ *   `shared/src/compile/*.ts`, w żadnym trybie. Zgłoszone w raporcie jako
+ *   korekta, nie obejście — `setLabelField` (PatchOp) obsługuje `role`
+ *   mechanicznie (jak `setSpeakerDescriptor` obsługuje dwa pola mówcy), ale
+ *   `collectTranslatableFields` nigdy go nie oferuje, więc to zadanie nigdy
+ *   nie produkuje operacji dla `role` — nie tłumaczymy tekstu do promptu,
+ *   którego nikt nie zobaczy.
+ * - `Shot.composition` i `DiegeticSfx.description` pozostają WYKLUCZONE —
+ *   sprawdzone wprost: żadne z nich nie występuje w żadnym pliku
+ *   `shared/src/compile/*.ts`, w żadnym trybie. Zadanie, które sprawi, że
+ *   faktycznie trafiają do promptu, jest właściwym miejscem na ich redakcję
+ *   — nie to.
  */
 
 export const TranslateAllFieldResultSchema = z.object({
@@ -140,13 +156,31 @@ export const translateAllTask: TaskDefinition<TranslateAllResult> = {
 }
 
 /**
+ * Cel pola do przetłumaczenia: cztery warianty odziedziczone z `RedactTarget`
+ * (zadanie 7) plus dwa doszłe w rundzie 1 poprawek tego zadania. `label` i
+ * `retention` NIE są wariantami `RedactTarget` — `redact.ts` (pojedyncze
+ * pole, zadanie 7) ich nie zna i zostaje nietknięty; ta unia żyje wyłącznie
+ * tutaj.
+ */
+export type TranslateTarget =
+  | RedactTarget
+  | { kind: 'label'; labelId: string; field: 'definition' | 'role' }
+  | {
+      kind: 'retention'
+      // Ten sam kształt co `PatchOp['setRetentionText']['scope']`
+      // (`shared/src/patch/types.ts`) — jedno pole singletonowe
+      // (`ref.summaryText`) i jedno per-wpis (`RetentionEntry.note`) dzielą
+      // kategorię „tekst retencji".
+      scope: { kind: 'summary' } | { kind: 'entry'; entryId: string }
+    }
+
+/**
  * Jedno pole projektu warte zaproponowania do tłumaczenia: stabilny
- * identyfikator, cel w kształcie `RedactTarget` (zadanie 7 — dokładnie te
- * same cztery warianty, zob. komentarz na górze pliku) i bieżąca treść.
+ * identyfikator, cel (`TranslateTarget`) i bieżąca treść.
  */
 export interface TranslatableField {
   id: string
-  target: RedactTarget
+  target: TranslateTarget
   text: string
 }
 
@@ -213,6 +247,46 @@ export function collectTranslatableFields(project: Project): TranslatableField[]
     }
   }
 
+  // `Label.definition`, `ref.summaryText` i `RetentionEntry.note` trafiają do
+  // promptu WYŁĄCZNIE przez `emitRef` (`shared/src/compile/emitRef.ts`),
+  // wołane WYŁĄCZNIE gdy `project.mode === 'REF'` (`compile.ts`) — poza tym
+  // trybem oferowanie ich do tłumaczenia produkowałoby operacje dla tekstu,
+  // którego skompilowany prompt nigdy nie pokaże. `Label.role` NIE ma tu
+  // gałęzi w ogóle — nie występuje w żadnym pliku `compile/*`, w żadnym
+  // trybie (zob. komentarz o zakresie na górze pliku).
+  if (project.mode === 'REF') {
+    // `renderSubjectDefinitions` renderuje `definition` WYŁĄCZNIE dla etykiet
+    // ze `standalone: true` — ten sam filtr tutaj, nie tylko obecność
+    // operacji.
+    for (const label of project.labels) {
+      if (label.standalone && isNonEmpty(label.definition)) {
+        fields.push({
+          id: `label:${label.id}:definition`,
+          target: { kind: 'label', labelId: label.id, field: 'definition' },
+          text: label.definition,
+        })
+      }
+    }
+
+    if (isNonEmpty(project.ref.summaryText)) {
+      fields.push({
+        id: 'retention:summary',
+        target: { kind: 'retention', scope: { kind: 'summary' } },
+        text: project.ref.summaryText,
+      })
+    }
+
+    for (const entry of project.ref.retention) {
+      if (isNonEmpty(entry.note)) {
+        fields.push({
+          id: `retention:entry:${entry.id}`,
+          target: { kind: 'retention', scope: { kind: 'entry', entryId: entry.id } },
+          text: entry.note,
+        })
+      }
+    }
+  }
+
   return fields
 }
 
@@ -264,21 +338,90 @@ export function chunkFields(
   return batches
 }
 
+function labelSourceText(project: Project, labelId: string, field: 'definition' | 'role'): string | undefined {
+  return project.labels.find(l => l.id === labelId)?.[field]
+}
+
+/**
+ * `label` nie jest wariantem `RedactTarget` (zob. komentarz przy
+ * `TranslateTarget`), więc `redactToPatch` nie umie go obsłużyć — ta funkcja
+ * powiela DOKŁADNIE ten sam kształt (puste/niezmienione → `{ ops: [] }`, cel
+ * nieistniejący → `{ ops: [] }`, w przeciwnym razie jedna operacja z nowym
+ * `id`), tylko dla `setLabelField` zamiast czterech wariantów zadania 7.
+ */
+function labelFieldToPatch(
+  english: string,
+  target: Extract<TranslateTarget, { kind: 'label' }>,
+  project: Project,
+): ProjectPatch {
+  const text = english.trim()
+  if (text === '') return { ops: [] }
+
+  const current = labelSourceText(project, target.labelId, target.field)
+  if (current === undefined) return { ops: [] }
+  if (current.trim() === text) return { ops: [] }
+
+  return {
+    ops: [{
+      kind: 'setLabelField',
+      id: `op-${randomUUID()}`,
+      label: `Redakcja pola ${target.field} etykiety z polskiego na angielski.`,
+      labelId: target.labelId,
+      field: target.field,
+      text,
+    }],
+  }
+}
+
+function retentionSourceText(
+  project: Project,
+  scope: Extract<TranslateTarget, { kind: 'retention' }>['scope'],
+): string | undefined {
+  if (scope.kind === 'summary') return project.ref.summaryText
+  return project.ref.retention.find(e => e.id === scope.entryId)?.note
+}
+
+/** Odpowiednik `labelFieldToPatch` dla `setRetentionText` — zob. komentarz tam. */
+function retentionTextToPatch(
+  english: string,
+  target: Extract<TranslateTarget, { kind: 'retention' }>,
+  project: Project,
+): ProjectPatch {
+  const text = english.trim()
+  if (text === '') return { ops: [] }
+
+  const current = retentionSourceText(project, target.scope)
+  if (current === undefined) return { ops: [] }
+  if (current.trim() === text) return { ops: [] }
+
+  return {
+    ops: [{
+      kind: 'setRetentionText',
+      id: `op-${randomUUID()}`,
+      label: target.scope.kind === 'summary'
+        ? 'Redakcja podsumowania referencji z polskiego na angielski.'
+        : 'Redakcja notatki retencji z polskiego na angielski.',
+      scope: target.scope,
+      text,
+    }],
+  }
+}
+
 /**
  * Buduje ŁATKĘ z odpowiedzi modelu (ewentualnie sklejonej z kilku partii,
  * zob. `runTranslateAll`) — wywołuje `collectTranslatableFields(project)`
  * PONOWNIE, żeby dostać tę samą listę identyfikator→cel, której użyto do
  * zbudowania wejścia, i przez nią filtruje odpowiedź:
  *
- * - Identyfikator spoza tej listy (model zgadł, np. id kwestii dialogowej
- *   albo pola słownikowego) jest pomijany BEZ ŚLADU — nigdy nie trafia do
- *   `redactToPatch`, więc nie ma jak stać się operacją.
- * - Dla każdego rozpoznanego identyfikatora woła `redactToPatch({ english },
- *   target, project)` — DOKŁADNIE tę samą funkcję, którą zadanie 7 już ma i
- *   przetestowało: pusty/niezmieniony wynik nie tworzy operacji, cel, który
- *   przestał istnieć (usunięty między odczytem a odpowiedzią modelu — mało
- *   prawdopodobne w jednym żądaniu, ale niesprawdzanie tego byłoby założeniem
- *   bez podstaw) też nie.
+ * - Identyfikator spoza tej listy (model zgadł, np. id kwestii dialogowej,
+ *   pola słownikowego, albo pola `label`/`retention` spoza trybu REF) jest
+ *   pomijany BEZ ŚLADU.
+ * - Cztery cele odziedziczone z zadania 7 idą przez `redactToPatch({
+ *   english }, target, project)` — DOKŁADNIE tę samą funkcję, którą zadanie 7
+ *   już ma i przetestowało. Dwa cele doszłe w rundzie 1 (`label`,
+ *   `retention`) idą przez lokalne odpowiedniki (`labelFieldToPatch`,
+ *   `retentionTextToPatch`) o tym samym kształcie: pusty/niezmieniony wynik
+ *   nie tworzy operacji, cel, który przestał istnieć, też nie.
  */
 export function translateAllToPatch(result: TranslateAllResult, project: Project): ProjectPatch {
   const offered = new Map(collectTranslatableFields(project).map(field => [field.id, field.target]))
@@ -287,8 +430,15 @@ export function translateAllToPatch(result: TranslateAllResult, project: Project
   for (const item of result.fields) {
     const target = offered.get(item.id)
     if (target === undefined) continue
-    const single = redactToPatch({ english: item.english }, target, project)
-    ops.push(...single.ops)
+
+    if (target.kind === 'label') {
+      ops.push(...labelFieldToPatch(item.english, target, project).ops)
+    } else if (target.kind === 'retention') {
+      ops.push(...retentionTextToPatch(item.english, target, project).ops)
+    } else {
+      const single = redactToPatch({ english: item.english }, target, project)
+      ops.push(...single.ops)
+    }
   }
 
   return { ops }

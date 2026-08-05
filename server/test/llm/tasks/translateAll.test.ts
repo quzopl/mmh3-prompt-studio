@@ -119,6 +119,49 @@ function emptyProject(): Project {
   return { ...newProject(), style: '', audio: { overallSoundscape: '', nonDiegeticMusic: '' } }
 }
 
+const standaloneLabel: Label = {
+  id: 'lab-standalone', kind: 'subject', index: 1, assetIds: [],
+  definition: 'kobieta w niebieskim płaszczu, lat 30', role: 'główna bohaterka', standalone: true,
+}
+const nonStandaloneLabel: Label = {
+  id: 'lab-inline', kind: 'subject', index: 2, assetIds: [],
+  definition: 'mężczyzna w tle', role: 'postać drugoplanowa', standalone: false,
+}
+
+/**
+ * `cleanProject()` w trybie REF, z etykietami (jedną `standalone`, jedną nie)
+ * i wpisem retencji — dokładnie te pola, które `emitRef`
+ * (`shared/src/compile/emitRef.ts`) rzeczywiście czyta. Ujęcie dostaje
+ * segment `label`, żeby `<Subject 1>` pojawiało się w treści promptu (tego
+ * wymaga `RETENTION_LABEL_IN_PROSE` w `shared/src/validate/rules/ref.ts`) —
+ * bez tego testy niezmienników (`assertNoUnexpectedDiagnostics`) mierzyłyby
+ * różnicę względem projektu, który i tak miał tę diagnostykę PRZED
+ * tłumaczeniem, nie po nim.
+ */
+function refProject(): Project {
+  const base = cleanProject()
+  const shot = base.shots[0]
+  if (shot === undefined) throw new Error('fixture bez ujęcia')
+  return {
+    ...base,
+    mode: 'REF',
+    labels: [standaloneLabel, nonStandaloneLabel],
+    shots: [{
+      ...shot,
+      labelRefs: [standaloneLabel.id],
+      body: [...shot.body, { kind: 'label', labelId: standaloneLabel.id, bracketed: true }],
+    }],
+    ref: {
+      taskTypes: ['reference generation'],
+      summaryText: 'Zachowaj ten sam strój i twarz kobiety we wszystkich ujęciach.',
+      retention: [{
+        id: 'ret1', labelId: standaloneLabel.id, scope: '', marker: 'fully_preserved',
+        note: 'twarz i płaszcz muszą pozostać identyczne',
+      }],
+    },
+  }
+}
+
 describe('collectTranslatableFields', () => {
   it('projekt bez żadnej prozy nie daje żadnego pola', () => {
     expect(collectTranslatableFields(emptyProject())).toEqual([])
@@ -166,34 +209,60 @@ describe('collectTranslatableFields', () => {
     expect(fields.some(f => f.id.includes('cutPhrase'))).toBe(false)
   })
 
-  it('etykiety, dźwięk diegetyczny i wpisy retencji nie trafiają do zebranych pól (poza zakresem — brak operacji do ich adresowania)', () => {
-    const project = cleanProject()
-    const shot = project.shots[0]
+  it('SFX diegetyczny i composition nie trafiają do zebranych pól — w ŻADNYM trybie, bo żaden skompilowany prompt ich nie czyta', () => {
+    const base = refProject()
+    const shot = base.shots[0]
     if (shot === undefined) throw new Error('fixture bez ujęcia')
-    const label: Label = {
-      id: 'lab1', kind: 'subject', index: 1, assetIds: [],
-      definition: 'kobieta w niebieskim płaszczu, lat 30', role: 'główna bohaterka', standalone: true,
-    }
-    const withOutOfScopeFields: Project = {
-      ...project,
-      labels: [label],
+    const project: Project = {
+      ...base,
       shots: [{
         ...shot,
         diegeticSfx: [{ id: 'sfx1', description: 'metaliczny zgrzyt hamulców pociągu', startMs: 0, endMs: 1000 }],
       }],
-      ref: {
-        ...project.ref,
-        summaryText: 'Zachowaj ten sam strój i twarz kobiety we wszystkich ujęciach.',
-        retention: [{ id: 'ret1', labelId: 'lab1', scope: '', marker: 'fully_preserved', note: 'twarz i płaszcz muszą pozostać identyczne' }],
-      },
     }
-    const fields = collectTranslatableFields(withOutOfScopeFields)
-    const texts = fields.map(f => f.text)
-    expect(texts).not.toContain(label.definition)
-    expect(texts).not.toContain(label.role)
+    const texts = collectTranslatableFields(project).map(f => f.text)
     expect(texts).not.toContain('metaliczny zgrzyt hamulców pociągu')
-    expect(texts).not.toContain(withOutOfScopeFields.ref.summaryText)
-    expect(texts).not.toContain('twarz i płaszcz muszą pozostać identyczne')
+    expect(texts).not.toContain(project.shots[0]?.composition)
+  })
+
+  it('etykiety i wpisy retencji nie trafiają do zebranych pól POZA trybem REF', () => {
+    // Sam projekt REF, tylko ze zmienionym trybem — dowodzi, że to TRYB
+    // bramkuje zbieranie tych pól, nie ich (nie)obecność w projekcie.
+    const project: Project = { ...refProject(), mode: 'T2VA' }
+    const ids = collectTranslatableFields(project).map(f => f.id)
+    expect(ids.some(id => id.startsWith('label:'))).toBe(false)
+    expect(ids.some(id => id.startsWith('retention:'))).toBe(false)
+  })
+
+  it('w trybie REF: definicja etykiety standalone, podsumowanie i notatka retencji TRAFIAJĄ do zebranych pól, z właściwym identyfikatorem', () => {
+    const project = refProject()
+    const fields = collectTranslatableFields(project)
+    const byId = new Map(fields.map(f => [f.id, f]))
+
+    const definitionField = byId.get(`label:${standaloneLabel.id}:definition`)
+    expect(definitionField?.text).toBe(standaloneLabel.definition)
+
+    const summaryField = byId.get('retention:summary')
+    expect(summaryField?.text).toBe(project.ref.summaryText)
+
+    const noteField = byId.get('retention:entry:ret1')
+    expect(noteField?.text).toBe('twarz i płaszcz muszą pozostać identyczne')
+  })
+
+  it('w trybie REF: definicja etykiety NIE-standalone nie trafia do zebranych pól', () => {
+    const project = refProject()
+    const ids = collectTranslatableFields(project).map(f => f.id)
+    expect(ids).not.toContain(`label:${nonStandaloneLabel.id}:definition`)
+  })
+
+  it('w trybie REF: pole "role" etykiety NIGDY nie trafia do zebranych pól, mimo że "definition" tej samej etykiety trafia', () => {
+    const project = refProject()
+    const fields = collectTranslatableFields(project)
+    expect(fields.some(f => f.text === standaloneLabel.role)).toBe(false)
+    expect(fields.some(f => f.id.endsWith(':role'))).toBe(false)
+    // Kontrast: "definition" TEJ SAMEJ etykiety jest zebrane — to nie jest
+    // etykieta pominięta w całości, tylko konkretnie pole "role".
+    expect(fields.some(f => f.id === `label:${standaloneLabel.id}:definition`)).toBe(true)
   })
 
   it('pole puste nie trafia do zebranych pól', () => {
@@ -289,6 +358,77 @@ describe('translateAllToPatch — jedna łatka, wiele operacji', () => {
     expect(speakerOps.every(op => op.kind === 'setSpeakerDescriptor' && (op.speakerId === 'sp1' || op.speakerId === 'sp2'))).toBe(true)
   })
 
+  it('w trybie REF: pole "label" daje setLabelField z właściwym labelId i "field"', () => {
+    const before = refProject()
+    const result: TranslateAllResult = {
+      fields: [{ id: `label:${standaloneLabel.id}:definition`, english: 'a woman in a blue coat, in her 30s' }],
+    }
+    const patch = translateAllToPatch(result, before)
+    expect(patch.ops).toHaveLength(1)
+    const op = patch.ops[0]
+    if (op === undefined || op.kind !== 'setLabelField') throw new Error('oczekiwano setLabelField')
+    expect(op.labelId).toBe(standaloneLabel.id)
+    expect(op.field).toBe('definition')
+    expect(op.text).toBe('a woman in a blue coat, in her 30s')
+  })
+
+  it('w trybie REF: pole "retention" (scope: summary) daje setRetentionText ze scope { kind: "summary" }', () => {
+    const before = refProject()
+    const result: TranslateAllResult = {
+      fields: [{ id: 'retention:summary', english: 'Keep the same outfit and face across every shot.' }],
+    }
+    const patch = translateAllToPatch(result, before)
+    expect(patch.ops).toHaveLength(1)
+    const op = patch.ops[0]
+    if (op === undefined || op.kind !== 'setRetentionText') throw new Error('oczekiwano setRetentionText')
+    expect(op.scope).toEqual({ kind: 'summary' })
+    expect(op.text).toBe('Keep the same outfit and face across every shot.')
+  })
+
+  it('w trybie REF: pole "retention" (scope: entry) daje setRetentionText ze scope { kind: "entry", entryId }', () => {
+    const before = refProject()
+    const result: TranslateAllResult = {
+      fields: [{ id: 'retention:entry:ret1', english: 'face and coat must remain identical' }],
+    }
+    const patch = translateAllToPatch(result, before)
+    expect(patch.ops).toHaveLength(1)
+    const op = patch.ops[0]
+    if (op === undefined || op.kind !== 'setRetentionText') throw new Error('oczekiwano setRetentionText')
+    expect(op.scope).toEqual({ kind: 'entry', entryId: 'ret1' })
+    expect(op.text).toBe('face and coat must remain identical')
+  })
+
+  it('w trybie REF: "label"/"retention" już po angielsku (ta sama treść) nie tworzą operacji', () => {
+    const before = refProject()
+    const result: TranslateAllResult = {
+      fields: [
+        { id: `label:${standaloneLabel.id}:definition`, english: standaloneLabel.definition },
+        { id: 'retention:summary', english: before.ref.summaryText },
+        { id: 'retention:entry:ret1', english: 'twarz i płaszcz muszą pozostać identyczne' },
+      ],
+    }
+    expect(translateAllToPatch(result, before).ops).toEqual([])
+  })
+
+  it('identyfikator "label:...:role" — którego collectTranslatableFields nigdy nie wystawia — jest odrzucany bez śladu', () => {
+    const before = refProject()
+    const result: TranslateAllResult = {
+      fields: [{ id: `label:${standaloneLabel.id}:role`, english: 'the protagonist' }],
+    }
+    const patch = translateAllToPatch(result, before)
+    expect(patch.ops).toEqual([])
+    const after = applyOps(before, patch.ops)
+    expect(after.labels.find(l => l.id === standaloneLabel.id)?.role).toBe(standaloneLabel.role)
+  })
+
+  it('identyfikator wpisu retencji, który nie istnieje w projekcie, jest odrzucany bez śladu', () => {
+    const before = refProject()
+    const result: TranslateAllResult = {
+      fields: [{ id: 'retention:entry:brak', english: 'y' }],
+    }
+    expect(translateAllToPatch(result, before).ops).toEqual([])
+  })
+
   it('pole już po angielsku (model zwraca tę samą treść) nie tworzy operacji — reszta łatki jest nietknięta', () => {
     const before = cleanProject()
     const result: TranslateAllResult = {
@@ -372,6 +512,29 @@ describe('translateAllToPatch — jedna łatka, wiele operacji', () => {
     assertNoUnexpectedDiagnostics(before, after)
   })
 
+  it('w trybie REF: łatka z setLabelField i setRetentionText zastosowana do czystego projektu nie wprowadza diagnostyki poza przyjętymi wyjątkami', () => {
+    const before = refProject()
+    const result: TranslateAllResult = {
+      fields: [
+        { id: `label:${standaloneLabel.id}:definition`, english: 'a woman in a blue coat, in her 30s' },
+        { id: 'retention:summary', english: 'Keep the same outfit and face across every shot.' },
+        { id: 'retention:entry:ret1', english: 'face and coat must remain identical' },
+      ],
+    }
+    const patch = translateAllToPatch(result, before)
+    expect(patch.ops).toHaveLength(3)
+    const after = applyOps(before, patch.ops)
+    assertNoUnexpectedDiagnostics(before, after)
+  })
+
+  it('w trybie REF: projekt bez żadnej polskiej treści (model odsyła wszystko bez zmian) daje łatkę PUSTĄ', () => {
+    const before = refProject()
+    const fields = collectTranslatableFields(before)
+    expect(fields.length).toBeGreaterThan(0)
+    const result: TranslateAllResult = { fields: fields.map(f => ({ id: f.id, english: f.text })) }
+    expect(translateAllToPatch(result, before).ops).toEqual([])
+  })
+
   it('wynik zastosowania łatki przechodzi parseProject', () => {
     const before = cleanProject()
     const result: TranslateAllResult = {
@@ -379,6 +542,20 @@ describe('translateAllToPatch — jedna łatka, wiele operacji', () => {
         { id: 'style', english: 'Realistic footage, natural daylight.' },
         { id: 'shotText:s1:0', english: 'A woman stands alone at the edge of the platform.' },
         { id: 'speaker:sp1:fullDescriptor', english: 'a woman in a blue coat' },
+      ],
+    }
+    const patch = translateAllToPatch(result, before)
+    const after = applyOps(before, patch.ops)
+    expect(() => parseProject(after)).not.toThrow()
+  })
+
+  it('w trybie REF: wynik zastosowania łatki z setLabelField/setRetentionText przechodzi parseProject', () => {
+    const before = refProject()
+    const result: TranslateAllResult = {
+      fields: [
+        { id: `label:${standaloneLabel.id}:definition`, english: 'a woman in a blue coat, in her 30s' },
+        { id: 'retention:summary', english: 'Keep the same outfit and face across every shot.' },
+        { id: 'retention:entry:ret1', english: 'face and coat must remain identical' },
       ],
     }
     const patch = translateAllToPatch(result, before)

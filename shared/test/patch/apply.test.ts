@@ -3,7 +3,7 @@ import { applyOps } from '../../src/patch/apply.js'
 import { describeOp } from '../../src/patch/describe.js'
 import { newProject } from '../fixtures/newProject.js'
 import type { PatchOp } from '../../src/patch/types.js'
-import type { Shot, Speaker } from '../../src/model/types.js'
+import type { Label, RetentionEntry, Shot, Speaker } from '../../src/model/types.js'
 
 const project = () => newProject()
 
@@ -11,6 +11,15 @@ const speaker: Speaker = {
   id: 'sp1', code: 'S1', characterType: 'woman', age: '30s', gender: 'female',
   pitch: 'mid', timbre: 'warm', rate: 'even', accent: 'neutral', onScreen: true,
   fullDescriptor: 'a woman in a blue coat', shortDescriptor: '',
+}
+
+const label: Label = {
+  id: 'lab1', kind: 'subject', index: 1, assetIds: [],
+  definition: 'a woman in a blue coat, 30s', role: 'main character', standalone: true,
+}
+
+const retentionEntry: RetentionEntry = {
+  id: 'ret1', labelId: 'lab1', scope: '', marker: 'fully_preserved', note: 'coat and face must stay identical',
 }
 
 /** Ujęcie z minimalnym, poprawnym kształtem — do nadpisywania w pojedynczych testach. */
@@ -148,6 +157,76 @@ describe('applyOps', () => {
     expect(next.shots[0]?.body[0]).toEqual({ kind: 'text', text: 'nowy tekst' })
   })
 
+  it('setLabelField z tą samą treścią zwraca ten sam obiekt', () => {
+    const p = { ...project(), labels: [label] }
+    expect(applyOps(p, [
+      { kind: 'setLabelField', id: 'o1', label: 'x', labelId: label.id, field: 'definition', text: label.definition },
+    ])).toBe(p)
+  })
+
+  it('setLabelField z inną treścią zapisuje ją w polu wskazanym przez "field", nie rusza drugiego', () => {
+    const p = { ...project(), labels: [label] }
+    const next = applyOps(p, [
+      { kind: 'setLabelField', id: 'o1', label: 'x', labelId: label.id, field: 'role', text: 'the protagonist' },
+    ])
+    expect(next).not.toBe(p)
+    expect(next.labels[0]?.role).toBe('the protagonist')
+    expect(next.labels[0]?.definition).toBe(label.definition)
+  })
+
+  it('setLabelField wskazujący nieistniejącą etykietę zwraca projekt bez zmian', () => {
+    const p = { ...project(), labels: [label] }
+    expect(applyOps(p, [
+      { kind: 'setLabelField', id: 'o1', label: 'x', labelId: 'brak', field: 'definition', text: 'y' },
+    ])).toBe(p)
+  })
+
+  it('setRetentionText (scope: summary) z tą samą treścią zwraca ten sam obiekt', () => {
+    const p = project()
+    expect(applyOps(p, [
+      { kind: 'setRetentionText', id: 'o1', label: 'x', scope: { kind: 'summary' }, text: p.ref.summaryText },
+    ])).toBe(p)
+  })
+
+  it('setRetentionText (scope: summary) z inną treścią podmienia ref.summaryText', () => {
+    const p = project()
+    const next = applyOps(p, [
+      { kind: 'setRetentionText', id: 'o1', label: 'x', scope: { kind: 'summary' }, text: 'preserve the coat and face' },
+    ])
+    expect(next).not.toBe(p)
+    expect(next.ref.summaryText).toBe('preserve the coat and face')
+  })
+
+  it('setRetentionText (scope: entry) z tą samą treścią zwraca ten sam obiekt', () => {
+    const p = { ...project(), ref: { ...project().ref, retention: [retentionEntry] } }
+    expect(applyOps(p, [
+      {
+        kind: 'setRetentionText', id: 'o1', label: 'x',
+        scope: { kind: 'entry', entryId: retentionEntry.id }, text: retentionEntry.note,
+      },
+    ])).toBe(p)
+  })
+
+  it('setRetentionText (scope: entry) z inną treścią podmienia note wskazanego wpisu, nie rusza reszty wpisu', () => {
+    const p = { ...project(), ref: { ...project().ref, retention: [retentionEntry] } }
+    const next = applyOps(p, [
+      {
+        kind: 'setRetentionText', id: 'o1', label: 'x',
+        scope: { kind: 'entry', entryId: retentionEntry.id }, text: 'new note',
+      },
+    ])
+    expect(next).not.toBe(p)
+    expect(next.ref.retention[0]?.note).toBe('new note')
+    expect(next.ref.retention[0]?.marker).toBe(retentionEntry.marker)
+  })
+
+  it('setRetentionText (scope: entry) wskazujący nieistniejący wpis zwraca projekt bez zmian', () => {
+    const p = { ...project(), ref: { ...project().ref, retention: [retentionEntry] } }
+    expect(applyOps(p, [
+      { kind: 'setRetentionText', id: 'o1', label: 'x', scope: { kind: 'entry', entryId: 'brak' }, text: 'y' },
+    ])).toBe(p)
+  })
+
   it('replaceShots z tą samą referencją tablicy ujęć zwraca ten sam obiekt', () => {
     const p = project()
     expect(applyOps(p, [{ kind: 'replaceShots', id: 'o1', label: 'x', shots: p.shots }])).toBe(p)
@@ -246,6 +325,54 @@ describe('describeOp', () => {
       kind: 'setShotText', id: 'o1', label: 'x', shotId, segmentIndex: 0, text: 'y',
     })
     expect(outOfRange.before).not.toBe(wrongKind.before)
+  })
+
+  it('setLabelField pokazuje prawdziwą treść etykiety jako "przed"', () => {
+    const p = { ...project(), labels: [label] }
+    const described = describeOp(p, {
+      kind: 'setLabelField', id: 'o1', label: 'x', labelId: label.id, field: 'definition', text: 'nowa definicja',
+    })
+    expect(described.before).toBe(label.definition)
+    expect(described.after).toBe('nowa definicja')
+  })
+
+  it('setLabelField wskazujący nieistniejącą etykietę mówi to wprost zamiast pokazywać diff', () => {
+    const p = { ...project(), labels: [label] }
+    const described = describeOp(p, {
+      kind: 'setLabelField', id: 'o1', label: 'x', labelId: 'brak', field: 'definition', text: 'y',
+    })
+    expect(described.before).toBe(described.after)
+    expect(described.before).not.toBe('')
+    expect(described.before).not.toBe('y')
+  })
+
+  it('setRetentionText (scope: summary) pokazuje prawdziwe ref.summaryText jako "przed"', () => {
+    const p = { ...project(), ref: { ...project().ref, summaryText: 'stare podsumowanie' } }
+    const described = describeOp(p, {
+      kind: 'setRetentionText', id: 'o1', label: 'x', scope: { kind: 'summary' }, text: 'nowe podsumowanie',
+    })
+    expect(described.before).toBe('stare podsumowanie')
+    expect(described.after).toBe('nowe podsumowanie')
+  })
+
+  it('setRetentionText (scope: entry) pokazuje prawdziwe note wpisu jako "przed"', () => {
+    const p = { ...project(), ref: { ...project().ref, retention: [retentionEntry] } }
+    const described = describeOp(p, {
+      kind: 'setRetentionText', id: 'o1', label: 'x',
+      scope: { kind: 'entry', entryId: retentionEntry.id }, text: 'nowa notatka',
+    })
+    expect(described.before).toBe(retentionEntry.note)
+    expect(described.after).toBe('nowa notatka')
+  })
+
+  it('setRetentionText (scope: entry) wskazujący nieistniejący wpis mówi to wprost zamiast pokazywać diff', () => {
+    const p = { ...project(), ref: { ...project().ref, retention: [retentionEntry] } }
+    const described = describeOp(p, {
+      kind: 'setRetentionText', id: 'o1', label: 'x', scope: { kind: 'entry', entryId: 'brak' }, text: 'y',
+    })
+    expect(described.before).toBe(described.after)
+    expect(described.before).not.toBe('')
+    expect(described.before).not.toBe('y')
   })
 
   it('replaceShots przy równej liczbie ujęć pokazuje, ile faktycznie się różni', () => {

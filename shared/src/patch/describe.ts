@@ -25,6 +25,10 @@ export function describeOp(project: Project, op: PatchOp): { before: string; aft
       return { before: describeText(project.style), after: describeText(op.text) }
     case 'setSpeakerDescriptor':
       return describeSetSpeakerDescriptor(project, op)
+    case 'setLabelField':
+      return describeSetLabelField(project, op)
+    case 'setRetentionText':
+      return describeSetRetentionText(project, op)
   }
 }
 
@@ -97,4 +101,35 @@ function describeSetSpeakerDescriptor(
     return { before: message, after: message }
   }
   return { before: describeText(speaker[op.field]), after: describeText(op.text) }
+}
+
+function describeSetLabelField(
+  project: Project,
+  op: Extract<PatchOp, { kind: 'setLabelField' }>,
+): { before: string; after: string } {
+  const label = project.labels.find(l => l.id === op.labelId)
+  if (label === undefined) {
+    const message = 'operacja się nie zastosuje — nie ma etykiety o tym identyfikatorze'
+    return { before: message, after: message }
+  }
+  return { before: describeText(label[op.field]), after: describeText(op.text) }
+}
+
+function describeSetRetentionText(
+  project: Project,
+  op: Extract<PatchOp, { kind: 'setRetentionText' }>,
+): { before: string; after: string } {
+  // `scope` w osobnej stałej z tego samego powodu co w `applySetRetentionText`
+  // (`apply.ts`) — zawężenie na zagnieżdżonym `op.scope.kind` nie przechodzi
+  // do domknięcia `find` niżej.
+  const scope = op.scope
+  if (scope.kind === 'summary') {
+    return { before: describeText(project.ref.summaryText), after: describeText(op.text) }
+  }
+  const entry = project.ref.retention.find(e => e.id === scope.entryId)
+  if (entry === undefined) {
+    const message = 'operacja się nie zastosuje — nie ma wpisu retencji o tym identyfikatorze'
+    return { before: message, after: message }
+  }
+  return { before: describeText(entry.note), after: describeText(op.text) }
 }

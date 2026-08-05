@@ -1,4 +1,4 @@
-import type { Project, Shot, Speaker } from '../model/types.js'
+import type { Label, Project, RetentionEntry, Shot, Speaker } from '../model/types.js'
 import { segmentAt } from './segment.js'
 import type { PatchOp } from './types.js'
 
@@ -40,6 +40,10 @@ function applyOp(project: Project, op: PatchOp): Project {
       return { ...project, style: op.text }
     case 'setSpeakerDescriptor':
       return applySetSpeakerDescriptor(project, op)
+    case 'setLabelField':
+      return applySetLabelField(project, op)
+    case 'setRetentionText':
+      return applySetRetentionText(project, op)
   }
 }
 
@@ -86,4 +90,56 @@ function applySetSpeakerDescriptor(
   const nextSpeakers = project.speakers.slice()
   nextSpeakers[speakerIndex] = nextSpeaker
   return { ...project, speakers: nextSpeakers }
+}
+
+function applySetLabelField(
+  project: Project,
+  op: Extract<PatchOp, { kind: 'setLabelField' }>,
+): Project {
+  const labelIndex = project.labels.findIndex(label => label.id === op.labelId)
+  if (labelIndex === -1) return project
+  const label = project.labels[labelIndex]
+  if (label === undefined) return project
+  if (label[op.field] === op.text) return project
+
+  const nextLabel: Label = { ...label, [op.field]: op.text }
+  const nextLabels = project.labels.slice()
+  nextLabels[labelIndex] = nextLabel
+  return { ...project, labels: nextLabels }
+}
+
+/**
+ * Jedyna operacja adresująca DWA różne miejsca w projekcie przez jeden
+ * `kind` — `scope.kind` rozstrzyga, czy tekst idzie do `ref.summaryText`
+ * (pole singletonowe, jak `style`) czy do `note` konkretnego wpisu
+ * `ref.retention` (pole per-wpis, jak opis mówcy). Zob. komentarz przy
+ * `PatchOp['setRetentionText']` w `types.ts`.
+ */
+function applySetRetentionText(
+  project: Project,
+  op: Extract<PatchOp, { kind: 'setRetentionText' }>,
+): Project {
+  // `scope` w osobnej stałej: zawężenie na `op.scope.kind` nie przechodzi
+  // niezawodnie do domknięcia `findIndex` niżej, jeśli zostaje odczytywane
+  // jako `op.scope.entryId` — TypeScript gubi zawężenie na ZAGNIEŻDŻONYM
+  // dostępie do właściwości wewnątrz funkcji strzałkowej (zmierzone wprost:
+  // `tsc --noEmit` odrzuca `op.scope.entryId` tu, mimo że `op.scope.kind`
+  // wyżej jest już zawężone do `'entry'`). Zwykły identyfikator zawęża się
+  // poprawnie.
+  const scope = op.scope
+  if (scope.kind === 'summary') {
+    if (project.ref.summaryText === op.text) return project
+    return { ...project, ref: { ...project.ref, summaryText: op.text } }
+  }
+
+  const entryIndex = project.ref.retention.findIndex(entry => entry.id === scope.entryId)
+  if (entryIndex === -1) return project
+  const entry = project.ref.retention[entryIndex]
+  if (entry === undefined) return project
+  if (entry.note === op.text) return project
+
+  const nextEntry: RetentionEntry = { ...entry, note: op.text }
+  const nextRetention = project.ref.retention.slice()
+  nextRetention[entryIndex] = nextEntry
+  return { ...project, ref: { ...project.ref, retention: nextRetention } }
 }
