@@ -1,4 +1,5 @@
 import type { Project, Shot } from '../model/types.js'
+import { segmentAt } from './segment.js'
 import type { PatchOp } from './types.js'
 
 /** Placeholder dla pustego pola — pusty ciąg w diffie wygląda jak błąd renderowania. */
@@ -57,10 +58,13 @@ function shotsEqual(a: Shot | undefined, b: Shot | undefined): boolean {
 
 /**
  * Jedyna operacja, która pisze wewnątrz `body` — i jedyna, gdzie cel może nie
- * istnieć albo wskazywać segment innego rodzaju niż tekst. W obu przypadkach
- * `applyOps` odrzuca operację bez śladu, więc diff nie ma prawa udawać
- * zmiany, która się nie zastosuje: obie strony dostają to samo, wprost
- * powiedziane zdanie zamiast wymyślonej treści.
+ * istnieć, wskazywać poza `body`, albo trafiać w segment innego rodzaju niż
+ * tekst. We wszystkich trzech przypadkach `applyOps` odrzuca operację bez
+ * śladu, więc diff nie ma prawa udawać zmiany, która się nie zastosuje: obie
+ * strony dostają to samo, wprost powiedziane zdanie zamiast wymyślonej
+ * treści. Wiadomość różni się między przypadkami — to różne sytuacje
+ * do naprawy (zły identyfikator ujęcia vs zły indeks segmentu vs zły rodzaj
+ * segmentu) i użytkownik reaguje na nie inaczej.
  */
 function describeSetShotText(
   project: Project,
@@ -71,9 +75,13 @@ function describeSetShotText(
     const message = 'operacja się nie zastosuje — nie ma ujęcia o tym identyfikatorze'
     return { before: message, after: message }
   }
-  const segment = shot.body[op.segmentIndex]
-  if (segment === undefined || segment.kind !== 'text') {
-    const message = 'operacja się nie zastosuje — wskazany segment nie jest tekstem'
+  const segment = segmentAt(shot.body, op.segmentIndex)
+  if (segment === undefined) {
+    const message = 'operacja się nie zastosuje — ujęcie nie ma segmentu pod tym indeksem'
+    return { before: message, after: message }
+  }
+  if (segment.kind !== 'text') {
+    const message = `operacja się nie zastosuje — wskazany segment jest typu „${segment.kind}", nie tekstem`
     return { before: message, after: message }
   }
   return { before: describeText(segment.text), after: describeText(op.text) }
