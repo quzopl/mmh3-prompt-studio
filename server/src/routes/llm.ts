@@ -3,6 +3,10 @@ import { z } from 'zod'
 import { LlmSettingsSchema, readSettings, redactSettings, writeSettings } from '../llm/settings.js'
 import { createProvider } from '../llm/provider.js'
 import { startManaged, stopManaged, managedState } from '../llm/managed.js'
+import { runTask } from '../llm/run.js'
+import { structureTask, structureToPatch, type StructureInput } from '../llm/tasks/structure.js'
+import { readProject } from '../storage/projectStore.js'
+import { SlugSchema } from './params.js'
 
 // Ciało PUT ma inny kształt klucza niż to, co trafia na dysk: `apiKey` w
 // zapisanych ustawieniach jest zawsze stringiem, ale w żądaniu potrzebujemy
@@ -12,6 +16,24 @@ const PutSettingsBody = LlmSettingsSchema.extend({
     apiKey: z.string().nullable(),
   }),
 })
+
+/**
+ * Jedna trasa, `task` rozstrzyga, o które z czterech zadań chodzi — na razie
+ * tylko „structure" (zadanie 6) jest zaimplementowane, kolejne trzy (zadania
+ * 7–9) dojdą jako kolejne warianty tej samej unii. Tryb i długość projektu
+ * ORAZ lista mówców pochodzą z projektu wczytanego po stronie serwera, nie od
+ * klienta — klient dostarcza wyłącznie treść, której serwer nie ma skąd wziąć
+ * (dwa zdania pomysłu). Dzięki temu model zawsze widzi aktualny stan projektu,
+ * a nie kopię, którą przeglądarka mogła przesłać nieaktualną.
+ */
+const RunBody = z.discriminatedUnion('task', [
+  z.object({
+    task: z.literal('structure'),
+    projectSlug: SlugSchema,
+    ideaA: z.string().min(1),
+    ideaB: z.string().min(1),
+  }),
+])
 
 export function registerLlmRoutes(app: FastifyInstance): void {
   app.get('/api/llm/settings', async () =>
@@ -75,4 +97,45 @@ export function registerLlmRoutes(app: FastifyInstance): void {
   })
 
   app.get('/api/llm/managed/state', async () => managedState())
+
+  app.post('/api/llm/run', async (request, reply) => {
+    const parsed = RunBody.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Żądanie niezgodne ze schematem zadania' })
+    }
+
+    const provider = createProvider(await readSettings(app.dataRoot))
+    if (provider === null) return reply.status(409).send({ error: 'Model nie jest skonfigurowany' })
+
+    let project
+    try {
+      project = await readProject(app.dataRoot, parsed.data.projectSlug)
+    } catch {
+      return reply.status(404).send({ error: `Projekt "${parsed.data.projectSlug}" nie istnieje` })
+    }
+
+    const signal = new AbortController().signal
+    try {
+      switch (parsed.data.task) {
+        case 'structure': {
+          const input: StructureInput = {
+            ideaA: parsed.data.ideaA,
+            ideaB: parsed.data.ideaB,
+            mode: project.mode,
+            durationSeconds: project.video.durationMs / 1000,
+            speakers: project.speakers.map(s => ({ code: s.code, characterType: s.characterType })),
+          }
+          const result = await runTask(provider, structureTask, input, signal)
+          return {
+            patch: structureToPatch(result.value, project),
+            promptTokens: result.promptTokens,
+            completionTokens: result.completionTokens,
+            repaired: result.repaired,
+          }
+        }
+      }
+    } catch (error) {
+      return reply.status(502).send({ error: error instanceof Error ? error.message : 'Błąd modelu' })
+    }
+  })
 }
