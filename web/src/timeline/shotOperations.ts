@@ -1,6 +1,6 @@
 import { snapToFrame, type Project, type Shot } from '@mmh3/shared'
 import { boundaryTargetMs, MIN_SHOT_MS } from './useDragBoundary.js'
-import { normalizeShots } from './normalize.js'
+import { normalizeProject } from './normalizeProject.js'
 import { shotSpans } from './spans.js'
 
 /**
@@ -53,7 +53,7 @@ export function splitAtMs(project: Project, ms: number): Project {
     anchors: [],
   }
 
-  return { ...project, shots: normalizeShots([...project.shots, shot], project.video.durationMs) }
+  return normalizeProject(project, [...project.shots, shot])
 }
 
 /**
@@ -86,13 +86,7 @@ export function setShotStartMs(project: Project, shotId: string, ms: number): Pr
   })
   if (startMs === spans[position]?.startMs) return project
 
-  return {
-    ...project,
-    shots: normalizeShots(
-      project.shots.map(shot => shot.id === shotId ? { ...shot, startMs } : shot),
-      project.video.durationMs,
-    ),
-  }
+  return normalizeProject(project, project.shots.map(shot => shot.id === shotId ? { ...shot, startMs } : shot))
 }
 
 /**
@@ -114,12 +108,10 @@ export function setShotStartMs(project: Project, shotId: string, ms: number): Pr
 export function removeShots(project: Project, ids: string[]): Project {
   if (ids.length === 0) return project
   const survivors = project.shots.filter(shot => !ids.includes(shot.id))
-  if (survivors.length > 0) {
-    return { ...project, shots: normalizeShots(survivors, project.video.durationMs) }
-  }
+  if (survivors.length > 0) return normalizeProject(project, survivors)
 
   const ordered = [...project.shots].sort((a, b) => a.index - b.index)
   const first = ordered[0]
   if (!first) return project
-  return { ...project, shots: normalizeShots([first], project.video.durationMs) }
+  return normalizeProject(project, [first])
 }

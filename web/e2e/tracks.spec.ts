@@ -56,7 +56,7 @@ async function assertRowsAligned(page: Page, keys: readonly string[]): Promise<v
 }
 
 /** Tworzy projekt i zostawia edytor otwarty. Nazwa niesie losowy sufiks, żeby dwa testy w tym pliku (albo dwa przebiegi całego `npm run e2e`) nigdy nie trafiły w ten sam slug. */
-async function createProject(page: Page, mode: string): Promise<void> {
+async function createProject(page: Page, mode: string): Promise<string> {
   const name = `E2E tracks ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   await page.goto('/')
   await page.getByRole('button', { name: /nowy projekt/i }).click()
@@ -64,6 +64,7 @@ async function createProject(page: Page, mode: string): Promise<void> {
   await page.getByRole('button', { name: new RegExp(`^${mode}`) }).click()
   await page.getByRole('button', { name: /^utwórz$/i }).click()
   await expect(page.getByText(name)).toBeVisible()
+  return name
 }
 
 test('praca na ścieżkach kamery, dialogu i referencji', async ({ page }) => {
@@ -138,13 +139,15 @@ test('praca na ścieżkach kamery, dialogu i referencji', async ({ page }) => {
   // --- Wyrównanie nagłówków i treści: z jednym mówcą i z trzema ---
   const addSpeaker = page.getByRole('button', { name: /^dodaj mówcę$/i })
   await addSpeaker.click()
-  // Pas zbiorczy istnieje zawsze, więc jeden mówca daje DWA pasy (`DialogueTracks.tsx`).
-  await expect(page.locator('[data-track^="dialogue-"]')).toHaveCount(2)
+  // Jeden pas na mówcę (`DialogueTracks.tsx`). Dawny pas zbiorczy „bez
+  // mówcy" zniknął w recenzji końcowej — nie mógł legalnie nic pomieścić,
+  // bo `DialogueEventSchema` wymaga `speakerIds.min(1)`.
+  await expect(page.locator('[data-track^="dialogue-"]')).toHaveCount(1)
   await assertRowsAligned(page, T2VA_ROWS)
 
   await addSpeaker.click()
   await addSpeaker.click()
-  await expect(page.locator('[data-track^="dialogue-"]')).toHaveCount(4)
+  await expect(page.locator('[data-track^="dialogue-"]')).toHaveCount(3)
   await assertRowsAligned(page, T2VA_ROWS)
 
   // --- Zwinięcie ścieżki WIELOWIERSZOWEJ: tu żyje błąd z rundy poprawek 1 ---
@@ -153,9 +156,9 @@ test('praca na ścieżkach kamery, dialogu i referencji', async ({ page }) => {
   // i `unitHeight` są tam identyczne z KONSTRUKCJI niezależnie od stanu
   // zwinięcia, więc błąd „nagłówek zwiniętego wiersza zostaje pełnej
   // wysokości, treść spada do zera” fizycznie nie może się tam objawić.
-  // Dialogi przy trzech mówcach mają CZTERY wiersze (`dialogueLaneCount` =
-  // mówcy + pas zbiorczy) — to jedyne miejsce w tym pliku, gdzie ten dokładny
-  // błąd byłby widoczny (nagłówek 4×32=128px kontra treść 32px, 96px
+  // Dialogi przy trzech mówcach mają TRZY wiersze (`dialogueLaneCount` =
+  // liczba mówców) — to jedyne miejsce w tym pliku, gdzie ten dokładny
+  // błąd byłby widoczny (nagłówek 3×32=96px kontra treść 32px, 64px
   // rozjazdu). Sprawdzone przez chwilowe cofnięcie naprawy w `TrackStack.tsx`
   // (patrz raport zadania) — bez niej ta konkretna asercja, nie żadna dalsza,
   // wychodzi czerwona.
@@ -227,6 +230,64 @@ test('praca na ścieżkach kamery, dialogu i referencji', async ({ page }) => {
   // Zoom zmienia szerokości klipów, ale wysokości wierszy (stałe w pikselach,
   // niezależne od skali czasu) mają zostać wyrównane tak samo jak przed „Dopasuj”.
   await assertRowsAligned(page, T2VA_ROWS)
+})
+
+/**
+ * Recenzja końcowa, znaleziska 1 i 5 — oba widoczne WYŁĄCZNIE w prawdziwej
+ * przeglądarce, bo oba dotyczą tego, co dzieje się PO akcji: autozapisu przez
+ * sieć i pozycji playheada ustawianej klawiszem.
+ *
+ * Znalezisko 1 (krytyczne): jedno kliknięcie „+" na pasie dialogów tworzyło
+ * kwestię ze `speakerIds: []`, `PUT /api/projects/:slug` odpowiadał 400, a
+ * ponieważ każdy kolejny autozapis wysyła CAŁY projekt, autozapis był zepsuty
+ * do końca sesji — po przeładowaniu ginęła cała praca od utworzenia projektu.
+ * Dowód nie może więc kończyć się na „klip jest w DOM": musi przejść przez
+ * serwer i wrócić.
+ *
+ * Znalezisko 5: `End` stawia playhead DOKŁADNIE na `durationMs`, a
+ * `spanAt` pytało `atMs < span.endMs` — żadne ujęcie nie pasowało i każdy
+ * przycisk „+" milczał bez obiektu, bez błędu i bez śladu.
+ */
+test('przyciski „+" działają na końcu materiału, a wynik przeżywa autozapis', async ({ page }) => {
+  const name = await createProject(page, 'T2VA')
+
+  // Świeży projekt nie ma ŻADNEGO mówcy — to stan, w którym przycisk pasa
+  // dialogów musi umieć coś stworzyć (tworzy minimalnego mówcę razem z
+  // kwestią, patrz `addDialogue`).
+  await expect(page.locator('[data-track^="dialogue-"]')).toHaveCount(1)
+
+  // Playhead na samym końcu materiału, przez prawdziwy klawisz.
+  await page.locator('body').click()
+  await page.keyboard.press('End')
+
+  await page.getByRole('button', { name: /dodaj kwestię na playheadzie/i }).click()
+  // Zakotwiczone na `Kwestia S… nr` — samo `/^kwestia/` łapie też plakietkę
+  // ostrzeżenia „Kwestia nie mieści się w klipie…", która przy playheadzie na
+  // samym końcu materiału jest UCZCIWIE zapalona (`SPEECH_FITS`, patrz
+  // `createOnTrack.test.ts`), więc byłoby to dwa elementy, nie jeden.
+  await expect(page.getByRole('button', { name: /^kwestia S\d+ nr/i })).toBeVisible()
+  await page.getByRole('button', { name: /dodaj dźwięk na playheadzie/i }).click()
+  await expect(page.getByRole('button', { name: /^dźwięk:/i })).toBeVisible()
+
+  // Mówca powstał razem z kwestią, więc pas dialogów ma teraz własny wiersz.
+  await expect(page.locator('[data-track^="dialogue-"]')).toHaveCount(1)
+  // Zawężone do kosza zasobów: `(S1)` pojawia się też w pasie dialogów na
+  // liście mówców klipu, a to ten sam napis w dwóch miejscach.
+  await expect(page.getByRole('region', { name: /^assety$/i }).getByText('(S1)', { exact: true }))
+    .toBeVisible()
+
+  // Autozapis nie zgłasza błędu (`saveError` renderuje się w pasku edytora).
+  await expect(page.getByText(/coś poszło nie tak/i)).toHaveCount(0)
+
+  // I — dowód rozstrzygający — praca wraca po przeładowaniu strony. Wybór
+  // projektu żyje w stanie React (`App.tsx`, bez routingu), więc po
+  // przeładowaniu trzeba go otworzyć z listy; to i tak ta sama droga, którą
+  // przeszedł użytkownik zgłaszający usterkę.
+  await page.waitForTimeout(1500)
+  await page.reload()
+  await page.getByRole('button', { name: new RegExp(name) }).click()
+  await expect(page.getByRole('button', { name: /^kwestia S\d+ nr/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^dźwięk:/i })).toBeVisible()
 })
 
 test('ścieżka referencji w trybie REF ma nagłówki zgodne z liczbą etykiet', async ({ page }) => {

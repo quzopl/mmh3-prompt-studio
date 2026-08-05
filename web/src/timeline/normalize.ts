@@ -81,5 +81,16 @@ export function normalizeShots(shots: Shot[], durationMs: number): Shot[] {
     }
   }
 
-  return ordered.map((shot, index) => ({ ...shot, index, startMs: msOfFrameIndex(frames[index] ?? 0) }))
+  /**
+   * Ujęcie, którego ani `index`, ani `startMs` się nie zmienia, wraca TYM
+   * SAMYM obiektem. `normalizeProject` (`normalizeProject.ts`) stoi na tym
+   * swoim krótkim spięciem tożsamościowym — porównuje kandydata z oryginałem
+   * ELEMENT PO ELEMENCIE, więc bez tego każde przejście przez tę funkcję
+   * produkowałoby nowe obiekty, `apply` widziałby zmianę tam, gdzie jej nie
+   * ma, i dokładał do historii cofania wpisy nieodpowiadające niczemu.
+   */
+  return ordered.map((shot, index) => {
+    const startMs = msOfFrameIndex(frames[index] ?? 0)
+    return shot.index === index && shot.startMs === startMs ? shot : { ...shot, index, startMs }
+  })
 }

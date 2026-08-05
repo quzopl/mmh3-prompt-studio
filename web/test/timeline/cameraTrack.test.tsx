@@ -32,6 +32,36 @@ const moveOf = (id: string) =>
   useProject.getState().project?.shots.flatMap(shot => shot.cameraMoves).find(move => move.id === id)
 
 describe('CameraTrack', () => {
+  /**
+   * Recenzja końcowa, znalezisko 6: `SfxTrack` i `DialogueTracks` renderują
+   * POSORTOWANĄ PO CZASIE kopię swojej tablicy, z zapisanym uzasadnieniem
+   * (kolejność malowania i kolejność Taba muszą iść od lewej do prawej, a
+   * `shot.cameraMoves` nie musi iść za czasem: przeciągnięcie klipu podmienia
+   * `startMs`/`endMs` po id i nigdy nie przestawia elementu w tablicy). Plik
+   * `CameraTrack.tsx` jest szablonem dla pięciu pozostałych ścieżek — i był
+   * jedyną ścieżką, która tego szablonu nie stosowała. Numer W ETYKIECIE
+   * pozostaje numerem pozycji w TABLICY (patrz komentarz przy `position` w
+   * komponencie), więc sortowanie widoku go nie rusza.
+   */
+  it('klipy renderują się w kolejności czasu, nie w kolejności tablicy', () => {
+    useProject.getState().apply(current => ({
+      ...current,
+      shots: current.shots.map(shot => (shot.id === 'a'
+        ? {
+            ...shot,
+            cameraMoves: [
+              { id: 'late', type: 'tilt-up' as const, startMs: 2000, endMs: 2500 },
+              { id: 'early', type: 'zoom-in' as const, startMs: 100, endMs: 600 },
+            ],
+          }
+        : shot)),
+    }))
+    render(<CameraTrack scale={scale} />)
+    const order = screen.getAllByRole('button', { name: /^ruch kamery/i })
+      .map(element => element.style.left)
+    expect(order).toEqual(['10px', '200px', '600px'])
+  })
+
   it('rysuje po jednym klipie na ruch kamery', () => {
     render(<CameraTrack scale={scale} />)
     // Zakotwiczone na początku etykiety („Ruch kamery ...") — bez tego pasowałby

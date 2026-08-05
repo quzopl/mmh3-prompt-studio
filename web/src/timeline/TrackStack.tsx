@@ -135,9 +135,13 @@ export function TrackStack({ scale, ruler, playhead }: Props) {
       rowCount: dialogueLaneCount(project), unitHeightPx: DIALOGUE_LANE_HEIGHT_PX,
       render: () => <DialogueTracks scale={scale} />,
       add: {
-        // `null` — bez wyboru mówcy, jak dotąd tylko pas zbiorczy umiał
-        // dodawać (patrz `DialogueTracks.tsx` sprzed tego zadania); wybór
-        // konkretnego mówcy zostaje ręczną edycją w inspektorze.
+        // `null` — „bez wskazania mówcy", nie „bez mówcy": `addDialogue`
+        // bierze wtedy PIERWSZEGO mówcę projektu, a gdy projekt nie ma
+        // jeszcze żadnego, tworzy minimalnego w tym samym geście (patrz
+        // komentarz przy `addDialogue` w `createOnTrack.ts` — recenzja
+        // końcowa, znalezisko 1). Kwestia bez mówcy nie jest ważnym
+        // dokumentem, więc przycisk nie ma jak jej stworzyć; wybór innego
+        // mówcy zostaje ręczną edycją.
         label: t('track.addDialogue'),
         onClick: () => useProject.getState().apply(candidate => addDialogue(candidate, usePlayhead.getState().ms, null)),
       },

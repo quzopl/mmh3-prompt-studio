@@ -53,10 +53,29 @@ describe('DialogueTracks', () => {
     expect(clips).toHaveLength(2)
   })
 
-  it('kwestia bez mówcy trafia do pasa zbiorczego', () => {
+  /**
+   * Recenzja końcowa, znalezisko 1: pas zbiorczy „Dialog bez mówcy" nie mógł
+   * legalnie nic pomieścić (`DialogueEventSchema` wymaga `speakerIds.min(1)`),
+   * więc zniknął. Jedyny pas spoza listy mówców, jaki został, to pusty pas
+   * ZASTĘPCZY dla projektu, który nie ma jeszcze żadnego mówcy — istnieje
+   * wyłącznie po to, żeby wiersz treści miał wysokość swojego nagłówka w
+   * `TrackStack`, i nigdy nie pokazuje klipu.
+   */
+  it('projekt bez mówców dostaje jeden pusty pas zastępczy', () => {
+    useProject.getState().load('test', {
+      ...projectWithDialogue(),
+      speakers: [],
+      shots: [emptyShot('a', 0, 0)],
+    })
     render(<DialogueTracks scale={scale} />)
-    const lane = screen.getByLabelText(/dialog bez mówcy/i)
-    expect(within(lane).getAllByRole('button', { name: /kwestia/i })).toHaveLength(1)
+    const lane = screen.getByLabelText(/brak mówców/i)
+    expect(within(lane).queryAllByRole('button')).toHaveLength(0)
+  })
+
+  it('poza stanem pustym nie ma żadnego pasa spoza listy mówców', () => {
+    const { container } = render(<DialogueTracks scale={scale} />)
+    expect(container.querySelectorAll('[data-track^="dialogue-"]')).toHaveLength(2)
+    expect(screen.queryByLabelText(/bez mówcy/i)).not.toBeInTheDocument()
   })
 
   it('pas mówcy bez żadnej kwestii nadal istnieje', () => {
@@ -67,25 +86,6 @@ describe('DialogueTracks', () => {
     render(<DialogueTracks scale={scale} />)
     const lane = screen.getByLabelText(/dialog S3/i)
     expect(within(lane).queryAllByRole('button')).toHaveLength(0)
-  })
-
-  it('pas zbiorczy istnieje nawet, gdy każda kwestia ma mówcę', () => {
-    useProject.getState().apply(current => ({
-      ...current,
-      shots: current.shots.map(shot => ({
-        ...shot,
-        dialogue: shot.dialogue.filter(event => event.id !== 'd4'),
-      })),
-    }))
-    render(<DialogueTracks scale={scale} />)
-    const lane = screen.getByLabelText(/dialog bez mówcy/i)
-    // Filtr po etykiecie klipu, nie goły `queryAllByRole('button')` — pas
-    // zbiorczy od zadania 14 zawsze niesie przycisk dodawania („Dodaj
-    // kwestię..."), więc pusty wynik dowodziłby braku klipów tylko wtedy, gdy
-    // ten przycisk jest wykluczony z liczenia. „kwestia" (bez ogonka) nie
-    // pasuje do „kwestię" w etykiecie przycisku — ten sam trik co w teście
-    // „kwestia bez mówcy trafia do pasa zbiorczego" wyżej.
-    expect(within(lane).queryAllByRole('button', { name: /kwestia/i })).toHaveLength(0)
   })
 
   it('dwie kwestie tego samego mówcy o tym samym tekście w jednym ujęciu dostają różne etykiety', () => {

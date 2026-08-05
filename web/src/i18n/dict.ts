@@ -42,7 +42,11 @@ const pl = {
   'timeline.trackShots': 'Ujęcia',
   'timeline.trackCamera': 'Kamera',
   'timeline.trackDialogue': 'Dialog {speaker}',
-  'timeline.trackDialogueOther': 'Dialog bez mówcy',
+  // Pas zastępczy pokazywany WYŁĄCZNIE w projekcie bez żadnego mówcy — patrz
+  // komentarz nad `DialogueTracks`. Nie jest to dawny pas „bez mówcy": kwestia
+  // bez mówcy nie przechodzi przez `DialogueEventSchema`, więc taki pas nie
+  // mógł niczego pomieścić.
+  'timeline.trackDialogueEmpty': 'Dialogi — brak mówców',
   // Tytuł CAŁEJ grupy pasów dialogowych w kolumnie nagłówków (zadanie 12) —
   // `timeline.trackDialogue` niesie parametr mówcy i nie nadaje się na
   // wspólny tytuł, gdy pasów jest kilka (jeden na mówcę plus zbiorczy).
@@ -81,8 +85,6 @@ const pl = {
   'camera.clipLabel': 'Ruch kamery {type} nr {position} w ujęciu {shot}',
   'camera.dragStart': 'Przesuń początek ruchu {type}',
   'camera.dragEnd': 'Przesuń koniec ruchu {type}',
-  'camera.add': 'Dodaj ruch kamery',
-  'camera.remove': 'Usuń ruch kamery',
 
   'dialogue.clipLabel': 'Kwestia {speaker} nr {position} w ujęciu {shot}: {text}',
   'dialogue.dragStart': 'Przesuń początek kwestii {speaker}',
@@ -205,7 +207,7 @@ const en: Record<TKey, string> = {
   'timeline.trackShots': 'Shots',
   'timeline.trackCamera': 'Camera',
   'timeline.trackDialogue': 'Dialogue {speaker}',
-  'timeline.trackDialogueOther': 'Dialogue without speaker',
+  'timeline.trackDialogueEmpty': 'Dialogue — no speakers',
   'timeline.trackDialogueAll': 'Dialogue',
   'timeline.trackScreenText': 'On-screen text',
   'timeline.trackSfx': 'SFX',
@@ -232,8 +234,6 @@ const en: Record<TKey, string> = {
   'camera.clipLabel': 'Camera move {type} #{position} in shot {shot}',
   'camera.dragStart': 'Move start of {type}',
   'camera.dragEnd': 'Move end of {type}',
-  'camera.add': 'Add camera move',
-  'camera.remove': 'Remove camera move',
 
   'dialogue.clipLabel': 'Line by {speaker} #{position} in shot {shot}: {text}',
   'dialogue.dragStart': 'Move start of line by {speaker}',

@@ -1,9 +1,11 @@
 import {
-  MS_PER_FRAME, snapToFrame, type ObjectRef, type Project, type Segment, type Shot,
+  MS_PER_FRAME, snapToFrame, type ObjectRef, type Project, type Segment,
 } from '@mmh3/shared'
 import { DICT } from '../i18n/dict.js'
+import { newSpeaker } from '../model/speakers.js'
 import { shotSpans } from './spans.js'
-import { speakerIntroducedBefore } from './proposals.js'
+import { DIALOGUE_ID_PREFIX, nextId } from './ids.js'
+import { normalizeProject } from './normalizeProject.js'
 
 /** Domyślna długość nowego obiektu: sekunda, przycięta do tego, co zostało. */
 const DEFAULT_LENGTH_MS = 1000
@@ -12,34 +14,26 @@ const frameIndexOf = (ms: number): number => Math.round(ms / MS_PER_FRAME)
 const msOfFrameIndex = (frame: number): number => Math.round(frame * MS_PER_FRAME)
 
 /**
- * Identyfikator z maksimum istniejących, nie z ich liczby. Numeracja po liczbie
- * wraca do wcześniejszej wartości po usunięciu obiektu i produkuje duplikat, a
- * duplikat sprawia, że gest wymierzony w jeden obiekt trafia we wszystkie o tym
- * samym identyfikatorze — zmierzone w recenzji Planu 3 na czasach cięcia.
+ * Ujęcie pod playheadem. Przedziały są PÓŁOTWARTE (`[start, end)`), bo koniec
+ * jednego ujęcia to początek następnego i wspólna klatka musi należeć do
+ * dokładnie jednego z nich — ale OSTATNIE ujęcie nie ma następnika, więc jego
+ * ostatnia chwila nie należałaby do niczego.
  *
- * UWAGA na `\d` w tym wzorcu: w template literalu JS `\d` nie jest metaznakiem
- * cyfry — nierozpoznana sekwencja ucieczki oddaje sam znak `d` (sprawdzone
- * w node: `` `\d` === 'd' ``), więc wzorzec musi użyć podwójnego backslasha
- * (`\\d`). Brief tego zadania podawał wersję z pojedynczym `\d` — z nią
- * `pattern` dopasowywałby tylko literalne „...-d", nigdy istniejące id, więc
- * `highest` zawsze zostawałby na 0 i KAŻDE wywołanie zwracałoby ten sam
- * identyfikator (np. dwa kolejne ruchy kamery dostałyby oba `move-1`) —
- * dokładnie duplikat, przed którym ostrzega akapit wyżej. Test „dwa ruchy
- * dodane w tym samym miejscu mają różne identyfikatory" łapie to czerwonym.
+ * Recenzja końcowa, znalezisko 5: playhead potrafi stanąć DOKŁADNIE na
+ * `durationMs` — klawisz End go tam stawia (`useTimelineShortcuts`), a każda
+ * długość będąca wielokrotnością klatki (8000, 7500, 5000 ms) trafia tam też
+ * przez przewijanie klatka po klatce. Przy warunku `atMs < span.endMs` żadne
+ * ujęcie wtedy nie pasowało i KAŻDY przycisk „+" po prostu milczał: bez
+ * obiektu, bez błędu, bez śladu w interfejsie. Ostatnie ujęcie jest więc
+ * właścicielem swojej ostatniej chwili — przedział domknięty tylko na samym
+ * końcu materiału, gdzie nie ma z kim go dzielić.
  */
-function nextId(prefix: string, existing: string[]): string {
-  const pattern = new RegExp(`^${prefix}-(\\d+)$`)
-  const highest = existing.reduce((best, id) => {
-    const match = pattern.exec(id)
-    const value = match?.[1] === undefined ? 0 : Number.parseInt(match[1], 10)
-    return Number.isFinite(value) && value > best ? value : best
-  }, 0)
-  return `${prefix}-${highest + 1}`
+const spanAt = (project: Project, atMs: number) => {
+  const spans = shotSpans(project.shots, project.video.durationMs)
+  const lastPosition = spans.length - 1
+  return spans.find((span, position) => atMs >= span.startMs
+    && (atMs < span.endMs || (position === lastPosition && atMs <= span.endMs)))
 }
-
-const spanAt = (project: Project, atMs: number) =>
-  shotSpans(project.shots, project.video.durationMs)
-    .find(span => atMs >= span.startMs && atMs < span.endMs)
 
 /** Zakres nowego obiektu: od playheada, sekunda długości, przycięte do granicy. */
 function rangeFrom(atMs: number, highestMs: number): { startMs: number; endMs: number } {
@@ -93,72 +87,90 @@ export function addCameraMove(project: Project, atMs: number): Project {
   }
 }
 
+/**
+ * Kwestia dialogowa jest ZAWSZE przypisana do mówcy. Nie jest to ozdoba
+ * modelu: `DialogueEventSchema` wymaga `speakerIds.min(1)`, a
+ * `PUT /api/projects/:slug` waliduje tym samym schematem — kwestia z pustą
+ * tablicą wraca z kodem 400, a że autozapis wysyła CAŁY projekt, JEDNO
+ * kliknięcie psuło autozapis do końca sesji (recenzja końcowa, znalezisko 1;
+ * odtworzone w Chromium: klik, dalsza zwykła praca, przeładowanie — cała
+ * sesja od utworzenia projektu przepadła). Zgadza się to też z guide: kwestia
+ * mówiona ma mówcę, a narracja bez mówcy to proza w `body`, nie
+ * `DialogueEvent`.
+ *
+ * Wybór mówcy, w kolejności:
+ *  - podany `speakerId`, o ile ISTNIEJE w `project.speakers` — nieznany
+ *    identyfikator to pomyłka wołającego i oddajemy projekt bez zmian, bo
+ *    `renderSpeakerSegment` (shared/src/compile/renderSpeaker.ts) rzuca na
+ *    nierozwiązywalny identyfikator, a `buildPrompt` zamienia to w
+ *    `COMPILE_FAILED` na projekcie, który przed wywołaniem się kompilował;
+ *  - `null` (tak woła przycisk „+" w `TrackStack`) — PIERWSZY mówca projektu;
+ *  - a gdy projekt nie ma ŻADNEGO mówcy (stan świeżo utworzonego projektu,
+ *    patrz `server/src/storage/newProject.ts`) — minimalny nowy mówca,
+ *    dokładnie tego samego kształtu co z przycisku „Dodaj mówcę" w
+ *    `AssetBin` (`web/src/model/speakers.ts`, jedna implementacja).
+ *
+ * Trzecia gałąź, a nie wyszarzony przycisk: pas dialogów jest jedynym pasem,
+ * którego przycisk „+" musiałby milczeć w stanie, w jakim KAŻDY projekt się
+ * zaczyna, a znalezisko 5 tej samej recenzji dotyczyło właśnie przycisków
+ * cicho nic nierobiących. Cena — mówca dopisany do obsady gestem na osi
+ * czasu — jest widoczna (pojawia się nowy pas i wpis w koszu zasobów) i
+ * cofalna jednym Ctrl+Z, a przede wszystkim DOWIEDZIONA jako niewnosząca
+ * żadnej diagnostyki: `SPEAKER_FIRST_INTRO` patrzy na FORMĘ segmentu
+ * (dostaje `'full'`), a `SPEAKER_SILENT_NO_ID` na to, czy mówca ma jakąś
+ * kwestię (dostaje ją w tym samym geście) — przemiot różnicowy w
+ * `createOnTrack.test.ts` („świeżo utworzony mówca nie zapala żadnej nowej
+ * diagnostyki").
+ *
+ * `form: 'full'` niezależnie od tego, czy mówca był już wcześniej
+ * wprowadzony. To bezpieczne wyłącznie względem `SPEAKER_FIRST_INTRO`
+ * (shared/src/validate/rules/speech.ts): ta reguła sprawdza formę TYLKO
+ * przy pierwszym w całym projekcie wystąpieniu danego mówcy w `body`, a
+ * `'full'` ten warunek zawsze spełnia; przy kolejnych wystąpieniach reguła
+ * w ogóle nie patrzy na formę segmentu. To NIE znaczy „bezpieczne w każdym
+ * przypadku" (złapane w rundzie 1 recenzji zadania 14): jeśli
+ * `speaker.fullDescriptor` jest puste (dopuszczalny, realny stan — mówca
+ * dodany i jeszcze nie opisany), `renderSpeakerSegment` odda pusty opis przed
+ * `(Sx)` — walidator tego nie złapie (reguła patrzy na `form`/`descriptor`
+ * SEGMENTU, nie na treść rozstrzygniętego opisu), ale prompt i tak wyjdzie
+ * ubogi. A dla mówcy z już bogatym opisem, użytym gdzie indziej, każde
+ * kolejne dodanie kwestii tym przyciskiem powtarza ten sam pełny opis w
+ * prozie — bez błędu, ale coraz bardziej rozwlekle. Odtworzenie pełnej logiki
+ * „czy to pierwsze wystąpienie" z `proposals.ts` (`speakerIntroducedBefore`)
+ * nie naprawia żadnej z tych dwóch rzeczy (żadna z nich nie zależy od pozycji
+ * w projekcie) — zostaje więc jako świadomy kompromis, nie przeoczenie.
+ */
 export function addDialogue(project: Project, atMs: number, speakerId: string | null): Project {
-  /**
-   * Mówca musi istnieć w `project.speakers`, jeśli jest podany. Bez tej
-   * straży `renderSpeakerSegment` (shared/src/compile/renderSpeaker.ts)
-   * dostałby `speakerIds: [speakerId]` bez odpowiadającego rekordu, jego
-   * `.find(...)` zwróciłby `undefined`, a funkcja rzuca na to jawnym
-   * wyjątkiem (`Brak mówcy o id ${id}`) — `buildPrompt` zamienia taki
-   * wyjątek w `COMPILE_FAILED` na projekcie, który przed wywołaniem się
-   * kompilował. Dziś jedyne miejsce wołające tę funkcję z interfejsu
-   * przekazuje `null` (patrz `DialogueTracks.tsx`), więc nieznany
-   * `speakerId` jest dziś nieosiągalny z UI — ale funkcja jest eksportowana,
-   * test briefu woła ją wprost, a kolejne zadanie przepina te przyciski, więc
-   * nieznany identyfikator to pomyłka wołającego: oddajemy projekt bez zmian,
-   * tak samo jak `spanAt` odmawia dla playheada poza jakimkolwiek ujęciem.
-   */
-  if (speakerId !== null && !project.speakers.some(candidate => candidate.id === speakerId)) {
-    return project
-  }
-
   const span = spanAt(project, atMs)
   if (!span) return project
-  const range = rangeFrom(Math.max(atMs, span.startMs), project.video.durationMs)
-  const id = nextId('line', project.shots.flatMap(shot => shot.dialogue).map(event => event.id))
 
-  /**
-   * Segment mówcy tylko, gdy mówca jest znany. Bez niego (`speakerId ===
-   * null`) `{kind:'speaker', speakerIds: []}` byłby jedyną opcją — a
-   * `renderSpeakerSegment` czyta `resolved[0]` bez sprawdzenia długości i
-   * wybuchłby na pustej tablicy — więc kwestia bez mówcy zostaje sama, jak
-   * kwestia narracyjna w danych testowych (`d4` w `fixtures.ts`).
-   *
-   * `form: 'full'` niezależnie od tego, czy mówca był już wcześniej
-   * wprowadzony. To bezpieczne wyłącznie względem `SPEAKER_FIRST_INTRO`
-   * (shared/src/validate/rules/speech.ts): ta reguła sprawdza formę TYLKO
-   * przy pierwszym w całym projekcie wystąpieniu danego mówcy w `body`, a
-   * `'full'` ten warunek zawsze spełnia; przy kolejnych wystąpieniach reguła
-   * w ogóle nie patrzy na formę segmentu. To NIE znaczy „bezpieczne w każdym
-   * przypadku" (poprzednia wersja tego komentarza tak twierdziła — błędnie,
-   * złapane w rundzie 1 recenzji): jeśli `speaker.fullDescriptor` jest puste
-   * (dopuszczalny, realny stan — mówca dodany i jeszcze nie opisany),
-   * `renderSpeakerSegment` odda pusty opis przed `(Sx)` — walidator tego nie
-   * złapie (reguła patrzy na `form`/`descriptor` SEGMENTU, nie na treść
-   * rozstrzygniętego opisu), ale prompt i tak wyjdzie ubogi. A dla mówcy z
-   * już bogatym opisem, użytym gdzie indziej, każde kolejne dodanie kwestii
-   * tym przyciskiem powtarza ten sam pełny opis w prozie — bez błędu, ale
-   * coraz bardziej rozwlekle. Odtworzenie pełnej logiki „czy to pierwsze
-   * wystąpienie" z `proposals.ts` (`speakerIntroducedBefore`) nie naprawia
-   * żadnej z tych dwóch rzeczy (żadna z nich nie zależy od pozycji w
-   * projekcie) — zostaje więc jako świadomy kompromis, nie przeoczenie.
-   */
-  const additions: Segment[] = speakerId === null
-    ? [{ kind: 'dialogue', eventId: id }]
-    : [
-        { kind: 'speaker', speakerIds: [speakerId], form: 'full' },
-        { kind: 'text', text: ' ' },
-        { kind: 'dialogue', eventId: id },
-      ]
+  const owner = speakerId === null
+    ? project.speakers[0] ?? newSpeaker(project.speakers)
+    : project.speakers.find(candidate => candidate.id === speakerId)
+  if (!owner) return project
+
+  const speakers = project.speakers.some(candidate => candidate.id === owner.id)
+    ? project.speakers
+    : [...project.speakers, owner]
+
+  const range = rangeFrom(Math.max(atMs, span.startMs), project.video.durationMs)
+  const id = nextId(DIALOGUE_ID_PREFIX, project.shots.flatMap(shot => shot.dialogue).map(event => event.id))
+
+  const additions: Segment[] = [
+    { kind: 'speaker', speakerIds: [owner.id], form: 'full' },
+    { kind: 'text', text: ' ' },
+    { kind: 'dialogue', eventId: id },
+  ]
 
   return {
     ...project,
+    speakers,
     shots: project.shots.map(shot => shot.id === span.shot.id
       ? {
           ...shot,
           dialogue: [...shot.dialogue, {
             id,
-            speakerIds: speakerId === null ? [] : [speakerId],
+            speakerIds: [owner.id],
             verb: 'says',
             punctuation: ':' as const,
             language: 'English',
@@ -261,21 +273,22 @@ const isWhitespaceText = (seg: Segment): boolean => seg.kind === 'text' && seg.t
  * mówcy zostawia samą spację), więc krok 2 musi biec PO kroku 1, nie przed
  * ani równolegle.
  *
- * Zwraca też `droppedSpeakerIds` — identyfikatory mówców, których segment
- * KROK 1 faktycznie zdjął. `removeSelected` używa tego do decyzji, dla
- * których mówców trzeba jeszcze sprawdzić, czy ich nowe pierwsze
- * (przetrwałe) wystąpienie w CAŁYM projekcie wciąż niesie formę `'full'` —
- * patrz `promoteFirstSurvivingIntroduction` niżej.
+ * Recenzja końcowa (znalezisko 3): ta funkcja NIE odpowiada już za formę
+ * wprowadzenia mówcy, który przez sprzątanie stracił swój segment. Poprzednia
+ * wersja zwracała `droppedSpeakerIds`, żeby `removeSelected` mogło podnieść
+ * przetrwałe wystąpienie do formy pełnej — ale ta sama potrzeba powstaje przy
+ * usunięciu całego UJĘCIA (`removeShots`), gdzie żaden `pruneBody` w ogóle
+ * nie biegnie. Odpowiedzialność przeszła więc w całości do
+ * `normalizeProject` (`normalizeProject.ts`), przez które przechodzą OBIE
+ * drogi usuwania — a tu zostaje samo sprzątanie `body`.
  */
-function pruneBody(body: Segment[]): { body: Segment[]; droppedSpeakerIds: string[] } {
-  const droppedSpeakerIds: string[] = []
+function pruneBody(body: Segment[]): Segment[] {
   const withoutOrphanSpeakers = body.filter((seg, index) => {
     if (seg.kind !== 'speaker') return true
     const rest = body.slice(index + 1)
     const nextSpeakerOffset = rest.findIndex(candidate => candidate.kind === 'speaker')
     const run = nextSpeakerOffset === -1 ? rest : rest.slice(0, nextSpeakerOffset)
     if (!run.every(candidate => isWhitespaceText(candidate))) return true
-    droppedSpeakerIds.push(...seg.speakerIds)
     return false
   })
 
@@ -295,50 +308,7 @@ function pruneBody(body: Segment[]): { body: Segment[]; droppedSpeakerIds: strin
     if (last === undefined || !isWhitespaceText(last)) break
     collapsed.pop()
   }
-  return { body: collapsed, droppedSpeakerIds }
-}
-
-/**
- * Po zdjęciu mówcy, który stracił swój jedyny (pełny albo skrócony) segment
- * w JEDNYM ujęciu, mówca mógł mieć DALSZE, przetrwałe segmenty w innych
- * ujęciach — dokładnie kształt, jaki zostawia `splitAtSceneTrans`: `'full'`
- * w ujęciu, gdzie kwestia zaczyna się po raz pierwszy, `'short'` w
- * kolejnym, dokąd przechodzi przez cięcie. Jeśli zdjęty segment był tym
- * `'full'`, przetrwały `'short'` staje się nowym pierwszym wystąpieniem
- * mówcy w porządku projektu — a `SPEAKER_FIRST_INTRO`
- * (shared/src/validate/rules/speech.ts) wymaga formy `'full'` albo opisu
- * właśnie na PIERWSZYM wystąpieniu. Złapane w rundzie 2 recenzji: bez tej
- * funkcji Delete potrafiło zapalić tę regułę na projekcie, który jej nie miał.
- *
- * Szuka pierwszego PRZETRWAŁEGO segmentu `speaker` dla `speakerId`, idąc po
- * ujęciach w kolejności (`shotSpans`) i po `body` w kolejności tablicy —
- * dokładnie ten sam porządek skanowania, którego używa `SPEAKER_FIRST_INTRO`
- * i `speakerIntroducedBefore` w `proposals.ts`. Reużywa
- * `speakerIntroducedBefore` zamiast pisać drugą odpowiedź na to samo pytanie
- * (reguła 1/5 recenzji zadania 14) — dla znalezionego segmentu funkcja ta
- * potwierdza, że NIC wcześniejszego już go nie wyprzedza (przy tym porządku
- * skanowania zawsze prawda, ale to ta sama gwarancja, na której stoi
- * `SPEAKER_FIRST_INTRO`, nie założenie wynalezione tutaj od nowa). Gdy
- * znaleziony segment ma już `form: 'full'` albo własny `descriptor`, nie ma
- * czego podnosić — funkcja nic nie zmienia. Gdy mówca nie ma już ŻADNEGO
- * przetrwałego segmentu (bo cała jego kwestia zniknęła), pętla kończy się
- * bez akcji — to scenariusz `SPEAKER_SILENT_NO_ID`, osobna, uczciwa
- * diagnostyka, nie coś, co promocja formy potrafi albo powinna naprawić.
- */
-function promoteFirstSurvivingIntroduction(shots: Shot[], durationMs: number, speakerId: string): Shot[] {
-  const spans = shotSpans(shots, durationMs)
-  for (const [position, span] of spans.entries()) {
-    const segIndex = span.shot.body.findIndex(seg => seg.kind === 'speaker' && seg.speakerIds.includes(speakerId))
-    if (segIndex === -1) continue
-    if (speakerIntroducedBefore(spans, position, speakerId)) return shots
-    const segment = span.shot.body[segIndex]
-    if (segment === undefined || segment.kind !== 'speaker') return shots
-    if (segment.form === 'full' || segment.descriptor) return shots
-    return shots.map(shot => (shot.id === span.shot.id
-      ? { ...shot, body: shot.body.map((seg, index) => (index === segIndex ? { ...segment, form: 'full' as const } : seg)) }
-      : shot))
-  }
-  return shots
+  return collapsed
 }
 
 /**
@@ -364,11 +334,14 @@ function promoteFirstSurvivingIntroduction(shots: Shot[], durationMs: number, sp
  * sprzątać), ale straż czyni to jawnym, zamiast polegać na przypadkowej
  * niezmienności przebiegu na nietkniętych danych.
  *
- * Promocja formy (`promoteFirstSurvivingIntroduction`) biegnie PO tym, jak
- * WSZYSTKIE ujęcia dostały już swoje przycięte `body` — nie w tej samej
- * pętli `.map` — bo wymaga widoku na CAŁY projekt naraz (mówca stracony w
- * jednym ujęciu może przetrwać w innym), czego pojedyncza iteracja po
- * jednym ujęciu nie ma.
+ * Wynik przechodzi przez `normalizeProject` (`normalizeProject.ts`), które
+ * jako jedyny właściciel stanu pochodnego podnosi formę pierwszego
+ * przetrwałego wprowadzenia mówcy — poprzednio robił to ten plik na własną
+ * rękę, przez co usunięcie całego UJĘCIA (`removeShots`, druga droga
+ * usuwania) tej samej ochrony nie miało. Wywołanie stoi PO tym, jak
+ * WSZYSTKIE ujęcia dostały już swoje przycięte `body`, bo wymaga widoku na
+ * CAŁY projekt naraz (mówca stracony w jednym ujęciu może przetrwać w innym),
+ * czego pojedyncza iteracja po jednym ujęciu nie ma.
  */
 export function removeSelected(project: Project, selected: ObjectRef[]): Project {
   const ids = (kind: string) => selected.filter(ref => ref.kind === kind).map(ref => ref.id)
@@ -383,15 +356,9 @@ export function removeSelected(project: Project, selected: ObjectRef[]): Project
     || (seg.kind === 'dialogue' && lines.includes(seg.eventId))
     || (seg.kind === 'screenText' && texts.includes(seg.id))
 
-  const affectedSpeakerIds: string[] = []
   const shotsAfterRemoval = project.shots.map(shot => {
     const afterRemoval = shot.body.filter(seg => !dropsSegment(seg))
-    let body = shot.body
-    if (afterRemoval.length !== shot.body.length) {
-      const pruned = pruneBody(afterRemoval)
-      body = pruned.body
-      affectedSpeakerIds.push(...pruned.droppedSpeakerIds)
-    }
+    const body = afterRemoval.length === shot.body.length ? shot.body : pruneBody(afterRemoval)
     return {
       ...shot,
       cameraMoves: shot.cameraMoves.filter(move => !cameras.includes(move.id)),
@@ -402,10 +369,5 @@ export function removeSelected(project: Project, selected: ObjectRef[]): Project
     }
   })
 
-  const finalShots = [...new Set(affectedSpeakerIds)].reduce(
-    (shots, speakerId) => promoteFirstSurvivingIntroduction(shots, project.video.durationMs, speakerId),
-    shotsAfterRemoval,
-  )
-
-  return { ...project, shots: finalShots }
+  return normalizeProject(project, shotsAfterRemoval)
 }

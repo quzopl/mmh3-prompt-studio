@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { describeSpeaker, type Asset, type Label, type LabelKind, type Speaker } from '@mmh3/shared'
+import { newSpeaker } from '../model/speakers.js'
 import { useProject } from '../store/projectStore.js'
 import { useT } from '../i18n/useT.js'
 import { uploadAsset } from '../api/uploadAsset.js'
@@ -54,19 +55,11 @@ export function AssetBin({ slug }: { slug: string }) {
     return { ...current, labels: [...current.labels, label] }
   })
 
-  const addSpeaker = () => apply(current => {
-    const nextNumber = Math.max(0, ...current.speakers
-      .map(speaker => Number(speaker.code.slice(1)))
-      .filter(Number.isFinite)) + 1
-    const code = `S${nextNumber}`
-    const speaker: Speaker = {
-      id: `speaker-${code}`,
-      code,
-      characterType: '', age: '', gender: '', pitch: '', timbre: '', rate: '', accent: '',
-      onScreen: true, fullDescriptor: '', shortDescriptor: '',
-    }
-    return { ...current, speakers: [...current.speakers, speaker] }
-  })
+  // Kształt i numeracja nowego mówcy z `web/src/model/speakers.ts` — jedna
+  // implementacja dzielona z przyciskiem „+" pasa dialogów, który tworzy
+  // mówcę, gdy projekt nie ma jeszcze żadnego (patrz komentarz tam).
+  const addSpeaker = () => apply(current => (
+    { ...current, speakers: [...current.speakers, newSpeaker(current.speakers)] }))
 
   const regenerate = (speaker: Speaker) => apply(current => ({
     ...current,

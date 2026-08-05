@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { Project } from '@mmh3/shared'
+import { parseProject, type Project } from '@mmh3/shared'
 import { useTimelineShortcuts } from '../../src/timeline/useTimelineShortcuts.js'
 import { useProject } from '../../src/store/projectStore.js'
 import { usePlayhead } from '../../src/store/playheadStore.js'
@@ -20,6 +20,16 @@ const project: Project = {
   shots: [shot('a', 0, 0), shot('b', 1, 4000)],
   audio: { overallSoundscape: '', nonDiegeticMusic: 'N/A' },
   ref: { taskTypes: [], summaryText: '', retention: [] },
+}
+
+/**
+ * Recenzja końcowa, znalezisko 4: skrót klawiszowy jest akcją interfejsu jak
+ * każda inna, a `PUT /api/projects/:slug` waliduje `ProjectSchema` — wynik
+ * `S` i `Delete` musi więc przez ten schemat przejść, inaczej autozapis
+ * pada 400 i milknie do końca sesji.
+ */
+const expectStoredProjectParses = (): void => {
+  expect(() => parseProject(useProject.getState().project)).not.toThrow()
 }
 
 function Harness() {
@@ -61,6 +71,7 @@ describe('useTimelineShortcuts', () => {
     render(<Harness />)
     await userEvent.keyboard('s')
     expect(useProject.getState().project!.shots).toHaveLength(3)
+    expectStoredProjectParses()
   })
 
   it('Delete usuwa zaznaczone ujęcie', async () => {
@@ -68,6 +79,7 @@ describe('useTimelineShortcuts', () => {
     render(<Harness />)
     await userEvent.keyboard('{Delete}')
     expect(useProject.getState().project!.shots.map(s => s.id)).toEqual(['b'])
+    expectStoredProjectParses()
   })
 
   /**

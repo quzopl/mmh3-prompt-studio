@@ -96,7 +96,25 @@ export function CameraTrack({ scale }: { scale: Scale }) {
       className="relative border-b border-neutral-800"
       style={{ width: msToPx(scale, scale.durationMs), height: CAMERA_TRACK_HEIGHT_PX }}
     >
-      {spans.flatMap(span => span.shot.cameraMoves.map((move, position) => {
+      {spans.flatMap(span => span.shot.cameraMoves
+        .map((move, position) => ({ move, position }))
+        // Sortowanie KOPII do renderu, nie modelu — jak w `SfxTrack` i
+        // `DialogueTracks`, i z tego samego powodu (recenzja końcowa,
+        // znalezisko 6: ten plik jest szablonem dla pięciu pozostałych
+        // ścieżek i był jedyną ścieżką, która własnego szablonu nie
+        // stosowała). Kolejność w `shot.cameraMoves` nie musi iść za czasem:
+        // żadna reguła schematu ani walidatora tego nie wymaga, a zwykłe
+        // przeciągnięcie klipu (`write` w `useDragClip` podmienia
+        // `startMs`/`endMs` po id, nie przestawia elementu w tablicy)
+        // osiąga taki stan bez żadnego wysiłku. W DOM-ie kolejność musi iść
+        // za czasem, bo bez ustawionego `z-index` elementy pozycjonowane
+        // maluje się w kolejności dokumentu (dwa ruchy w jednym ujęciu MOGĄ
+        // się nakładać — patrz komentarz nad komponentem), a przy Tabie klipy
+        // mają się pojawiać od lewej do prawej, nie w przypadkowej kolejności
+        // tablicy. `position` liczy się PRZED sortowaniem, bo etykieta niesie
+        // numer ruchu w TABLICY ujęcia — ta sama zasada co w `DialogueTracks`.
+        .sort((left, right) => left.move.startMs - right.move.startMs)
+        .map(({ move, position }) => {
         const ref = { kind: 'camera' as const, id: move.id }
         const isSelected = selected.some(candidate => same(candidate, ref))
         const label = t('camera.clipLabel', {

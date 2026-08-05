@@ -1,6 +1,7 @@
 import { CONTINUITY_PHRASES, type DialogueEvent, type Project, type Segment } from '@mmh3/shared'
 import { shotSpans, type ShotSpan } from './spans.js'
 import { countWords } from './speech.js'
+import { DIALOGUE_ID_PREFIX, nextId } from './ids.js'
 
 export type ProposalKind = 'scenetrans' | 'cutoff'
 
@@ -90,24 +91,6 @@ function markCutoff(project: Project, eventId: string): Project {
 }
 
 /**
- * Numer w identyfikatorze nowej (drugiej) połówki kwestii — po maksimum już
- * zajętych numerów w CAŁYM projekcie, nie po liczbie kwestii. Ten sam idiom
- * co `nextShotNumber` w `shotOperations.ts` i numerowanie etykiet/mówców w
- * `AssetBin.tsx`: `dialogue.length + 1` wraca do już zajętej wartości za
- * każdym razem, gdy jakaś kwestia zniknie (np. drugi podział po usunięciu
- * pierwszego), więc kolejna nowa kwestia dostałaby identyfikator żywego
- * obiektu — dokładnie ten scenariusz, który w tym projekcie już raz zepsuł
- * przeciągnięcie (patrz komentarz przy `nextShotNumber`). Maksimum plus
- * jeden jest zawsze większe od każdego zajętego numeru, więc kolizja jest
- * niemożliwa niezależnie od historii usunięć.
- */
-const nextDialogueNumber = (project: Project): number =>
-  Math.max(0, ...project.shots.flatMap(shot => shot.dialogue).map(event => {
-    const parsed = Number(/(\d+)$/.exec(event.id)?.[1])
-    return Number.isFinite(parsed) ? parsed : 0
-  })) + 1
-
-/**
  * Czy mówca ma już JAKIEKOLWIEK wprowadzenie (segment `speaker` wskazujący
  * na niego, albo segment `label` z jego `speakerId`) w którymś z ujęć ŚCIŚLE
  * PRZED podaną pozycją w `spans`. Ten sam zakres skanowania, którego używa
@@ -159,8 +142,22 @@ export function speakerIntroducedBefore(spans: ShotSpan[], beforePosition: numbe
  * „czy KTÓRYKOLWIEK") — `SPEAKER_FIRST_INTRO` wymaga formy pełnej / opisu,
  * gdy CHOĆ JEDEN z `speakerIds` segmentu jest wciąż świeży; `'short'` jest
  * bezpieczne tylko wtedy, gdy żaden nie jest.
+ *
+ * `undefined` dla kwestii BEZ mówcy — recenzja końcowa, znalezisko 2
+ * (krytyczne). Pusta `speakerIds` przechodzi przez typ `string[]`, a
+ * `renderSpeakerSegment` (shared/src/compile/renderSpeaker.ts) czyta
+ * `resolved[0]` bez sprawdzenia długości: segment `{kind:'speaker',
+ * speakerIds: []}` w `body` wywracał całą kompilację w `COMPILE_FAILED` i
+ * zerował prompt. `createOnTrack.ts` dokumentował i zabezpieczał dokładnie ten
+ * hazard od zadania 14 — ten plik nie. Straż stoi TUTAJ, a nie u wołającego,
+ * bo to ta funkcja decyduje o kształcie segmentu; wołający dostaje
+ * `undefined` i po prostu nie dokłada segmentu, dokładnie jak `addDialogue`
+ * nie dokładał go dla kwestii bez mówcy.
  */
-function speakerSegmentFor(spans: ShotSpan[], ownerPosition: number, event: DialogueEvent): Segment {
+function speakerSegmentFor(
+  spans: ShotSpan[], ownerPosition: number, event: DialogueEvent,
+): Segment | undefined {
+  if (event.speakerIds.length === 0) return undefined
   const allAlreadyIntroduced = event.speakerIds
     .every(speakerId => speakerIntroducedBefore(spans, ownerPosition + 1, speakerId))
   return { kind: 'speaker', speakerIds: event.speakerIds, form: allAlreadyIntroduced ? 'short' : 'full' }
@@ -256,7 +253,18 @@ function splitAtSceneTrans(project: Project, eventId: string): Project {
     continuityPhrase: CONTINUITY_PHRASES[0],
     cutoff: cutMs > project.video.durationMs,
   }
-  const continuationId = `dialogue-${nextDialogueNumber(project)}`
+  /**
+   * Identyfikator drugiej połówki z TEJ SAMEJ funkcji i tego samego prefiksu,
+   * z których korzysta przycisk „+" (`createOnTrack.addDialogue`) — recenzja
+   * końcowa, znalezisko 6: rodzina kwestii miała dwie niezależne funkcje
+   * liczące następny numer, każdą z własnym wzorcem i własnym prefiksem
+   * (`line-N` vs `dialogue-N`). Dopóki prefiksy się różniły, kolizja była
+   * niemożliwa PRZYPADKIEM; jedna rodzina i dwa liczniki dałyby ją od razu.
+   */
+  const continuationId = nextId(
+    DIALOGUE_ID_PREFIX,
+    project.shots.flatMap(shot => shot.dialogue).map(event => event.id),
+  )
   const continuation: DialogueEvent = {
     ...event,
     id: continuationId,
@@ -267,9 +275,9 @@ function splitAtSceneTrans(project: Project, eventId: string): Project {
     continuityPhrase: undefined,
     cutoff: event.cutoff,
   }
+  const speakerSegment = speakerSegmentFor(spans, ownerPosition, event)
   const continuationSegments: Segment[] = [
-    speakerSegmentFor(spans, ownerPosition, event),
-    { kind: 'text', text: ' ' },
+    ...(speakerSegment ? [speakerSegment, { kind: 'text' as const, text: ' ' }] : []),
     { kind: 'dialogue', eventId: continuationId },
     { kind: 'text', text: ' ' },
   ]

@@ -53,7 +53,11 @@ export const projectWithDialogue = (): Project => ({
         line('d1', ['s1'], 'Nadchodzi', 1000, 2000),
         line('d2', ['s2'], 'Wiem', 2500, 3500),
         line('d3', ['s1', 's2'], 'razem', 4000, 5000),
-        line('d4', [], 'narracja', 6000, 7000),
+        // Recenzja końcowa, znalezisko 1: `speakerIds: []` łamie
+        // `DialogueEventSchema` (`.min(1)`) — ta fikstura kodyfikowała jako
+        // oczekiwany kształt, którego model nigdy nie dopuszczał. `d4` niesie
+        // teraz zwykłą, drugą kwestię `s2`.
+        line('d4', ['s2'], 'narracja', 6000, 7000),
       ],
     },
   ]),

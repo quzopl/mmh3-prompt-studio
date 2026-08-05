@@ -20,8 +20,14 @@ import { applyProposal, dialogueProposals } from './proposals.js'
  */
 export const DIALOGUE_LANE_HEIGHT_PX = 32
 
-/** Liczba pasów: jeden na mówcę plus stały pas zbiorczy (patrz komentarz nad komponentem). */
-export const dialogueLaneCount = (project: Project): number => project.speakers.length + 1
+/**
+ * Liczba pasów: jeden na mówcę, a przy projekcie bez ŻADNEGO mówcy jeden pas
+ * zastępczy — patrz komentarz nad komponentem. `Math.max(1, …)` jest tym
+ * samym, świadomie ograniczonym wyjątkiem dla stanu pustego co w
+ * `screenTextRowCount`: liczba wierszy nadal pochodzi z JEDNEJ funkcji, dla
+ * obu kolumn `TrackStack` naraz, a `Math.max` tylko podnosi dolną granicę.
+ */
+export const dialogueLaneCount = (project: Project): number => Math.max(1, project.speakers.length)
 
 /**
  * Kwestia dwóch mówców pojawia się w obu pasach — to ta sama kwestia widziana
@@ -50,12 +56,26 @@ export const dialogueLaneCount = (project: Project): number => project.speakers.
  * to `role="separator"` bez `tabIndex` z tego samego powodu co tam — zmiana
  * rozmiaru klawiaturą nie istnieje nigdzie w tej maszynerii klipów.
  *
- * Pas renderuje się dla każdego mówcy z listy projektu i osobno dla kwestii
- * bez mówcy, NAWET gdy akurat jest pusty — to stały wiersz przypisany do
- * stałego elementu projektu (mówcy albo „reszty”), a nie widok filtrowany po
- * bieżącej zawartości. Znikający i pojawiający się wiersz przy każdej zmianie
- * przypisania mówcy w kwestii byłby mylący; puste pasy są normalne w
- * edytorach wideo (pusty pas dźwiękowy nie znika, gdy nic na nim nie leży).
+ * Pas renderuje się dla każdego mówcy z listy projektu, NAWET gdy akurat jest
+ * pusty — to stały wiersz przypisany do stałego elementu projektu (mówcy), a
+ * nie widok filtrowany po bieżącej zawartości. Znikający i pojawiający się
+ * wiersz przy każdej zmianie przypisania mówcy w kwestii byłby mylący; puste
+ * pasy są normalne w edytorach wideo (pusty pas dźwiękowy nie znika, gdy nic
+ * na nim nie leży).
+ *
+ * Pas ZBIORCZY („Dialog bez mówcy") ZNIKNĄŁ — recenzja końcowa, znalezisko 1.
+ * Był pasem, który nie mógł legalnie nic pomieścić: `DialogueEventSchema`
+ * wymaga `speakerIds.min(1)`, więc kwestia bez mówcy nie przechodzi ani przez
+ * zapis (`PUT /api/projects/:slug` odpowiada 400), ani przez odczyt
+ * (`parseProject` odrzuca plik) — nie ma więc nawet danych „z zewnątrz",
+ * którym mógłby służyć jako podgląd. Zamiast niego, WYŁĄCZNIE dla projektu
+ * bez żadnego mówcy, stoi jeden pusty pas zastępczy: nie jest celem tworzenia
+ * i nigdy nie pokaże żadnego klipu — istnieje po to, żeby tytuł „Dialogi" w
+ * kolumnie nagłówków `TrackStack` miał odpowiednik tej samej wysokości w
+ * kolumnie treści. Bez niego wiersz nagłówka (`Math.max(1, …)`) stałby nad
+ * treścią o wysokości zero i rozjechałby WSZYSTKO poniżej — dokładnie ta
+ * klasa błędu, którą runda poprawek zadania 12 mierzyła w Chromium (pas
+ * dialogów, w przeciwieństwie do referencji, nie jest ostatnim wierszem).
  */
 export function DialogueTracks({ scale }: { scale: Scale }) {
   const t = useT()
@@ -116,18 +136,14 @@ export function DialogueTracks({ scale }: { scale: Scale }) {
       .map(id => project.speakers.find(speakerRecord => speakerRecord.id === id)?.code ?? id)
       .join(', ')
 
-  const lanes: Array<{ key: string; label: string; matches: (event: DialogueEvent) => boolean }> = [
-    ...project.speakers.map(speakerRecord => ({
-      key: speakerRecord.id,
-      label: t('timeline.trackDialogue', { speaker: speakerRecord.code }),
-      matches: (event: DialogueEvent) => event.speakerIds.includes(speakerRecord.id),
-    })),
-    {
-      key: 'none',
-      label: t('timeline.trackDialogueOther'),
-      matches: (event: DialogueEvent) => event.speakerIds.length === 0,
-    },
-  ]
+  const lanes: Array<{ key: string; label: string; matches: (event: DialogueEvent) => boolean }> =
+    project.speakers.length === 0
+      ? [{ key: 'empty', label: t('timeline.trackDialogueEmpty'), matches: () => false }]
+      : project.speakers.map(speakerRecord => ({
+          key: speakerRecord.id,
+          label: t('timeline.trackDialogue', { speaker: speakerRecord.code }),
+          matches: (event: DialogueEvent) => event.speakerIds.includes(speakerRecord.id),
+        }))
 
   return (
     <>

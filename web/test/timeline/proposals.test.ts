@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { buildPrompt, type Project } from '@mmh3/shared'
+import { buildPrompt, parseProject, type Project } from '@mmh3/shared'
 import { applyProposal, dialogueProposals } from '../../src/timeline/proposals.js'
 import { baseProject, emptyShot, lineFixture, speaker } from './fixtures.js'
+
+/**
+ * Recenzja końcowa, znalezisko 4: wynik KAŻDEJ akcji tworzącej trzeba
+ * porównać ze schematem, bo autozapis wysyła cały projekt i jeden nieważny
+ * obiekt blokuje go do końca sesji. `applyProposal` z rodzajem `scenetrans`
+ * TWORZY nową kwestię, więc podlega tej samej zasadzie co przyciski „+".
+ */
+const expectParses = (project: Project): void => {
+  expect(() => parseProject(project)).not.toThrow()
+}
 
 const withDialogue = (
   startMs: number,
@@ -72,6 +82,7 @@ describe('applyProposal — scenetrans dzieli kwestię na cięciu', () => {
   it('oryginał zostaje w swoim ujęciu skrócony do cięcia, nowa połówka ląduje w następnym', () => {
     const project = withDialogue(3000, 5000, {}, 'slowo jeden dwa trzy')
     const next = applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })
+    expectParses(next)
 
     const shotA = next.shots.find(s => s.id === 'a')
     const shotB = next.shots.find(s => s.id === 'b')
@@ -108,6 +119,7 @@ describe('applyProposal — scenetrans dzieli kwestię na cięciu', () => {
     // do pustego tekstu po którejś stronie.
     const project = withDialogue(3000, 5000, {}, 'raz dwa')
     const next = applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })
+    expectParses(next)
     const texts = next.shots.flatMap(s => s.dialogue).map(e => e.text)
     expect(texts).toEqual(['raz', 'dwa'])
   })
@@ -128,6 +140,7 @@ describe('applyProposal — scenetrans dzieli kwestię na cięciu', () => {
     // druga połówka była niewidoczna w eksportowanym prompcie.
     const project = withDialogue(3000, 5000, {}, 'slowo jeden dwa trzy')
     const next = applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })
+    expectParses(next)
     const shotB = next.shots.find(s => s.id === 'b')
     if (!shotB) throw new Error('oczekiwano ujęcia b')
     const continuation = shotB.dialogue[0]
@@ -164,6 +177,7 @@ describe('applyProposal — scenetrans dzieli kwestię na cięciu', () => {
       speakers: [speaker('s1', 'S1')],
     }
     const next = applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })
+    expectParses(next)
     const text = buildPrompt(next).text
 
     // Rozpięte na CAŁĄ granicę zszycia (atrybucja mówcy → dialog → to, co
@@ -203,6 +217,7 @@ describe('applyProposal — scenetrans dzieli kwestię na cięciu', () => {
     expect(before).toEqual([])
 
     const next = applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })
+    expectParses(next)
     const after = buildPrompt(next).diagnostics.filter(d => d.ruleId === 'SPEAKER_FIRST_INTRO')
     expect(after).toEqual([])
   })
@@ -228,6 +243,7 @@ describe('applyProposal — scenetrans dzieli kwestię na cięciu', () => {
       speakers: [speaker('s1', 'S1')],
     }
     const next = applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })
+    expectParses(next)
     const diagnostics = buildPrompt(next).diagnostics.filter(d => d.ruleId === 'SPEAKER_FIRST_INTRO')
     expect(diagnostics).toEqual([])
   })
@@ -304,6 +320,7 @@ describe('applyProposal — cutoff i scenetrans na tej samej kwestii', () => {
     // nie kliknął plakietki `cutoff` — tylko `scenetrans`.
     const project = withDialogue(3000, 9000, {}, 'slowo jeden dwa trzy')
     const next = applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })
+    expectParses(next)
 
     const dialogue = next.shots.flatMap(s => s.dialogue)
     const before = dialogue.find(e => e.id === 'd1')
@@ -331,5 +348,54 @@ describe('applyProposal — cutoff', () => {
   it('propozycja o nieznanym identyfikatorze zwraca ten sam obiekt', () => {
     const project = withDialogue(1000, 2000)
     expect(applyProposal(project, { eventId: 'brak', kind: 'cutoff' })).toBe(project)
+  })
+})
+
+/**
+ * Recenzja końcowa, znalezisko 2 (krytyczne): `speakerSegmentFor` budowało
+ * segment mówcy z `event.speakerIds` BEZ sprawdzenia, czy tablica jest pusta.
+ * Pusta tablica przechodzi przez typ `string[]`, a `renderSpeakerSegment`
+ * (shared/src/compile/renderSpeaker.ts) czyta `resolved[0]` bez sprawdzenia
+ * długości — wynikiem jest wyjątek, który `buildPrompt` zamienia w
+ * `COMPILE_FAILED` i prompt o zerowej długości. `createOnTrack.ts` dokumentuje
+ * i zabezpiecza dokładnie ten hazard od zadania 14; `proposals.ts` nie.
+ *
+ * Test celowo NIE idzie przez przycisk „+" (który od znaleziska 1 nigdy już
+ * nie tworzy kwestii bez mówcy) tylko wprost przez `applyProposal` — kształt
+ * jest osiągalny dla każdego wołającego tej funkcji i straż ma być jej
+ * własnością, nie skutkiem ubocznym cudzej poprawki.
+ */
+describe('applyProposal — scenetrans na kwestii bez mówcy', () => {
+  const speakerlessCrossing = (): Project => baseProject([
+    {
+      ...emptyShot('a', 0, 0),
+      dialogue: [lineFixture('d1', [], 'przechodzi przez ciecie', 3000, 5000)],
+      body: [{ kind: 'dialogue', eventId: 'd1' }],
+    },
+    emptyShot('b', 1, 4000),
+  ])
+
+  it('nie wywraca kompilacji ani nie zeruje promptu', () => {
+    // Bez `expectParses` — ta fikstura jest NIEWAŻNA z założenia
+    // (`speakerIds: []`), bo tylko taka odtwarza badany hazard. Test mierzy
+    // odporność `splitAtSceneTrans` na cudzy zły wsad, nie ważność wyniku.
+    const next = applyProposal(speakerlessCrossing(), { eventId: 'd1', kind: 'scenetrans' })
+    const compiled = buildPrompt(next)
+    expect(compiled.diagnostics.map(d => d.ruleId)).not.toContain('COMPILE_FAILED')
+    expect(compiled.text.length).toBeGreaterThan(0)
+  })
+
+  it('nie dokłada do body segmentu mówcy bez żadnego mówcy', () => {
+    const next = applyProposal(speakerlessCrossing(), { eventId: 'd1', kind: 'scenetrans' })
+    const speakerSegments = next.shots.flatMap(shot => shot.body).filter(seg => seg.kind === 'speaker')
+    expect(speakerSegments).toEqual([])
+  })
+
+  it('kontynuacja i tak trafia do body następnego ujęcia, żeby kompilator ją zobaczył', () => {
+    const next = applyProposal(speakerlessCrossing(), { eventId: 'd1', kind: 'scenetrans' })
+    const shotB = next.shots.find(s => s.id === 'b')
+    const continuation = shotB?.dialogue[0]
+    expect(continuation).toBeDefined()
+    expect(shotB?.body).toContainEqual({ kind: 'dialogue', eventId: continuation?.id ?? '' })
   })
 })

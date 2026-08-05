@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { buildPrompt } from '@mmh3/shared'
+import { buildPrompt, parseProject } from '@mmh3/shared'
 import { createScale } from '../../src/timeline/scale.js'
 import { TrackStack } from '../../src/timeline/TrackStack.js'
 import { useTimelineShortcuts } from '../../src/timeline/useTimelineShortcuts.js'
@@ -43,21 +43,49 @@ const grab = (name: RegExp) => {
   return element
 }
 
+const ruleIds = (): string[] =>
+  buildPrompt(useProject.getState().project!).diagnostics.map(d => d.ruleId)
+
 /**
- * `baseProject` (fixtures.ts) zostawia `overallSoundscape`/`nonDiegeticMusic`
- * jako puste stringi, co SAMO w sobie zapala `SOUNDSCAPE_SENTENCES`/
- * `MUSIC_SENTENCES` (guide wymaga 1–4, odpowiednio 1–3 zdań; 0 nie mieści się
- * w żadnym z tych zakresów) — nawet na projekcie, którego ta ścieżka w ogóle
- * nie dotyka. Pełne `toEqual([])` byłoby więc fałszywym dowodem: łapałoby
- * ten szum tła jako rzekomą regresję. Sprawdzamy zamiast tego wprost te dwie
- * diagnostyki, których globalne ograniczenie tego zadania faktycznie
- * zabrania — brak segmentu w `body` (`BODY_REFS_COMPLETE`) i wybuch kompilacji
- * (`COMPILE_FAILED`) — czyli dokładnie to, co ten test ma udowodnić.
+ * Trzy jedyne diagnostyki, które akcja interfejsu ma prawo wnieść do
+ * projektu, który jej nie miał — każda dlatego, że walidator ma rację, a nie
+ * dlatego, że kod jest wadliwy (patrz opisy przy testach „wyniki uczciwe"
+ * w `createOnTrack.test.ts`).
  */
-const assertNoBodyRegression = (): void => {
-  const ids = buildPrompt(useProject.getState().project!).diagnostics.map(d => d.ruleId)
-  expect(ids).not.toContain('BODY_REFS_COMPLETE')
-  expect(ids).not.toContain('COMPILE_FAILED')
+const ACCEPTED_NEW_DIAGNOSTICS = new Set([
+  // Kwestia dodana w ostatnich ~479 ms materiału naprawdę się nie mieści.
+  'SPEECH_FITS',
+  // Pierwszy dźwięk diegetyczny w projekcie deklarującym ciszę („N/A").
+  'SOUNDSCAPE_NA_ONLY_IF_SILENT',
+  // Mówca traci swoją ostatnią kwestię w całym projekcie.
+  'SPEAKER_SILENT_NO_ID',
+])
+
+/**
+ * Recenzja końcowa, znalezisko 4: poprzednia wersja tej asercji sprawdzała
+ * DWA wpisane na sztywno identyfikatory reguł (`BODY_REFS_COMPLETE`,
+ * `COMPILE_FAILED`) — i przez to zapadła się do zera przy każdej innej
+ * regule. Trzy objawy znaleziska 3 (`CAM_IN_SHOT_BOUNDS`,
+ * `SPEAKER_FIRST_INTRO`, rozjechany zakres retencji) przeszły przez nią bez
+ * śladu. Właściwym kształtem jest RÓŻNICA ZBIORÓW: diagnostyki po akcji minus
+ * diagnostyki przed nią, z jawnie nazwanymi wyjątkami. Szum tła (`baseProject`
+ * ma pusty pejzaż i muzykę, więc `SOUNDSCAPE_SENTENCES`/`MUSIC_SENTENCES`
+ * palą się od pierwszej klatki) znika sam — jest po OBU stronach różnicy.
+ */
+const assertNoNewDiagnostics = (before: Set<string>): void => {
+  for (const id of ruleIds().filter(candidate => !before.has(candidate))) {
+    expect(ACCEPTED_NEW_DIAGNOSTICS.has(id), `nieoczekiwana nowa diagnostyka: ${id}`).toBe(true)
+  }
+}
+
+/**
+ * Recenzja końcowa, znalezisko 4 (druga połowa): `PUT /api/projects/:slug`
+ * waliduje `ProjectSchema`, a autozapis wysyła CAŁY projekt — jeden nieważny
+ * obiekt zablokował autozapis do końca sesji i nikt tego nie zauważył, bo
+ * żaden test nie porównywał wyniku akcji interfejsu ze schematem.
+ */
+const assertParses = (): void => {
+  expect(() => parseProject(useProject.getState().project!)).not.toThrow()
 }
 
 beforeEach(() => {
@@ -70,6 +98,7 @@ describe('tworzenie i usuwanie na CameraTrack', () => {
   it('przycisk dodaje klip na playheadzie, Delete go usuwa jednym wpisem historii razem z dodaniem', async () => {
     const user = userEvent.setup()
     render(<Harness><TrackStack scale={scale} /></Harness>)
+    const before = new Set(ruleIds())
 
     expect(screen.queryByRole('button', { name: /^Ruch kamery/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /dodaj ruch kamery/i }))
@@ -77,7 +106,8 @@ describe('tworzenie i usuwanie na CameraTrack', () => {
     const clip = grab(/^Ruch kamery/i)
     expect(clip).toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(1)
-    assertNoBodyRegression()
+    assertNoNewDiagnostics(before)
+    assertParses()
 
     await user.click(clip)
     expect(useSelection.getState().selected).toHaveLength(1)
@@ -86,6 +116,8 @@ describe('tworzenie i usuwanie na CameraTrack', () => {
     expect(screen.queryByRole('button', { name: /^Ruch kamery/i })).not.toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(2)
     expect(useSelection.getState().selected).toEqual([])
+    assertNoNewDiagnostics(before)
+    assertParses()
   })
 })
 
@@ -93,6 +125,7 @@ describe('tworzenie i usuwanie na SfxTrack', () => {
   it('przycisk dodaje klip na playheadzie, Delete go usuwa jednym wpisem historii razem z dodaniem', async () => {
     const user = userEvent.setup()
     render(<Harness><TrackStack scale={scale} /></Harness>)
+    const before = new Set(ruleIds())
 
     expect(screen.queryByRole('button', { name: /^Dźwięk:/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /dodaj dźwięk/i }))
@@ -100,7 +133,8 @@ describe('tworzenie i usuwanie na SfxTrack', () => {
     const clip = grab(/^Dźwięk:/i)
     expect(clip).toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(1)
-    assertNoBodyRegression()
+    assertNoNewDiagnostics(before)
+    assertParses()
 
     await user.click(clip)
     expect(useSelection.getState().selected).toHaveLength(1)
@@ -109,6 +143,8 @@ describe('tworzenie i usuwanie na SfxTrack', () => {
     expect(screen.queryByRole('button', { name: /^Dźwięk:/i })).not.toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(2)
     expect(useSelection.getState().selected).toEqual([])
+    assertNoNewDiagnostics(before)
+    assertParses()
   })
 })
 
@@ -123,6 +159,7 @@ describe('tworzenie i usuwanie na DialogueTracks', () => {
   it('przycisk dodaje kwestię bez mówcy na playheadzie, Delete ją usuwa jednym wpisem historii razem z dodaniem', async () => {
     const user = userEvent.setup()
     render(<Harness><TrackStack scale={scale} /></Harness>)
+    const before = new Set(ruleIds())
 
     expect(screen.queryByRole('button', { name: /^Kwestia/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /dodaj kwestię/i }))
@@ -130,7 +167,8 @@ describe('tworzenie i usuwanie na DialogueTracks', () => {
     const clip = grab(/^Kwestia/i)
     expect(clip).toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(1)
-    assertNoBodyRegression()
+    assertNoNewDiagnostics(before)
+    assertParses()
 
     await user.click(clip)
     expect(useSelection.getState().selected).toHaveLength(1)
@@ -139,6 +177,8 @@ describe('tworzenie i usuwanie na DialogueTracks', () => {
     expect(screen.queryByRole('button', { name: /^Kwestia/i })).not.toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(2)
     expect(useSelection.getState().selected).toEqual([])
+    assertNoNewDiagnostics(before)
+    assertParses()
   })
 })
 
@@ -146,6 +186,7 @@ describe('tworzenie i usuwanie na ScreenTextTrack', () => {
   it('przycisk dodaje tekst na ekranie w ujęciu pod playheadem, Delete go usuwa jednym wpisem historii razem z dodaniem', async () => {
     const user = userEvent.setup()
     render(<Harness><TrackStack scale={scale} /></Harness>)
+    const before = new Set(ruleIds())
 
     expect(screen.queryByRole('button', { name: /^Tekst na ekranie/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /dodaj tekst na ekranie/i }))
@@ -156,7 +197,8 @@ describe('tworzenie i usuwanie na ScreenTextTrack', () => {
     const clip = screen.getByRole('button', { name: /^Tekst na ekranie/i })
     expect(clip).toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(1)
-    assertNoBodyRegression()
+    assertNoNewDiagnostics(before)
+    assertParses()
     // Runda 2 recenzji: `assertNoBodyRegression` nie ma na czym ugryźć brak
     // dopięcia segmentu w `addScreenText` — żadna reguła walidatora nie
     // sprawdza kompletności odwołań do `screenText` (nie ma odpowiednika
@@ -172,5 +214,7 @@ describe('tworzenie i usuwanie na ScreenTextTrack', () => {
     expect(screen.queryByRole('button', { name: /^Tekst na ekranie/i })).not.toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(2)
     expect(useSelection.getState().selected).toEqual([])
+    assertNoNewDiagnostics(before)
+    assertParses()
   })
 })

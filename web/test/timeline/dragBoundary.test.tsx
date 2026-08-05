@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { isFrameAligned, type Project } from '@mmh3/shared'
+import { buildPrompt, isFrameAligned, type Project } from '@mmh3/shared'
 import { firePointer } from './pointer.js'
 import { boundaryTargetMs, MIN_SHOT_MS, SNAP_TOLERANCE_MS } from '../../src/timeline/useDragBoundary.js'
 import { ShotTrack } from '../../src/timeline/ShotTrack.js'
@@ -165,6 +165,39 @@ describe('przeciąganie granicy w ścieżce ujęć', () => {
     firePointer(handle, 'pointermove', 600)
     firePointer(handle, 'pointerup', 600)
     expect(useProject.getState().project!.shots[1]!.startMs).toBe(6000)
+  })
+
+  /**
+   * Recenzja końcowa, znalezisko 3: zadanie 5 ograniczyło PRZECIĄGANIE ruchu
+   * kamery do rozpiętości ujęcia, żeby interfejs nigdy nie mógł zapalić
+   * `CAM_IN_SHOT_BOUNDS`. Druga połowa tej samej gwarancji — ujęcie
+   * przesuwające się pod NIERUCHOMYM ruchem — nie miała właściciela do
+   * `normalizeProject`. Przeciągnięcie granicy w lewo skraca ujęcie 'a' i
+   * wypycha z niego ruch, którego nikt nie dotykał.
+   */
+  it('przeciągnięcie granicy w lewo nie wypycha ruchu kamery poza jego ujęcie', () => {
+    useProject.getState().load('test', {
+      ...project,
+      shots: [
+        {
+          ...shot('a', 0, 0),
+          cameraMoves: [{ id: 'm1', type: 'static' as const, startMs: 1000, endMs: 2800 }],
+          body: [{ kind: 'camera' as const, moveId: 'm1' }],
+        },
+        shot('b', 1, 3000),
+      ],
+    })
+    render(<ShotTrack scale={createScale(8000, 800, 1)} />)
+    expect(buildPrompt(useProject.getState().project!).diagnostics.map(d => d.ruleId))
+      .not.toContain('CAM_IN_SHOT_BOUNDS')
+
+    dragTo(200)
+
+    expect(useProject.getState().project!.shots[1]!.startMs).toBe(2000)
+    const move = useProject.getState().project!.shots.flatMap(s => s.cameraMoves)[0]
+    expect(move!.endMs).toBeLessThanOrEqual(2000)
+    expect(buildPrompt(useProject.getState().project!).diagnostics.map(d => d.ruleId))
+      .not.toContain('CAM_IN_SHOT_BOUNDS')
   })
 
   it('dwa gesty rozdzielone odmontowaniem komponentu to wciąż dwa wpisy w historii', () => {

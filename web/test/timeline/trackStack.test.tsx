@@ -143,8 +143,10 @@ describe('TrackStack', () => {
       const { container } = render(<TrackStack scale={scale} />)
       const header = container.querySelector('[data-header-row="dialogue"]')
       const lanes = container.querySelectorAll('[data-track^="dialogue-"]')
-      // Pas zbiorczy istnieje zawsze (patrz `DialogueTracks.tsx`), więc nawet przy zerze mówców jest jeden pas.
-      expect(lanes).toHaveLength(speakerCount + 1)
+      // Jeden pas na mówcę; przy ZERZE mówców jeden pusty pas zastępczy, żeby
+      // wiersz treści miał wysokość swojego nagłówka (patrz `DialogueTracks.tsx`
+      // — pas zbiorczy „bez mówcy" zniknął z recenzją końcową).
+      expect(lanes).toHaveLength(Math.max(1, speakerCount))
       expect(heightOf(header)).toBe(sumHeights(lanes))
     })
 

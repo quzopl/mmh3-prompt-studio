@@ -27,6 +27,15 @@ export const referenceRowCount = (project: Project): number => project.labels.le
  * (`toggleLabelInShot`), więc `(appears in …)` w skompilowanym prompcie nigdy
  * nie rozjeżdża się z tym, co pokazuje kratka.
  *
+ * To zdanie było do recenzji końcowej FAŁSZYWE dla drugiej połowy problemu:
+ * zakres zależy nie tylko od `labelRefs` (jedyny pisarz: `toggleLabelInShot`),
+ * ale i od NUMERU ujęcia, który zmienia każdy pisarz listy ujęć — usunięcie,
+ * podział, wpisany czas cięcia, przeciągnięcie granicy. Zmierzone: etykieta w
+ * ujęciu 3 kompilowała się nadal jako `[Shot 3]` po usunięciu ujęcia 1.
+ * Właścicielem obu połówek jest dziś `normalizeProject`
+ * (`web/src/timeline/normalizeProject.ts`), przez które przechodzi każdy z
+ * tych pisarzy — gwarancja wyżej jest więc prawdziwa dopiero razem z nim.
+ *
  * Kratka to `role="button"` div z jawną obsługą klawiatury, jak w
  * `ScreenTextTrack`/`ShotTrack`, a nie natywny `<button>` — sama spacja bez
  * `stopPropagation` poleciałaby dalej do globalnego `useTimelineShortcuts` na

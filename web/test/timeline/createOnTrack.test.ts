@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPrompt, MS_PER_FRAME, type Project } from '@mmh3/shared'
+import { buildPrompt, MS_PER_FRAME, parseProject, type Project } from '@mmh3/shared'
 import {
   addCameraMove, addDialogue, addScreenText, addSfx, removeSelected,
 } from '../../src/timeline/createOnTrack.js'
@@ -10,11 +10,24 @@ const twoShots = () => baseProject([emptyShot('a', 0, 0), emptyShot('b', 1, 4000
 /** Same identyfikatory reguł, których diagnostyka nie wolno nowej zapalić. */
 const diagnosticIds = (project: Project): string[] => buildPrompt(project).diagnostics.map(d => d.ruleId)
 
+/**
+ * Recenzja końcowa, znalezisko 4: 658 testów przepuściło kwestię ze
+ * `speakerIds: []`, bo ŻADEN z nich nie sprawdzał wyniku akcji interfejsu
+ * wobec `ProjectSchema` — a `PUT /api/projects/:slug` waliduje tym samym
+ * schematem i odpowiada 400. Ponieważ każdy kolejny autozapis wysyła CAŁY
+ * projekt, jeden nieważny obiekt psuł autozapis do końca sesji. Ta asercja
+ * jest tania i idzie po KAŻDEJ akcji tworzącej i usuwającej w tym pliku.
+ */
+const expectParses = (project: Project): void => {
+  expect(() => parseProject(project)).not.toThrow()
+}
+
 describe('addCameraMove', () => {
   it('wkłada ruch do ujęcia, na które wskazuje playhead', () => {
     const next = addCameraMove(twoShots(), 5000)
     expect(next.shots.find(s => s.id === 'a')?.cameraMoves).toHaveLength(0)
     expect(next.shots.find(s => s.id === 'b')?.cameraMoves).toHaveLength(1)
+    expectParses(next)
   })
 
   it('nowy ruch mieści się w swoim ujęciu', () => {
@@ -67,11 +80,58 @@ describe('addDialogue', () => {
     const project = { ...twoShots(), speakers: [speaker('s1', 'S1')] }
     const next = addDialogue(project, 1000, 's1')
     expect(next.shots.flatMap(s => s.dialogue)[0]?.speakerIds).toEqual(['s1'])
+    expectParses(next)
   })
 
-  it('bez mówcy tworzy kwestię bez przypisania', () => {
+  /**
+   * Recenzja końcowa, znalezisko 1 (krytyczne): `speakerIds: []` łamie
+   * `DialogueEventSchema` (`.min(1)`), więc kwestia „bez mówcy" nie jest
+   * ważnym dokumentem — a nie tylko ubogim. W guide kwestia mówiona jest z
+   * definicji przypisana do mówcy; narracja bez mówcy to proza w `body`, nie
+   * `DialogueEvent`. Przycisk bierze więc PIERWSZEGO mówcę projektu.
+   */
+  it('bez wskazanego mówcy przypisuje kwestię pierwszemu mówcy projektu', () => {
+    const project = { ...twoShots(), speakers: [speaker('s1', 'S1'), speaker('s2', 'S2')] }
+    const next = addDialogue(project, 1000, null)
+    expect(next.shots.flatMap(s => s.dialogue)[0]?.speakerIds).toEqual(['s1'])
+    expectParses(next)
+  })
+
+  /**
+   * Projekt świeżo utworzony (`server/src/storage/newProject.ts`) nie ma
+   * ŻADNEGO mówcy — a pas dialogu i tak musi umieć coś stworzyć. Tworzymy
+   * więc minimalnego mówcę w tym samym geście, dokładnie tego samego kształtu
+   * co przycisk „Dodaj mówcę" w `AssetBin` (jedna implementacja, patrz
+   * `web/src/model/speakers.ts`).
+   */
+  it('w projekcie bez mówców tworzy minimalnego mówcę razem z kwestią', () => {
     const next = addDialogue(twoShots(), 1000, null)
-    expect(next.shots.flatMap(s => s.dialogue)[0]?.speakerIds).toEqual([])
+    expect(next.speakers).toHaveLength(1)
+    expect(next.speakers[0]?.code).toBe('S1')
+    expect(next.shots.flatMap(s => s.dialogue)[0]?.speakerIds).toEqual([next.speakers[0]?.id])
+    expectParses(next)
+  })
+
+  it('drugie kliknięcie nie mnoży mówców — bierze tego, który już jest', () => {
+    const twice = addDialogue(addDialogue(twoShots(), 1000, null), 2000, null)
+    expect(twice.speakers).toHaveLength(1)
+    expect(new Set(twice.shots.flatMap(s => s.dialogue).map(e => e.id)).size).toBe(2)
+    expectParses(twice)
+  })
+
+  /**
+   * Warunek postawiony przez recenzję końcową wprost: skoro przycisk TWORZY
+   * mówcę, trzeba dowieść, że świeżo utworzony (pusty opis, brak pól
+   * strukturalnych) nie zapala żadnej reguły — kandydatami były
+   * `SPEAKER_FIRST_INTRO` (segment dostaje `form: 'full'`, więc reguła
+   * przechodzi dalej) i `SPEAKER_SILENT_NO_ID` (mówca dostaje kwestię w tym
+   * samym geście, więc jest „vocal"). Porównanie zbiorów, nie lista nazw
+   * reguł — patrz znalezisko 4.
+   */
+  it('świeżo utworzony mówca nie zapala żadnej nowej diagnostyki', () => {
+    const before = new Set(diagnosticIds(twoShots()))
+    const introduced = diagnosticIds(addDialogue(twoShots(), 1000, null)).filter(id => !before.has(id))
+    expect(introduced).toEqual([])
   })
 
   it('treść nowej kwestii jest po angielsku, bo idzie do promptu', () => {
@@ -106,6 +166,7 @@ describe('addScreenText i addSfx', () => {
   it('tekst trafia do ujęcia spod playheada', () => {
     const next = addScreenText(twoShots(), 5000)
     expect(next.shots.find(s => s.id === 'b')?.screenText).toHaveLength(1)
+    expectParses(next)
   })
 
   /**
@@ -125,9 +186,11 @@ describe('addScreenText i addSfx', () => {
   })
 
   it('dźwięk dostaje czasy zaczynające się na playheadzie', () => {
-    const sound = addSfx(twoShots(), 5000).shots.flatMap(s => s.diegeticSfx)[0]
+    const next = addSfx(twoShots(), 5000)
+    const sound = next.shots.flatMap(s => s.diegeticSfx)[0]
     expect(sound?.startMs).toBe(5000)
     expect(sound?.endMs).toBeGreaterThan(5000)
+    expectParses(next)
   })
 
   it('dźwięk przy samym końcu materiału nie wychodzi poza niego', () => {
@@ -154,6 +217,7 @@ describe('removeSelected', () => {
     const moveId = withMove.shots.flatMap(s => s.cameraMoves)[0]?.id ?? ''
     const next = removeSelected(withMove, [{ kind: 'camera', id: moveId }])
     expect(next.shots.flatMap(s => s.cameraMoves)).toHaveLength(0)
+    expectParses(next)
   })
 
   it('usuwa kilka obiektów różnych rodzajów naraz', () => {
@@ -165,6 +229,7 @@ describe('removeSelected', () => {
     ])
     expect(next.shots.flatMap(s => s.cameraMoves)).toHaveLength(0)
     expect(next.shots.flatMap(s => s.diegeticSfx)).toHaveLength(0)
+    expectParses(next)
   })
 
   it('puste zaznaczenie zwraca ten sam obiekt', () => {
@@ -206,6 +271,7 @@ describe('removeSelected', () => {
     expect(next.shots.flatMap(s => s.body).some(seg => seg.kind === 'dialogue')).toBe(false)
     expect(next.shots.flatMap(s => s.body).some(seg => seg.kind === 'screenText')).toBe(false)
     expect(diagnosticIds(next)).not.toContain('COMPILE_FAILED')
+    expectParses(next)
   })
 
   /**
@@ -411,6 +477,53 @@ describe('removeSelected', () => {
 })
 
 /**
+ * Recenzja końcowa, znalezisko 5: playhead potrafi stanąć DOKŁADNIE na
+ * `durationMs` — klawisz End go tam stawia, a `usePlayhead.setMs` nie odsuwa
+ * go o klatkę. `spanAt` pytało `atMs < span.endMs`, więc ostatnie ujęcie nie
+ * obejmowało swojej ostatniej chwili i KAŻDY przycisk „+" po End milczał: bez
+ * obiektu, bez błędu, bez śladu. Ostatnie ujęcie musi być właścicielem swojej
+ * ostatniej chwili — 8000 ms z `baseProject` to wielokrotność klatki, więc ten
+ * przypadek jest osiągalny bez żadnego zaokrąglania.
+ */
+describe('playhead dokładnie na końcu materiału', () => {
+  const END_MS = 8000
+
+  it('ruch kamery powstaje', () => {
+    const next = addCameraMove(twoShots(), END_MS)
+    expect(next.shots.flatMap(s => s.cameraMoves)).toHaveLength(1)
+    expectParses(next)
+  })
+
+  it('kwestia powstaje', () => {
+    const next = addDialogue(twoShots(), END_MS, null)
+    expect(next.shots.flatMap(s => s.dialogue)).toHaveLength(1)
+    expectParses(next)
+  })
+
+  it('tekst na ekranie powstaje', () => {
+    const next = addScreenText(twoShots(), END_MS)
+    expect(next.shots.flatMap(s => s.screenText)).toHaveLength(1)
+    expectParses(next)
+  })
+
+  it('dźwięk powstaje', () => {
+    const next = addSfx(twoShots(), END_MS)
+    expect(next.shots.flatMap(s => s.diegeticSfx)).toHaveLength(1)
+    expectParses(next)
+  })
+
+  it('obiekt powstaje w OSTATNIM ujęciu i nie wystaje poza materiał', () => {
+    const next = addCameraMove(twoShots(), END_MS)
+    expect(next.shots.find(s => s.id === 'b')?.cameraMoves).toHaveLength(1)
+    const move = next.shots.flatMap(s => s.cameraMoves)[0]
+    expect(move?.endMs).toBeLessThanOrEqual(END_MS)
+    expect(move?.startMs).toBeGreaterThanOrEqual(4000)
+    // Ograniczenie globalne: żadna nowa diagnostyka poza uczciwym SPEECH_FITS.
+    expect(diagnosticIds(next)).not.toContain('CAM_IN_SHOT_BOUNDS')
+  })
+})
+
+/**
  * Runda 1 recenzji: te dwie diagnostyki są poprawnym, uczciwym wynikiem
  * interfejsu robiącego dokładnie to, o co proszony — nie błędem do ukrycia.
  * Testy tu je jawnie DOKUMENTUJĄ (asercja, że diagnostyka SIĘ POJAWIA), żeby
@@ -523,7 +636,9 @@ describe('sweep usuwania — nic ponad SPEAKER_SILENT_NO_ID nie przechodzi', () 
   for (const combo of combos) {
     it(`usunięcie: ${combo.label}`, () => {
       const before = new Set(diagnosticIds(sweepProject()))
-      const after = diagnosticIds(removeSelected(sweepProject(), combo.refs))
+      const removed = removeSelected(sweepProject(), combo.refs)
+      expectParses(removed)
+      const after = diagnosticIds(removed)
       const introduced = after.filter(id => !before.has(id))
       for (const id of introduced) {
         expect(ACCEPTED_NEW_DIAGNOSTICS.has(id), `nieoczekiwana nowa diagnostyka: ${id}`).toBe(true)

@@ -1,6 +1,6 @@
 import { MS_PER_FRAME, snapToFrame } from '@mmh3/shared'
 import { useProject } from '../store/projectStore.js'
-import { normalizeShots } from './normalize.js'
+import { normalizeProject } from './normalizeProject.js'
 import { pxToMs, snapMs, type Scale } from './scale.js'
 import { shotSpans } from './spans.js'
 
@@ -105,14 +105,16 @@ export function useDragBoundary(scale: Scale) {
         toleranceMs: SNAP_TOLERANCE_MS,
       })
 
+      // `normalizeProject` (nie samo `normalizeShots`) — przeciągnięcie
+      // granicy zmienia rozpiętości ujęć, więc jest pisarzem stanu
+      // pochodnego dokładnie tak samo jak podział czy usunięcie: ruch kamery
+      // w skracanym ujęciu musi zostać zaciśnięty, a zakresy w
+      // `retention_analysis` przeliczone. Patrz komentarz nad tą funkcją.
       useProject.getState().apply(
-        candidate => ({
-          ...candidate,
-          shots: normalizeShots(
-            candidate.shots.map(shot => shot.id === shotId ? { ...shot, startMs } : shot),
-            candidate.video.durationMs,
-          ),
-        }),
+        candidate => normalizeProject(
+          candidate,
+          candidate.shots.map(shot => shot.id === shotId ? { ...shot, startMs } : shot),
+        ),
         { coalesceKey },
       )
     }
