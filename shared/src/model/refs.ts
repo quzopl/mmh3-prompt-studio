@@ -1,6 +1,6 @@
 export type ObjectRefKind =
   | 'project' | 'shot' | 'camera' | 'dialogue' | 'speaker'
-  | 'label' | 'screenText' | 'audio' | 'retention'
+  | 'label' | 'screenText' | 'sfx' | 'audio' | 'retention'
 
 export interface ObjectRef {
   kind: ObjectRefKind

@@ -43,6 +43,8 @@ const pl = {
   'timeline.trackCamera': 'Kamera',
   'timeline.trackDialogue': 'Dialog {speaker}',
   'timeline.trackDialogueOther': 'Dialog bez mówcy',
+  'timeline.trackScreenText': 'Tekst na ekranie',
+  'timeline.trackSfx': 'SFX',
   'timeline.clipLabel': 'Ujęcie {number}, od {start} ms do {end} ms',
   'timeline.boundaryHandle': 'Ujęcie {number} — przeciągnij granicę, aby zmienić czas cięcia',
   'timeline.addShot': 'Dodaj ujęcie',
@@ -58,6 +60,15 @@ const pl = {
   'dialogue.dragStart': 'Przesuń początek kwestii {speaker}',
   'dialogue.dragEnd': 'Przesuń koniec kwestii {speaker}',
   'dialogue.tooShort': 'Kwestia nie mieści się w klipie: potrzeba {needed} s, jest {actual} s',
+
+  // Numer pozycji w obrębie własnego ujęcia, tak jak przy kamerze i dialogu —
+  // dwa teksty na ekranie albo dwa dźwięki o identycznej treści w tym samym
+  // ujęciu inaczej dostałyby tę samą nazwę dostępną.
+  'screenText.clipLabel': 'Tekst na ekranie w ujęciu {shot} nr {position}: {text}',
+
+  'sfx.clipLabel': 'Dźwięk: {description} (nr {position} w ujęciu {shot})',
+  'sfx.dragStart': 'Przesuń początek dźwięku {description}',
+  'sfx.dragEnd': 'Przesuń koniec dźwięku {description}',
 
   'proposal.scenetrans': 'Kwestia przechodzi przez cięcie — dodaj <scenetrans>',
   'proposal.cutoff': 'Kwestia wystaje poza koniec materiału — oznacz <cutoff>',
@@ -157,6 +168,8 @@ const en: Record<TKey, string> = {
   'timeline.trackCamera': 'Camera',
   'timeline.trackDialogue': 'Dialogue {speaker}',
   'timeline.trackDialogueOther': 'Dialogue without speaker',
+  'timeline.trackScreenText': 'On-screen text',
+  'timeline.trackSfx': 'SFX',
   'timeline.clipLabel': 'Shot {number}, from {start} ms to {end} ms',
   'timeline.boundaryHandle': 'Shot {number} — drag the boundary to change the cut time',
   'timeline.addShot': 'Add shot',
@@ -172,6 +185,12 @@ const en: Record<TKey, string> = {
   'dialogue.dragStart': 'Move start of line by {speaker}',
   'dialogue.dragEnd': 'Move end of line by {speaker}',
   'dialogue.tooShort': 'Line does not fit the clip: needs {needed} s, has {actual} s',
+
+  'screenText.clipLabel': 'On-screen text in shot {shot} #{position}: {text}',
+
+  'sfx.clipLabel': 'Sound: {description} (#{position} in shot {shot})',
+  'sfx.dragStart': 'Move start of sound {description}',
+  'sfx.dragEnd': 'Move end of sound {description}',
 
   'proposal.scenetrans': 'Line crosses a cut — add <scenetrans>',
   'proposal.cutoff': 'Line runs past the end of the material — mark <cutoff>',
