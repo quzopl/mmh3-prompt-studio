@@ -3,6 +3,7 @@ import { useProject } from '../store/projectStore.js'
 import { useT, type Translate } from '../i18n/useT.js'
 import { settingsApi, type LlmMode, type LlmSettings, type ManagedState } from './settingsApi.js'
 import { useLlmRun, type LlmRunRequest } from './useLlmRun.js'
+import { PatchReview } from './PatchReview.js'
 
 const MODES: LlmMode[] = ['off', 'endpoint', 'managed']
 
@@ -535,6 +536,16 @@ export function LlmPanel() {
           {run.status === 'error' && run.error && <p className="text-xs text-red-400">{run.error}</p>}
         </div>
       )}
+
+      {/*
+        Zadanie 11: przegląd łatki z wybiórczym przyjmowaniem operacji. Nic z
+        wyniku modelu nie stosuje się samo — panel tylko trzyma `run.patch` i
+        pokazuje jego liczbę operacji tekstem (`statusLabel` wyżej);
+        zastosowanie wymaga jawnego zaznaczenia w `PatchReview` i osobnego
+        kliknięcia „Zatwierdź". Renderuje się tylko dla zadań, które NIOSĄ
+        łatkę (nie „Krytyk" — tam `run.patch` zostaje `null`, patrz `useLlmRun.ts`).
+      */}
+      {run.status === 'done' && run.patch && <PatchReview patch={run.patch} />}
     </section>
   )
 }

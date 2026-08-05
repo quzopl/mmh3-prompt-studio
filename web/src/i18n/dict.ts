@@ -236,6 +236,14 @@ const pl = {
   'llm.opsReady': 'Gotowe — {count} operacji do przeglądu',
   'llm.streamPreview': 'Podgląd strumienia',
   'llm.noProject': 'Brak wczytanego projektu',
+
+  // Przegląd łatki z wybiórczym przyjmowaniem operacji (zadanie 11).
+  'patchReview.title': 'Przegląd łatki',
+  'patchReview.empty': 'Łatka nie zawiera żadnych operacji.',
+  'patchReview.before': 'Przed',
+  'patchReview.after': 'Po',
+  'patchReview.confirm': 'Zatwierdź',
+  'patchReview.applied': 'Zastosowano {count} operacji.',
 } as const
 
 export type TKey = keyof typeof pl
@@ -439,6 +447,13 @@ const en: Record<TKey, string> = {
   'llm.opsReady': 'Done — {count} operations ready for review',
   'llm.streamPreview': 'Stream preview',
   'llm.noProject': 'No project loaded',
+
+  'patchReview.title': 'Patch review',
+  'patchReview.empty': 'The patch has no operations.',
+  'patchReview.before': 'Before',
+  'patchReview.after': 'After',
+  'patchReview.confirm': 'Confirm',
+  'patchReview.applied': '{count} operations applied.',
 }
 
 export const DICT: Record<Lang, Record<TKey, string>> = { pl, en }
