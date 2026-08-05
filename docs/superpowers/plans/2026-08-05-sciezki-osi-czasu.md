@@ -3100,6 +3100,364 @@ git commit -m "test: scenariusz e2e przez sciezki kamery, dialogu i referencji"
 
 ---
 
+### Task 14: Tworzenie i usuwanie obiektów na ścieżkach
+
+Zadania 5–11 uczą ścieżki rysować i przeciągać to, co w modelu już jest. Nowy projekt nie ma jednak ani jednego ruchu kamery, kwestii, tekstu ani dźwięku — bez tego zadania wszystkie te ścieżki są w praktyce puste i nie da się ich zapełnić inaczej niż ręczną edycją `project.json`. To luka wykryta przy przeglądzie planu, a nie osobna funkcja: ścieżka, na której nic nie można stworzyć, nie jest skończona.
+
+Wzorem jest istniejący przycisk „Dodaj ujęcie" w `Timeline.tsx` — nowy obiekt powstaje **na playheadzie**, bo to jedyne miejsce, o którym wiadomo, że użytkownik właśnie na nie patrzy.
+
+**Files:**
+- Create: `web/src/timeline/createOnTrack.ts`
+- Modify: `web/src/timeline/CameraTrack.tsx`
+- Modify: `web/src/timeline/DialogueTracks.tsx`
+- Modify: `web/src/timeline/ScreenTextTrack.tsx`
+- Modify: `web/src/timeline/SfxTrack.tsx`
+- Modify: `web/src/timeline/useTimelineShortcuts.ts`
+- Modify: `web/src/i18n/dict.ts`
+- Test: `web/test/timeline/createOnTrack.test.ts`
+- Test: `web/test/timeline/trackCreation.test.tsx`
+
+**Interfaces:**
+- Produces:
+  - `addCameraMove(project: Project, atMs: number): Project`
+  - `addDialogue(project: Project, atMs: number, speakerId: string | null): Project`
+  - `addScreenText(project: Project, atMs: number): Project`
+  - `addSfx(project: Project, atMs: number): Project`
+  - `removeSelected(project: Project, selected: ObjectRef[]): Project`
+
+- [ ] **Krok 1: Dodaj klucze słownika**
+
+Polska:
+
+```ts
+  'track.addCamera': 'Dodaj ruch kamery na playheadzie',
+  'track.addDialogue': 'Dodaj kwestię na playheadzie',
+  'track.addScreenText': 'Dodaj tekst na ekranie w tym ujęciu',
+  'track.addSfx': 'Dodaj dźwięk na playheadzie',
+  'track.newDialogue': 'nowa kwestia',
+  'track.newScreenText': 'TEKST',
+  'track.newSfx': 'nowy dźwięk',
+```
+
+angielska:
+
+```ts
+  'track.addCamera': 'Add camera move at the playhead',
+  'track.addDialogue': 'Add line at the playhead',
+  'track.addScreenText': 'Add on-screen text in this shot',
+  'track.addSfx': 'Add sound at the playhead',
+  'track.newDialogue': 'new line',
+  'track.newScreenText': 'TEXT',
+  'track.newSfx': 'new sound',
+```
+
+Trzy ostatnie klucze to treść **modelu**, nie interfejsu, a model idzie do promptu po angielsku. Wstaw je do słownika mimo to i użyj wersji angielskiej niezależnie od wybranego języka — inaczej polski interfejs wstawiałby polskie słowa do promptu, który musi być angielski. Zapisz ten powód w komentarzu przy użyciu.
+
+- [ ] **Krok 2: Napisz test czystych funkcji**
+
+`web/test/timeline/createOnTrack.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { MS_PER_FRAME } from '@mmh3/shared'
+import {
+  addCameraMove, addDialogue, addScreenText, addSfx, removeSelected,
+} from '../../src/timeline/createOnTrack.js'
+import { baseProject, emptyShot } from './fixtures.js'
+
+const twoShots = () => baseProject([emptyShot('a', 0, 0), emptyShot('b', 1, 4000)])
+
+describe('addCameraMove', () => {
+  it('wkłada ruch do ujęcia, na które wskazuje playhead', () => {
+    const next = addCameraMove(twoShots(), 5000)
+    expect(next.shots.find(s => s.id === 'a')?.cameraMoves).toHaveLength(0)
+    expect(next.shots.find(s => s.id === 'b')?.cameraMoves).toHaveLength(1)
+  })
+
+  it('nowy ruch mieści się w swoim ujęciu', () => {
+    const next = addCameraMove(twoShots(), 5000)
+    const move = next.shots.find(s => s.id === 'b')?.cameraMoves[0]
+    expect(move?.startMs).toBeGreaterThanOrEqual(4000)
+    expect(move?.endMs).toBeLessThanOrEqual(8000)
+  })
+
+  it('nowy ruch leży na siatce klatek', () => {
+    const move = addCameraMove(twoShots(), 5010).shots.find(s => s.id === 'b')?.cameraMoves[0]
+    for (const ms of [move?.startMs ?? 0, move?.endMs ?? 0]) {
+      expect(ms).toBe(Math.round(Math.round(ms / MS_PER_FRAME) * MS_PER_FRAME))
+    }
+  })
+
+  it('dwa ruchy dodane w tym samym miejscu mają różne identyfikatory', () => {
+    const once = addCameraMove(twoShots(), 5000)
+    const twice = addCameraMove(once, 5000)
+    const ids = twice.shots.flatMap(s => s.cameraMoves).map(m => m.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('playhead poza jakimkolwiek ujęciem zwraca ten sam obiekt', () => {
+    const project = { ...twoShots(), shots: [] }
+    expect(addCameraMove(project, 5000)).toBe(project)
+  })
+})
+
+describe('addDialogue', () => {
+  it('przypisuje kwestię wskazanemu mówcy', () => {
+    const next = addDialogue(twoShots(), 1000, 's1')
+    expect(next.shots.flatMap(s => s.dialogue)[0]?.speakerIds).toEqual(['s1'])
+  })
+
+  it('bez mówcy tworzy kwestię bez przypisania', () => {
+    const next = addDialogue(twoShots(), 1000, null)
+    expect(next.shots.flatMap(s => s.dialogue)[0]?.speakerIds).toEqual([])
+  })
+
+  it('treść nowej kwestii jest po angielsku, bo idzie do promptu', () => {
+    const next = addDialogue(twoShots(), 1000, null)
+    expect(next.shots.flatMap(s => s.dialogue)[0]?.text).toBe('new line')
+  })
+})
+
+describe('addScreenText i addSfx', () => {
+  it('tekst trafia do ujęcia spod playheada', () => {
+    const next = addScreenText(twoShots(), 5000)
+    expect(next.shots.find(s => s.id === 'b')?.screenText).toHaveLength(1)
+  })
+
+  it('dźwięk dostaje czasy zaczynające się na playheadzie', () => {
+    const sound = addSfx(twoShots(), 5000).shots.flatMap(s => s.diegeticSfx)[0]
+    expect(sound?.startMs).toBe(5000)
+    expect(sound?.endMs).toBeGreaterThan(5000)
+  })
+
+  it('dźwięk przy samym końcu materiału nie wychodzi poza niego', () => {
+    const sound = addSfx(twoShots(), 7990).shots.flatMap(s => s.diegeticSfx)[0]
+    expect(sound?.endMs).toBeLessThanOrEqual(8000)
+  })
+})
+
+describe('removeSelected', () => {
+  it('usuwa ruch kamery po referencji', () => {
+    const withMove = addCameraMove(twoShots(), 5000)
+    const moveId = withMove.shots.flatMap(s => s.cameraMoves)[0]?.id ?? ''
+    const next = removeSelected(withMove, [{ kind: 'camera', id: moveId }])
+    expect(next.shots.flatMap(s => s.cameraMoves)).toHaveLength(0)
+  })
+
+  it('usuwa kilka obiektów różnych rodzajów naraz', () => {
+    const withBoth = addSfx(addCameraMove(twoShots(), 5000), 1000)
+    const moveId = withBoth.shots.flatMap(s => s.cameraMoves)[0]?.id ?? ''
+    const soundId = withBoth.shots.flatMap(s => s.diegeticSfx)[0]?.id ?? ''
+    const next = removeSelected(withBoth, [
+      { kind: 'camera', id: moveId }, { kind: 'sfx', id: soundId },
+    ])
+    expect(next.shots.flatMap(s => s.cameraMoves)).toHaveLength(0)
+    expect(next.shots.flatMap(s => s.diegeticSfx)).toHaveLength(0)
+  })
+
+  it('puste zaznaczenie zwraca ten sam obiekt', () => {
+    const project = twoShots()
+    expect(removeSelected(project, [])).toBe(project)
+  })
+
+  it('zaznaczenie samych ujęć zostawia je nietknięte, bo od tego jest osobna operacja', () => {
+    const project = twoShots()
+    expect(removeSelected(project, [{ kind: 'shot', id: 'a' }])).toBe(project)
+  })
+})
+```
+
+Ostatni test pilnuje podziału odpowiedzialności: ujęcia usuwa `removeShots` z `shotOperations.ts`, które umie utrzymać niezmienniki listy ujęć. Dublowanie tego tutaj rozjechałoby obie ścieżki.
+
+- [ ] **Krok 3: Uruchom i zobacz czerwony**
+
+Run: `npm test --workspace @mmh3/web -- createOnTrack`
+Expected: FAIL, brak modułu.
+
+- [ ] **Krok 4: Napisz `createOnTrack.ts`**
+
+```ts
+import { MS_PER_FRAME, snapToFrame, type ObjectRef, type Project } from '@mmh3/shared'
+import { shotSpans } from './spans.js'
+
+/** Domyślna długość nowego obiektu: sekunda, przycięta do tego, co zostało. */
+const DEFAULT_LENGTH_MS = 1000
+
+const frameIndexOf = (ms: number): number => Math.round(ms / MS_PER_FRAME)
+const msOfFrameIndex = (frame: number): number => Math.round(frame * MS_PER_FRAME)
+
+/**
+ * Identyfikator z maksimum istniejących, nie z ich liczby. Numeracja po liczbie
+ * wraca do wcześniejszej wartości po usunięciu obiektu i produkuje duplikat, a
+ * duplikat sprawia, że gest wymierzony w jeden obiekt trafia we wszystkie o tym
+ * samym identyfikatorze — zmierzone w recenzji Planu 3 na czasach cięcia.
+ */
+function nextId(prefix: string, existing: string[]): string {
+  const pattern = new RegExp(`^${prefix}-(\d+)$`)
+  const highest = existing.reduce((best, id) => {
+    const match = pattern.exec(id)
+    const value = match?.[1] === undefined ? 0 : Number.parseInt(match[1], 10)
+    return Number.isFinite(value) && value > best ? value : best
+  }, 0)
+  return `${prefix}-${highest + 1}`
+}
+
+const spanAt = (project: Project, atMs: number) =>
+  shotSpans(project.shots, project.video.durationMs)
+    .find(span => atMs >= span.startMs && atMs < span.endMs)
+
+/** Zakres nowego obiektu: od playheada, sekunda długości, przycięte do granicy. */
+function rangeFrom(atMs: number, highestMs: number): { startMs: number; endMs: number } {
+  const startFrame = frameIndexOf(snapToFrame(atMs))
+  const highestFrame = frameIndexOf(highestMs)
+  const endFrame = Math.min(highestFrame, startFrame + frameIndexOf(DEFAULT_LENGTH_MS))
+  const safeStart = Math.min(startFrame, endFrame - 2)
+  return { startMs: msOfFrameIndex(Math.max(0, safeStart)), endMs: msOfFrameIndex(endFrame) }
+}
+
+export function addCameraMove(project: Project, atMs: number): Project {
+  const span = spanAt(project, atMs)
+  if (!span) return project
+  const range = rangeFrom(Math.max(atMs, span.startMs), span.endMs)
+  const id = nextId('move', project.shots.flatMap(shot => shot.cameraMoves).map(move => move.id))
+
+  return {
+    ...project,
+    shots: project.shots.map(shot => shot.id === span.shot.id
+      ? { ...shot, cameraMoves: [...shot.cameraMoves, { id, type: 'static' as const, ...range }] }
+      : shot),
+  }
+}
+
+export function addDialogue(project: Project, atMs: number, speakerId: string | null): Project {
+  const span = spanAt(project, atMs)
+  if (!span) return project
+  const range = rangeFrom(Math.max(atMs, span.startMs), project.video.durationMs)
+  const id = nextId('line', project.shots.flatMap(shot => shot.dialogue).map(event => event.id))
+
+  return {
+    ...project,
+    shots: project.shots.map(shot => shot.id === span.shot.id
+      ? {
+          ...shot,
+          dialogue: [...shot.dialogue, {
+            id,
+            speakerIds: speakerId === null ? [] : [speakerId],
+            verb: 'says',
+            punctuation: ':' as const,
+            language: 'English',
+            // Treść modelu, nie interfejsu — prompt jest po angielsku niezależnie
+            // od języka aplikacji, więc nie idzie przez słownik użytkownika.
+            text: 'new line',
+            voiceover: false,
+            sceneTransBefore: false,
+            sceneTransAfter: false,
+            cutoff: false,
+            ...range,
+          }],
+        }
+      : shot),
+  }
+}
+
+export function addScreenText(project: Project, atMs: number): Project {
+  const span = spanAt(project, atMs)
+  if (!span) return project
+  const id = nextId('text', project.shots.flatMap(shot => shot.screenText).map(entry => entry.id))
+
+  return {
+    ...project,
+    shots: project.shots.map(shot => shot.id === span.shot.id
+      ? { ...shot, screenText: [...shot.screenText, { id, text: 'TEXT' }] }
+      : shot),
+  }
+}
+
+export function addSfx(project: Project, atMs: number): Project {
+  const span = spanAt(project, atMs)
+  if (!span) return project
+  const range = rangeFrom(atMs, project.video.durationMs)
+  const id = nextId('sfx', project.shots.flatMap(shot => shot.diegeticSfx).map(sound => sound.id))
+
+  return {
+    ...project,
+    shots: project.shots.map(shot => shot.id === span.shot.id
+      ? { ...shot, diegeticSfx: [...shot.diegeticSfx, { id, description: 'new sound', ...range }] }
+      : shot),
+  }
+}
+
+/**
+ * Usuwa obiekty ścieżek po referencji zaznaczenia. Ujęć celowo nie rusza —
+ * od nich jest `removeShots`, które umie utrzymać niezmienniki listy ujęć,
+ * a druga implementacja tego samego rozjechałaby się z pierwszą.
+ */
+export function removeSelected(project: Project, selected: ObjectRef[]): Project {
+  const ids = (kind: string) => selected.filter(ref => ref.kind === kind).map(ref => ref.id)
+  const cameras = ids('camera')
+  const lines = ids('dialogue')
+  const texts = ids('screenText')
+  const sounds = ids('sfx')
+  if (cameras.length + lines.length + texts.length + sounds.length === 0) return project
+
+  return {
+    ...project,
+    shots: project.shots.map(shot => ({
+      ...shot,
+      cameraMoves: shot.cameraMoves.filter(move => !cameras.includes(move.id)),
+      dialogue: shot.dialogue.filter(event => !lines.includes(event.id)),
+      screenText: shot.screenText.filter(entry => !texts.includes(entry.id)),
+      diegeticSfx: shot.diegeticSfx.filter(sound => !sounds.includes(sound.id)),
+    })),
+  }
+}
+```
+
+- [ ] **Krok 5: Uruchom i zobacz zielony**
+
+Run: `npm test --workspace @mmh3/web -- createOnTrack`
+Expected: PASS, 15 testów.
+
+- [ ] **Krok 6: Dołóż przyciski do ścieżek**
+
+Każda z czterech ścieżek dostaje jeden przycisk dodawania, umieszczony w nagłówku wiersza — nie na obszarze klipów, gdzie kolidowałby z zaznaczaniem. Ponieważ nagłówki żyją w `TrackStack` (zadanie 12), a to zadanie może iść przed nim, wstaw przyciski **do samych ścieżek**, w lewym górnym rogu, i w zadaniu 12 przenieś je do nagłówka razem z resztą.
+
+Wzór dla `CameraTrack.tsx` (pozostałe trzy analogicznie, ze swoją funkcją i swoim kluczem słownika — powtórz kod zamiast go uogólniać, dopóki nie widać, że wszystkie cztery naprawdę robią to samo):
+
+```tsx
+      <button
+        type="button"
+        aria-label={t('track.addCamera')}
+        onClick={() => useProject.getState().apply(
+          candidate => addCameraMove(candidate, usePlayhead.getState().ms))}
+        className="absolute left-0 top-0 z-10 px-1 text-[10px] text-neutral-400 hover:text-neutral-100"
+      >
+        +
+      </button>
+```
+
+Sprawdź w `web/src/store/playheadStore.ts`, jak faktycznie nazywa się pole czasu (`ms` czy `playheadMs`) i użyj właściwej nazwy.
+
+- [ ] **Krok 7: Podłącz usuwanie pod Delete**
+
+`useTimelineShortcuts` obsługuje dziś `Delete` przez `removeShots`. Rozszerz to: gdy zaznaczenie zawiera obiekty ścieżek, usuń je przez `removeSelected`; gdy zawiera ujęcia, zostaw dotychczasową drogę. Jedno naciśnięcie klawisza to nadal jeden wpis historii, także gdy zaznaczenie miesza rodzaje.
+
+- [ ] **Krok 8: Napisz test interfejsu**
+
+`web/test/timeline/trackCreation.test.tsx`: wyrenderuj `CameraTrack`, ustaw playhead na 5000, kliknij przycisk dodawania i sprawdź, że na ścieżce pojawił się klip; potem zaznacz go, naciśnij `Delete` i sprawdź, że zniknął, a historia ma dwa wpisy. Powtórz dla `SfxTrack`. Użyj `firePointer` i `userEvent.setup()` zgodnie z ograniczeniami globalnymi.
+
+- [ ] **Krok 9: Uruchom całość i commit**
+
+```bash
+npm test && npm run typecheck
+git add web/src/timeline/createOnTrack.ts web/src/timeline/CameraTrack.tsx web/src/timeline/DialogueTracks.tsx web/src/timeline/ScreenTextTrack.tsx web/src/timeline/SfxTrack.tsx web/src/timeline/useTimelineShortcuts.ts web/src/i18n/dict.ts web/test/timeline/createOnTrack.test.ts web/test/timeline/trackCreation.test.tsx
+git commit -m "feat: tworzenie i usuwanie obiektow na sciezkach z playheada"
+```
+
+---
+
 ## Uwaga o kolejności
 
-Zadania 1–3 spłacają dług i nie zależą od siebie nawzajem. Zadanie 4 musi poprzedzać 5–11, bo wszystkie stoją na `useDragClip` i `clipBox`. Zadania 5–11 są od siebie niezależne i mogą iść w dowolnej kolejności. Zadanie 12 wymaga wszystkich ścieżek, 13 wymaga 12.
+Zadania 1–3 spłacają dług i nie zależą od siebie nawzajem. Zadanie 4 musi poprzedzać 5–11, bo wszystkie stoją na `useDragClip` i `clipBox`. Zadania 5–11 są od siebie niezależne i mogą iść w dowolnej kolejności. Zadanie **14 wykonuje się po 5–11 i przed 12** — dokłada przyciski do tych ścieżek, a zadanie 12 przenosi je do nagłówków. Zadanie 12 wymaga wszystkich ścieżek, 13 wymaga 12 i 14.
+
+Zadanie 13 sprawdza w prawdziwej przeglądarce to, czego jsdom sprawdzić nie może, więc jest ostatnie mimo że kolejność w numeracji sugeruje inaczej.
