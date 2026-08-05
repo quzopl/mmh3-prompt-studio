@@ -291,6 +291,90 @@ describe('removeSelected', () => {
   })
 
   /**
+   * Runda 2 recenzji, bug krytyczny: kształt, jaki zostawia `splitAtSceneTrans`
+   * (`proposals.ts`) — `'full'` w ujęciu, gdzie kwestia zaczyna się, `'short'`
+   * w kolejnym, dokąd przechodzi przez cięcie. Usunięcie kwestii w ujęciu 'a'
+   * zdejmuje jej (osierocony) segment mówcy — poprawnie — ale zostawiało do
+   * rundy 1 przetrwały `'short'` w ujęciu 'b' jako nowe pierwsze wystąpienie
+   * mówcy w porządku projektu, którego forma nie spełnia już
+   * `SPEAKER_FIRST_INTRO`. `promoteFirstSurvivingIntroduction` musi podnieść
+   * ten przetrwały segment do `'full'`.
+   */
+  it('usunięcie kwestii, która była jedynym pełnym wprowadzeniem mówcy, podnosi kolejne przetrwałe wystąpienie do formy pełnej', () => {
+    const project: Project = {
+      ...twoShots(),
+      speakers: [speaker('s1', 'S1')],
+      shots: [
+        {
+          ...emptyShot('a', 0, 0),
+          dialogue: [line('d1', ['s1'], 'pierwsza', 1000, 2000)],
+          body: [
+            { kind: 'speaker', speakerIds: ['s1'], form: 'full' },
+            { kind: 'text', text: ' ' },
+            { kind: 'dialogue', eventId: 'd1' },
+          ],
+        },
+        {
+          ...emptyShot('b', 1, 4000),
+          dialogue: [line('d2', ['s1'], 'kontynuacja', 4000, 4500)],
+          body: [
+            { kind: 'speaker', speakerIds: ['s1'], form: 'short' },
+            { kind: 'text', text: ' ' },
+            { kind: 'dialogue', eventId: 'd2' },
+          ],
+        },
+      ],
+    }
+    const next = removeSelected(project, [{ kind: 'dialogue', id: 'd1' }])
+    expect(next.shots.find(s => s.id === 'a')?.body).toEqual([])
+    expect(next.shots.find(s => s.id === 'b')?.body).toEqual([
+      { kind: 'speaker', speakerIds: ['s1'], form: 'full' },
+      { kind: 'text', text: ' ' },
+      { kind: 'dialogue', eventId: 'd2' },
+    ])
+    expect(diagnosticIds(next)).not.toContain('SPEAKER_FIRST_INTRO')
+  })
+
+  /**
+   * Runda 2 recenzji, bug ważny: reguła 1 z rundy 1 („zdejmij mówcę bez
+   * `dialogue` w przedziale") była za zachłanna — przedział mógł nieść
+   * ręcznie napisaną narrację bez żadnej kwestii obok, a usunięcie
+   * NIEPOWIĄZANEGO obiektu w tym samym ujęciu (tu: ruch kamery gdzie indziej
+   * w `body`) i tak przechodziło przez `pruneBody` i po cichu ścierało
+   * atrybucję, której ta narracja potrzebowała. Ten kształt nie jest dziś
+   * osiągalny z interfejsu (`addDialogue`/`splitAtSceneTrans` zawsze parują
+   * mówcę z `dialogue`), ale jest poprawny względem `Segment` i osiągalny
+   * przez import/ręczną edycję `project.json`. Węższa reguła (runda 2):
+   * zdejmij mówcę tylko, gdy przedział jest CAŁY samą spacją.
+   */
+  it('mówca stojący przed ręcznie napisaną narracją przeżywa usunięcie niepowiązanego obiektu w tym samym ujęciu', () => {
+    const project: Project = {
+      ...twoShots(),
+      speakers: [speaker('s1', 'S1')],
+      shots: [
+        {
+          ...emptyShot('a', 0, 0),
+          cameraMoves: [{ id: 'move-1', type: 'static', startMs: 0, endMs: 1000 }],
+          body: [
+            { kind: 'speaker', speakerIds: ['s1'], form: 'full' },
+            { kind: 'text', text: ' steps into the courtyard.' },
+            { kind: 'text', text: ' ' },
+            { kind: 'camera', moveId: 'move-1' },
+          ],
+        },
+        emptyShot('b', 1, 4000),
+      ],
+    }
+    const next = removeSelected(project, [{ kind: 'camera', id: 'move-1' }])
+    const shotA = next.shots.find(s => s.id === 'a')
+    expect(shotA?.body).toEqual([
+      { kind: 'speaker', speakerIds: ['s1'], form: 'full' },
+      { kind: 'text', text: ' steps into the courtyard.' },
+    ])
+    expect(diagnosticIds(next)).not.toContain('SPEAKER_FIRST_INTRO')
+  })
+
+  /**
    * Runda 1 recenzji, bug ważny: trzy cykle „dodaj obiekt, usuń go" na
    * ujęciu z jednym przetrwałym ruchem kamery nie mogą zostawić w `body`
    * ŻADNEGO osieroconego separatora. Naiwne filtrowanie tylko po id obiektu
@@ -362,4 +446,88 @@ describe('wyniki uczciwe — walidator ma rację, nie próbujemy tego ukryć', (
     const next = addSfx(project, 1000)
     expect(diagnosticIds(next)).toContain('SOUNDSCAPE_NA_ONLY_IF_SILENT')
   })
+})
+
+/**
+ * Runda 2 recenzji: „przebiegnij jeszcze raz połowę usuwania w tym samym
+ * sweepie, żeby potwierdzić, że nic ponad SPEAKER_SILENT_NO_ID nie
+ * przechodzi". Jeden bogaty, ręcznie skomponowany projekt (dwóch mówców,
+ * ruch kamery, dwie kwestie, tekst na ekranie, dźwięk diegetyczny — każdy
+ * rodzaj obiektu, jaki to zadanie umie tworzyć i usuwać) i komplet
+ * pojedynczych oraz mieszanych usunięć na nim. Dla każdej kombinacji
+ * porównujemy zbiór identyfikatorów reguł PRZED i PO — każda nowa
+ * diagnostyka musi być `SPEAKER_SILENT_NO_ID` (jedyny zaakceptowany, uczciwy
+ * skutek usuwania: mówca traci swoją ostatnią kwestię w całym projekcie) i
+ * niczym innym.
+ */
+describe('sweep usuwania — nic ponad SPEAKER_SILENT_NO_ID nie przechodzi', () => {
+  const sweepProject = (): Project => ({
+    schemaVersion: 1,
+    id: 'sweep',
+    name: 'sweep',
+    mode: 'T2VA',
+    video: { durationMs: 12000, fps: 24, aspect: '16:9', resolution: '1920x1080' },
+    style: '',
+    assets: [],
+    labels: [],
+    speakers: [speaker('s1', 'S1'), speaker('s2', 'S2')],
+    shots: [
+      {
+        ...emptyShot('a', 0, 0),
+        cameraMoves: [{ id: 'move-1', type: 'static', startMs: 0, endMs: 1000 }],
+        dialogue: [line('d1', ['s1'], 'pierwsza', 1000, 2000)],
+        screenText: [{ id: 'text-1', text: 'TEXT' }],
+        diegeticSfx: [{ id: 'sfx-1', description: 'krok', startMs: 500, endMs: 1000 }],
+        body: [
+          { kind: 'camera', moveId: 'move-1' },
+          { kind: 'text', text: ' ' },
+          { kind: 'speaker', speakerIds: ['s1'], form: 'full' },
+          { kind: 'text', text: ' ' },
+          { kind: 'dialogue', eventId: 'd1' },
+          { kind: 'text', text: ' ' },
+          { kind: 'screenText', id: 'text-1' },
+        ],
+      },
+      {
+        ...emptyShot('b', 1, 4000),
+        dialogue: [line('d2', ['s2'], 'druga', 4000, 5000)],
+        body: [
+          { kind: 'speaker', speakerIds: ['s2'], form: 'full' },
+          { kind: 'text', text: ' ' },
+          { kind: 'dialogue', eventId: 'd2' },
+        ],
+      },
+    ],
+    audio: { overallSoundscape: 'Footsteps echo softly.', nonDiegeticMusic: 'A slow piano plays.' },
+    ref: { taskTypes: [], summaryText: '', retention: [] },
+  })
+
+  const combos: { label: string; refs: Array<{ kind: 'camera' | 'dialogue' | 'screenText' | 'sfx'; id: string }> }[] = [
+    { label: 'sam ruch kamery', refs: [{ kind: 'camera', id: 'move-1' }] },
+    { label: 'sam tekst na ekranie', refs: [{ kind: 'screenText', id: 'text-1' }] },
+    { label: 'sam dźwięk', refs: [{ kind: 'sfx', id: 'sfx-1' }] },
+    { label: 'jedyna kwestia s1 (SPEAKER_SILENT_NO_ID dopuszczalne)', refs: [{ kind: 'dialogue', id: 'd1' }] },
+    { label: 'jedyna kwestia s2 (SPEAKER_SILENT_NO_ID dopuszczalne)', refs: [{ kind: 'dialogue', id: 'd2' }] },
+    { label: 'ruch kamery + tekst naraz', refs: [{ kind: 'camera', id: 'move-1' }, { kind: 'screenText', id: 'text-1' }] },
+    {
+      label: 'wszystko naraz',
+      refs: [
+        { kind: 'camera', id: 'move-1' }, { kind: 'dialogue', id: 'd1' }, { kind: 'dialogue', id: 'd2' },
+        { kind: 'screenText', id: 'text-1' }, { kind: 'sfx', id: 'sfx-1' },
+      ],
+    },
+  ]
+
+  const ACCEPTED_NEW_DIAGNOSTICS = new Set(['SPEAKER_SILENT_NO_ID'])
+
+  for (const combo of combos) {
+    it(`usunięcie: ${combo.label}`, () => {
+      const before = new Set(diagnosticIds(sweepProject()))
+      const after = diagnosticIds(removeSelected(sweepProject(), combo.refs))
+      const introduced = after.filter(id => !before.has(id))
+      for (const id of introduced) {
+        expect(ACCEPTED_NEW_DIAGNOSTICS.has(id), `nieoczekiwana nowa diagnostyka: ${id}`).toBe(true)
+      }
+    })
+  }
 })

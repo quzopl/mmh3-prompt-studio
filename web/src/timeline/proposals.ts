@@ -118,8 +118,14 @@ const nextDialogueNumber = (project: Project): number =>
  * mówcę ze zbioru „świeżych" w oczach tej reguły (`introduced.add(id)`
  * wykonuje się TAM zanim reguła w ogóle sprawdzi formę), więc liczy się też
  * tutaj — poprawianie cudzego istniejącego naruszenia nie jest naszą sprawą.
+ *
+ * `export`, bo `createOnTrack.ts` (`promoteFirstSurvivingIntroduction`)
+ * odpowiada na dokładnie to samo pytanie po usunięciu kwestii, która była
+ * czyimś jedynym pełnym wprowadzeniem — reguła 2/5 recenzji zadania 14:
+ * druga, niezależna implementacja tego samego rachunku rozjechałaby się z tą
+ * przy pierwszej zmianie jednego z dwóch miejsc.
  */
-function speakerIntroducedBefore(spans: ShotSpan[], beforePosition: number, speakerId: string): boolean {
+export function speakerIntroducedBefore(spans: ShotSpan[], beforePosition: number, speakerId: string): boolean {
   return spans.slice(0, beforePosition).some(span =>
     span.shot.body.some(seg =>
       (seg.kind === 'speaker' && seg.speakerIds.includes(speakerId))

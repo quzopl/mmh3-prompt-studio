@@ -11,6 +11,7 @@ import { useTimelineShortcuts } from '../../src/timeline/useTimelineShortcuts.js
 import { useProject } from '../../src/store/projectStore.js'
 import { usePlayhead } from '../../src/store/playheadStore.js'
 import { useSelection } from '../../src/store/selectionStore.js'
+import { DICT } from '../../src/i18n/dict.js'
 import { baseProject, emptyShot } from './fixtures.js'
 
 const scale = createScale(8000, 800, 1)
@@ -150,6 +151,13 @@ describe('tworzenie i usuwanie na ScreenTextTrack', () => {
     expect(clip).toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(1)
     assertNoBodyRegression()
+    // Runda 2 recenzji: `assertNoBodyRegression` nie ma na czym ugryźć brak
+    // dopięcia segmentu w `addScreenText` — żadna reguła walidatora nie
+    // sprawdza kompletności odwołań do `screenText` (nie ma odpowiednika
+    // `BODY_REFS_COMPLETE` dla tego rodzaju), a brakujący segment niczego
+    // nie rzuca, po prostu nie trafia do promptu. Jedyny dowód, że tekst
+    // faktycznie dotarł do kompilatora, to sam skompilowany tekst.
+    expect(buildPrompt(useProject.getState().project!).text).toContain(DICT.en['track.newScreenText'])
 
     await user.click(clip)
     expect(useSelection.getState().selected).toHaveLength(1)

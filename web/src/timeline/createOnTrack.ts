@@ -1,8 +1,9 @@
 import {
-  MS_PER_FRAME, snapToFrame, type ObjectRef, type Project, type Segment,
+  MS_PER_FRAME, snapToFrame, type ObjectRef, type Project, type Segment, type Shot,
 } from '@mmh3/shared'
 import { DICT } from '../i18n/dict.js'
 import { shotSpans } from './spans.js'
+import { speakerIntroducedBefore } from './proposals.js'
 
 /** Domyślna długość nowego obiektu: sekunda, przycięta do tego, co zostało. */
 const DEFAULT_LENGTH_MS = 1000
@@ -228,14 +229,23 @@ const isWhitespaceText = (seg: Segment): boolean => seg.kind === 'text' && seg.t
  *
  * 1. Segment mówcy, który przestał cokolwiek wprowadzać. „Wprowadza" liczy
  *    się strukturalnie: segmenty między nim a NASTĘPNYM segmentem mówcy (albo
- *    końcem `body`, gdy kolejnego nie ma) — jeśli w tym przedziale nie ma już
- *    ŻADNEGO segmentu `dialogue`, mówca zostaje zdjęty. To reguła pozycyjna
- *    do przedziału, nie do konkretnego id kwestii, więc poprawnie obsługuje
- *    mówcę wprowadzającego kilka kwestii z rzędu: usunięcie JEDNEJ z nich
- *    zostawia resztę w przedziale, więc segment mówcy przeżywa; dopiero
- *    usunięcie WSZYSTKICH kwestii w przedziale go zdejmuje. Wersja liczona
- *    „czy TA KONKRETNA usunięta kwestia była tuż po tym mówcy" dawałaby
- *    złą odpowiedź właśnie w tym przypadku.
+ *    końcem `body`, gdy kolejnego nie ma) — mówca zostaje zdjęty TYLKO, gdy
+ *    ten przedział jest CAŁY samą spacją (albo pusty). Węższa wersja niż w
+ *    rundzie 1 (tam: „zdejmij, gdy w przedziale nie ma już `dialogue`") —
+ *    złapane w rundzie 2 recenzji: przedział mógł nieść ręcznie napisaną
+ *    narrację („steps into the courtyard.") bez żadnego segmentu `dialogue`
+ *    obok, a usunięcie NIEPOWIĄZANEGO obiektu w tym samym ujęciu (np. ruchu
+ *    kamery gdzie indziej w `body`) i tak przechodziło przez ten sam
+ *    przebieg i zdejmowało mówcę, którego ta narracja wciąż potrzebowała.
+ *    `addDialogue`/`splitAtSceneTrans` (jedyni dzisiejsi autorzy segmentów
+ *    mówcy) zawsze parują mówcę z `dialogue` i niczym więcej, więc ten
+ *    przypadek nie jest osiągalny z dzisiejszego interfejsu — ale jest
+ *    poprawny względem typu `Segment` i osiągalny przez import/ręczną edycję
+ *    `project.json` (naprawia to `shared/src/model/repairIds.ts` w drugą
+ *    stronę, nie tę). Test „mówca wprowadzający kilka kwestii z rzędu…"
+ *    (bez zmian) i tak przechodzi: przedział z choćby jedną `dialogue` NIE
+ *    jest „całą spacją", więc węższa reguła i szersza dawały tu ten sam wynik
+ *    — różnią się dopiero na przedziale z narracją.
  * 2. Separatory-spacje (`{kind:'text', text:' '}` z `appendToBody`), które
  *    przestały cokolwiek rozdzielać: ciąg kolejnych spacji zwija się do
  *    jednej, a spacja na samym początku/końcu `body` znika całkiem — na
@@ -250,14 +260,23 @@ const isWhitespaceText = (seg: Segment): boolean => seg.kind === 'text' && seg.t
  * cała trójka traci ostatni żywy segment `dialogue` w przedziale, zdjęcie
  * mówcy zostawia samą spację), więc krok 2 musi biec PO kroku 1, nie przed
  * ani równolegle.
+ *
+ * Zwraca też `droppedSpeakerIds` — identyfikatory mówców, których segment
+ * KROK 1 faktycznie zdjął. `removeSelected` używa tego do decyzji, dla
+ * których mówców trzeba jeszcze sprawdzić, czy ich nowe pierwsze
+ * (przetrwałe) wystąpienie w CAŁYM projekcie wciąż niesie formę `'full'` —
+ * patrz `promoteFirstSurvivingIntroduction` niżej.
  */
-function pruneBody(body: Segment[]): Segment[] {
+function pruneBody(body: Segment[]): { body: Segment[]; droppedSpeakerIds: string[] } {
+  const droppedSpeakerIds: string[] = []
   const withoutOrphanSpeakers = body.filter((seg, index) => {
     if (seg.kind !== 'speaker') return true
     const rest = body.slice(index + 1)
     const nextSpeakerOffset = rest.findIndex(candidate => candidate.kind === 'speaker')
     const run = nextSpeakerOffset === -1 ? rest : rest.slice(0, nextSpeakerOffset)
-    return run.some(candidate => candidate.kind === 'dialogue')
+    if (!run.every(candidate => isWhitespaceText(candidate))) return true
+    droppedSpeakerIds.push(...seg.speakerIds)
+    return false
   })
 
   const collapsed: Segment[] = []
@@ -276,7 +295,50 @@ function pruneBody(body: Segment[]): Segment[] {
     if (last === undefined || !isWhitespaceText(last)) break
     collapsed.pop()
   }
-  return collapsed
+  return { body: collapsed, droppedSpeakerIds }
+}
+
+/**
+ * Po zdjęciu mówcy, który stracił swój jedyny (pełny albo skrócony) segment
+ * w JEDNYM ujęciu, mówca mógł mieć DALSZE, przetrwałe segmenty w innych
+ * ujęciach — dokładnie kształt, jaki zostawia `splitAtSceneTrans`: `'full'`
+ * w ujęciu, gdzie kwestia zaczyna się po raz pierwszy, `'short'` w
+ * kolejnym, dokąd przechodzi przez cięcie. Jeśli zdjęty segment był tym
+ * `'full'`, przetrwały `'short'` staje się nowym pierwszym wystąpieniem
+ * mówcy w porządku projektu — a `SPEAKER_FIRST_INTRO`
+ * (shared/src/validate/rules/speech.ts) wymaga formy `'full'` albo opisu
+ * właśnie na PIERWSZYM wystąpieniu. Złapane w rundzie 2 recenzji: bez tej
+ * funkcji Delete potrafiło zapalić tę regułę na projekcie, który jej nie miał.
+ *
+ * Szuka pierwszego PRZETRWAŁEGO segmentu `speaker` dla `speakerId`, idąc po
+ * ujęciach w kolejności (`shotSpans`) i po `body` w kolejności tablicy —
+ * dokładnie ten sam porządek skanowania, którego używa `SPEAKER_FIRST_INTRO`
+ * i `speakerIntroducedBefore` w `proposals.ts`. Reużywa
+ * `speakerIntroducedBefore` zamiast pisać drugą odpowiedź na to samo pytanie
+ * (reguła 1/5 recenzji zadania 14) — dla znalezionego segmentu funkcja ta
+ * potwierdza, że NIC wcześniejszego już go nie wyprzedza (przy tym porządku
+ * skanowania zawsze prawda, ale to ta sama gwarancja, na której stoi
+ * `SPEAKER_FIRST_INTRO`, nie założenie wynalezione tutaj od nowa). Gdy
+ * znaleziony segment ma już `form: 'full'` albo własny `descriptor`, nie ma
+ * czego podnosić — funkcja nic nie zmienia. Gdy mówca nie ma już ŻADNEGO
+ * przetrwałego segmentu (bo cała jego kwestia zniknęła), pętla kończy się
+ * bez akcji — to scenariusz `SPEAKER_SILENT_NO_ID`, osobna, uczciwa
+ * diagnostyka, nie coś, co promocja formy potrafi albo powinna naprawić.
+ */
+function promoteFirstSurvivingIntroduction(shots: Shot[], durationMs: number, speakerId: string): Shot[] {
+  const spans = shotSpans(shots, durationMs)
+  for (const [position, span] of spans.entries()) {
+    const segIndex = span.shot.body.findIndex(seg => seg.kind === 'speaker' && seg.speakerIds.includes(speakerId))
+    if (segIndex === -1) continue
+    if (speakerIntroducedBefore(spans, position, speakerId)) return shots
+    const segment = span.shot.body[segIndex]
+    if (segment === undefined || segment.kind !== 'speaker') return shots
+    if (segment.form === 'full' || segment.descriptor) return shots
+    return shots.map(shot => (shot.id === span.shot.id
+      ? { ...shot, body: shot.body.map((seg, index) => (index === segIndex ? { ...segment, form: 'full' as const } : seg)) }
+      : shot))
+  }
+  return shots
 }
 
 /**
@@ -301,6 +363,12 @@ function pruneBody(body: Segment[]): Segment[] {
  * wcale nie dotyczyło; zwijanie/przycinanie jest tam bez efektu (nie ma czego
  * sprzątać), ale straż czyni to jawnym, zamiast polegać na przypadkowej
  * niezmienności przebiegu na nietkniętych danych.
+ *
+ * Promocja formy (`promoteFirstSurvivingIntroduction`) biegnie PO tym, jak
+ * WSZYSTKIE ujęcia dostały już swoje przycięte `body` — nie w tej samej
+ * pętli `.map` — bo wymaga widoku na CAŁY projekt naraz (mówca stracony w
+ * jednym ujęciu może przetrwać w innym), czego pojedyncza iteracja po
+ * jednym ujęciu nie ma.
  */
 export function removeSelected(project: Project, selected: ObjectRef[]): Project {
   const ids = (kind: string) => selected.filter(ref => ref.kind === kind).map(ref => ref.id)
@@ -315,19 +383,29 @@ export function removeSelected(project: Project, selected: ObjectRef[]): Project
     || (seg.kind === 'dialogue' && lines.includes(seg.eventId))
     || (seg.kind === 'screenText' && texts.includes(seg.id))
 
-  return {
-    ...project,
-    shots: project.shots.map(shot => {
-      const afterRemoval = shot.body.filter(seg => !dropsSegment(seg))
-      const body = afterRemoval.length === shot.body.length ? shot.body : pruneBody(afterRemoval)
-      return {
-        ...shot,
-        cameraMoves: shot.cameraMoves.filter(move => !cameras.includes(move.id)),
-        dialogue: shot.dialogue.filter(event => !lines.includes(event.id)),
-        screenText: shot.screenText.filter(entry => !texts.includes(entry.id)),
-        diegeticSfx: shot.diegeticSfx.filter(sound => !sounds.includes(sound.id)),
-        body,
-      }
-    }),
-  }
+  const affectedSpeakerIds: string[] = []
+  const shotsAfterRemoval = project.shots.map(shot => {
+    const afterRemoval = shot.body.filter(seg => !dropsSegment(seg))
+    let body = shot.body
+    if (afterRemoval.length !== shot.body.length) {
+      const pruned = pruneBody(afterRemoval)
+      body = pruned.body
+      affectedSpeakerIds.push(...pruned.droppedSpeakerIds)
+    }
+    return {
+      ...shot,
+      cameraMoves: shot.cameraMoves.filter(move => !cameras.includes(move.id)),
+      dialogue: shot.dialogue.filter(event => !lines.includes(event.id)),
+      screenText: shot.screenText.filter(entry => !texts.includes(entry.id)),
+      diegeticSfx: shot.diegeticSfx.filter(sound => !sounds.includes(sound.id)),
+      body,
+    }
+  })
+
+  const finalShots = [...new Set(affectedSpeakerIds)].reduce(
+    (shots, speakerId) => promoteFirstSurvivingIntroduction(shots, project.video.durationMs, speakerId),
+    shotsAfterRemoval,
+  )
+
+  return { ...project, shots: finalShots }
 }
