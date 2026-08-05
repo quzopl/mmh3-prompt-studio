@@ -94,7 +94,7 @@ i odpowiada 400. Właściwym domknięciem jest zawężenie samego schematu do
 
 **Rozstrzygnięcie (Plan 3, Task 1, commit `13b28ee`):** zrobione — pakiet został
 odmrożony na czas spłaty długu i `AssetSchema.path` ma dziś dokładnie ten
-wzorzec (`shared/src/model/schema.ts:134`). Migracja plików projektów nie była
+wzorzec (`shared/src/model/schema.ts:140`). Migracja plików projektów nie była
 potrzebna, bo `saveAsset` od początku zapisuje `join('assets', stored)`, co
 wzorzec spełnia. Kontrola po stronie trasy (`assertInsideRoot`) została na
 miejscu: schemat zawęża to, co wolno zapisać, a trasa broni się przed tym, co
@@ -189,3 +189,49 @@ które jeszcze nie istnieją na dysku, a `realpath` rzuca `ENOENT` dla
 nieistniejącej ścieżki — `assertRealPathInside` nadaje się więc tylko do stron
 odczytu, gdzie plik z definicji już jest obecny (albo jego brak to osobny,
 rozróżniony przypadek 404).
+
+---
+
+# Przeniesione z recenzji końcowej Planu 3
+
+Rzeczy wykryte przy zamykaniu gałęzi `feat/os-czasu-rdzen`, rozstrzygnięte jako
+dług zamiast blokady scalenia.
+
+## 14. Porządek ujęć nie ma właściciela
+
+Trzy miejsca liczą „kolejność ujęć" na dwa sposoby: `renumber`
+(`web/src/timeline/shotOperations.ts`) sortuje po `startMs`, a `shotSpans`
+(`web/src/timeline/spans.ts`) i domknięcie `removeShots` sortują po `index`.
+Zgadzają się tylko dopóki niezmiennik trzyma, a żadna funkcja go nie pilnuje —
+`useDragBoundary` pisze `startMs` i nigdy nie woła `renumber`.
+
+**Rozstrzygnięcie:** nie blokuje scalenia. Wszystkie trzy pisarze w aplikacji
+przycinają dziś każde ujęcie do co najmniej dwóch klatek, więc rozjazd wymaga
+projektu napisanego z zewnątrz. Właściwym domknięciem jest jedna funkcja
+normalizująca listę ujęć, przez którą przechodzi każdy zapis — należy do planu,
+który doda kolejne ścieżki osi czasu, bo one podwoją liczbę pisarzy.
+
+## 15. `ProjectSchema` dopuszcza dwa ujęcia o tym samym `id`
+
+Krytyczna usterka z recenzji końcowej (`splitAtMs` numerował po liczbie ujęć,
+więc identyfikator wracał po usunięciu) jest zamknięta po stronie aplikacji:
+sufiks bierze się dziś z maksimum istniejących, a fuzz na 300 przebiegach po 60
+losowych operacji nie znalazł kolizji. Sam schemat nadal jednak przyjmuje
+duplikat, więc ręcznie zredagowany `project.json` albo łatka od modelu może go
+wnieść.
+
+**Rozstrzygnięcie:** dług. Zawężenie schematu zaczęłoby zwracać 400 na
+projektach, które dziś przechodzą, więc wymaga świadomej migracji.
+
+## 16. Pole czasu cięcia w inspektorze zatwierdza na blur/Enter, nie na każdy znak
+
+Recenzja końcowa kazała przepuścić to pole przez tę samą politykę co
+przeciąganie granicy (przyciąganie do klatki, ograniczenie sąsiadami). Zmierzone:
+te dwie rzeczy wykluczają się z zapisem na każdy znak — pierwsza cyfra „5000"
+staje się 83 ms, a reszta dopisuje się do poprawionej liczby, dając 7917.
+Zatwierdzanie na blur i Enter jest jedynym wyjściem, które nie walczy z
+piszącym, i tak zachowują się pola liczbowe w programach montażowych.
+
+Zostają dwie drobne konsekwencje: wyczyszczenie pola i wyjście z niego
+zatwierdza 83 ms (minimalną długość ujęcia) zamiast zostawiać wartość, i nie ma
+Escape cofającego edycję.
