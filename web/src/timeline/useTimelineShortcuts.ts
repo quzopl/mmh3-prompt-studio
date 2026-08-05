@@ -33,6 +33,17 @@ const isBareKey = (event: KeyboardEvent): boolean =>
 const isBareOrShiftKey = (event: KeyboardEvent): boolean =>
   !event.ctrlKey && !event.altKey && !event.metaKey
 
+/**
+ * Rodzaje referencji, którymi Delete umie się zająć — `removeShots` dla
+ * ujęć, `removeSelected` (createOnTrack.ts) dla reszty. Zaznaczenie może
+ * zawierać też inne rodzaje, których żadna z tych dwóch funkcji nie rusza
+ * (np. pas pejzażu dźwiękowego z `AudioBedTracks.tsx` zaznacza się jako
+ * `{kind:'audio', …}`) — dla NICH klawisz ma spaść przez ten handler bez
+ * żadnego efektu, tak jak przed tym zadaniem, gdy Delete w ogóle nie znało
+ * innych rodzajów niż `shot`.
+ */
+const DELETABLE_KINDS = new Set(['shot', 'camera', 'dialogue', 'screenText', 'sfx'])
+
 export function useTimelineShortcuts(): void {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -99,7 +110,17 @@ export function useTimelineShortcuts(): void {
 
       if (event.key === 'Delete' && isBareKey(event)) {
         const selected = useSelection.getState().selected
-        if (selected.length === 0) return
+        // Klawisz konsumujemy tylko wtedy, gdy zaznaczenie zawiera COKOLWIEK,
+        // co Delete faktycznie umie usunąć — złapane w rundzie 1 recenzji:
+        // przy zaznaczeniu samego pasa dźwiękowego (`kind: 'audio'`, którego
+        // ani `removeShots`, ani `removeSelected` nie ruszają) poprzednia
+        // wersja i tak woła `handled()` i czyści zaznaczenie, mimo że nic w
+        // projekcie się nie zmienia — klawisz „znika" bez efektu, a
+        // zaznaczenie, które użytkownik jeszcze mógł chcieć zachować, ginie
+        // razem z nim. Przed tym zadaniem taki przypadek w ogóle nie łapał
+        // się w `ids.length === 0` i leciał dalej nietknięty — ten strażnik
+        // przywraca to zachowanie dla rodzajów spoza `DELETABLE_KINDS`.
+        if (!selected.some(ref => DELETABLE_KINDS.has(ref.kind))) return
         handled()
         if (event.repeat) return
         const shotIds = selected.filter(ref => ref.kind === 'shot').map(ref => ref.id)

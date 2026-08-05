@@ -3,7 +3,7 @@ import { buildPrompt, MS_PER_FRAME, type Project } from '@mmh3/shared'
 import {
   addCameraMove, addDialogue, addScreenText, addSfx, removeSelected,
 } from '../../src/timeline/createOnTrack.js'
-import { baseProject, emptyShot } from './fixtures.js'
+import { baseProject, emptyShot, line, speaker } from './fixtures.js'
 
 const twoShots = () => baseProject([emptyShot('a', 0, 0), emptyShot('b', 1, 4000)])
 
@@ -62,7 +62,10 @@ describe('addCameraMove', () => {
 
 describe('addDialogue', () => {
   it('przypisuje kwestię wskazanemu mówcy', () => {
-    const next = addDialogue(twoShots(), 1000, 's1')
+    // `s1` musi istnieć w `project.speakers` od rundy 1 recenzji (patrz
+    // `addDialogue`'s guard) — `twoShots()` sam z siebie nie ma mówców.
+    const project = { ...twoShots(), speakers: [speaker('s1', 'S1')] }
+    const next = addDialogue(project, 1000, 's1')
     expect(next.shots.flatMap(s => s.dialogue)[0]?.speakerIds).toEqual(['s1'])
   })
 
@@ -83,6 +86,19 @@ describe('addDialogue', () => {
     const lineId = shotA?.dialogue[0]?.id ?? ''
     expect(shotA?.body).toContainEqual({ kind: 'dialogue', eventId: lineId })
     expect(diagnosticIds(next)).not.toContain('BODY_REFS_COMPLETE')
+  })
+
+  /**
+   * Runda 1 recenzji: `speakerId` spoza `project.speakers` musi wracać
+   * projekt bez zmian, nie zapisywać kwestię, którą `renderSpeakerSegment`
+   * (shared/src/compile/renderSpeaker.ts) i tak odrzuci wyjątkiem przy
+   * pierwszej kompilacji (`.find(...)` nie trafi, funkcja rzuca jawnie).
+   * Referencyjna równość (`toBe`), jak przy innych odmowach w tym pliku
+   * (`spanAt` poza ujęciem) — żaden fragment projektu się nie zmienił.
+   */
+  it('nieznany speakerId (spoza project.speakers) zwraca ten sam obiekt', () => {
+    const project = twoShots()
+    expect(addDialogue(project, 1000, 'kto-to')).toBe(project)
   })
 })
 
@@ -190,5 +206,160 @@ describe('removeSelected', () => {
     expect(next.shots.flatMap(s => s.body).some(seg => seg.kind === 'dialogue')).toBe(false)
     expect(next.shots.flatMap(s => s.body).some(seg => seg.kind === 'screenText')).toBe(false)
     expect(diagnosticIds(next)).not.toContain('COMPILE_FAILED')
+  })
+
+  /**
+   * Runda 1 recenzji, bug krytyczny: usunięcie jedynej kwestii mówcy w danym
+   * UJĘCIU musi zdjąć też JEGO segment `speaker` (i separator) z `body` tego
+   * ujęcia, nie tylko segment `dialogue`. Mówca ma tu DRUGĄ, istniejącą
+   * kwestię w ujęciu 'b' (przetrwa niedotknięta), żeby ten test mierzył
+   * WYŁĄCZNIE sprzątanie `body` — bez drugiej kwestii usunięcie jedynej
+   * kwestii mówcy w całym projekcie zapaliłoby też (poprawnie! patrz opis
+   * niżej w pliku) `SPEAKER_SILENT_NO_ID`, co zaciemniłoby, co dokładnie ten
+   * test sprawdza.
+   */
+  it('usunięcie jedynej kwestii mówcy w jednym ujęciu zdejmuje jego segment mówcy z body tego ujęcia', () => {
+    const project: Project = {
+      ...twoShots(),
+      speakers: [speaker('s1', 'S1')],
+      shots: [
+        emptyShot('a', 0, 0),
+        {
+          ...emptyShot('b', 1, 4000),
+          dialogue: [line('d0', ['s1'], 'istniejąca', 4000, 4500)],
+          body: [
+            { kind: 'speaker', speakerIds: ['s1'], form: 'full' },
+            { kind: 'text', text: ' ' },
+            { kind: 'dialogue', eventId: 'd0' },
+          ],
+        },
+      ],
+    }
+    const withLine = addDialogue(project, 1000, 's1') // trafia do pustego ujęcia 'a'
+    const newLineId = withLine.shots.find(s => s.id === 'a')?.dialogue[0]?.id ?? ''
+    const next = removeSelected(withLine, [{ kind: 'dialogue', id: newLineId }])
+    const shotA = next.shots.find(s => s.id === 'a')
+    // `body` ujęcia 'a' było puste przed `addDialogue` — round-trip do tego
+    // samego kształtu dowodzi, że ZARÓWNO segment mówcy, JAK I separator
+    // między nim a kwestią, zniknęły razem z samą kwestią.
+    expect(shotA?.body).toEqual([])
+    // Ujęcie 'b' — z drugą, nietkniętą kwestią tego samego mówcy — zostaje
+    // bez zmian: sprzątanie działa per ujęcie, nie globalnie po mówcy.
+    expect(next.shots.find(s => s.id === 'b')?.body).toHaveLength(3)
+    expect(diagnosticIds(next)).not.toContain('SPEAKER_SILENT_NO_ID')
+    expect(diagnosticIds(next)).not.toContain('BODY_REFS_COMPLETE')
+  })
+
+  /**
+   * Sprzątanie mówcy jest pozycyjne (segmenty między nim a NASTĘPNYM mówcą w
+   * `body`), nie dowiązane do konkretnego id usuniętej kwestii — inaczej
+   * mówca wprowadzający dwie kwestie z rzędu straciłby atrybucję po usunięciu
+   * TYLKO jednej z nich, mimo że druga wciąż tam jest i wciąż jej potrzebuje.
+   * `body` budowane tu ręcznie (nie przez `addDialogue`, który zawsze tworzy
+   * WŁASNY segment mówcy na kwestię) właśnie po to, żeby przetestować ten
+   * ogólny, pozycyjny przypadek.
+   */
+  it('mówca wprowadzający kilka kwestii z rzędu przeżywa usunięcie tylko jednej z nich', () => {
+    const project: Project = {
+      ...twoShots(),
+      speakers: [speaker('s1', 'S1')],
+      shots: [
+        {
+          ...emptyShot('a', 0, 0),
+          dialogue: [
+            line('d1', ['s1'], 'pierwsza', 1000, 2000),
+            line('d2', ['s1'], 'druga', 2500, 3500),
+          ],
+          body: [
+            { kind: 'speaker', speakerIds: ['s1'], form: 'full' },
+            { kind: 'text', text: ' ' },
+            { kind: 'dialogue', eventId: 'd1' },
+            { kind: 'text', text: ' ' },
+            { kind: 'dialogue', eventId: 'd2' },
+          ],
+        },
+        emptyShot('b', 1, 4000),
+      ],
+    }
+    const next = removeSelected(project, [{ kind: 'dialogue', id: 'd1' }])
+    const shotA = next.shots.find(s => s.id === 'a')
+    expect(shotA?.body).toEqual([
+      { kind: 'speaker', speakerIds: ['s1'], form: 'full' },
+      { kind: 'text', text: ' ' },
+      { kind: 'dialogue', eventId: 'd2' },
+    ])
+  })
+
+  /**
+   * Runda 1 recenzji, bug ważny: trzy cykle „dodaj obiekt, usuń go" na
+   * ujęciu z jednym przetrwałym ruchem kamery nie mogą zostawić w `body`
+   * ŻADNEGO osieroconego separatora. Naiwne filtrowanie tylko po id obiektu
+   * (bez `pruneBody`) zostawiało po każdym cyklu jedną spację nawiasową —
+   * po trzech cyklach trzy, i prompt kończący się trzema spacjami zapisany w
+   * `project.json`. Asercja na końcu porównuje `body` do jego kształtu
+   * SPRZED pierwszego cyklu — nie tylko „brak spacji", tak żeby złapać też
+   * ewentualne inne artefakty sprzątania.
+   */
+  it('trzy cykle „dodaj-usuń" nie zostawiają w body żadnych osieroconych separatorów', () => {
+    const seeded: Project = {
+      ...twoShots(),
+      shots: [
+        {
+          ...emptyShot('a', 0, 0),
+          cameraMoves: [{ id: 'move-1', type: 'static', startMs: 0, endMs: 1000 }],
+          body: [{ kind: 'camera', moveId: 'move-1' }],
+        },
+        emptyShot('b', 1, 4000),
+      ],
+    }
+    const originalBodyOfA = seeded.shots.find(s => s.id === 'a')?.body
+
+    let project = seeded
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      project = addCameraMove(project, 500)
+      const newMoveId = project.shots.flatMap(s => s.cameraMoves)
+        .find(move => move.id !== 'move-1')?.id ?? ''
+      project = removeSelected(project, [{ kind: 'camera', id: newMoveId }])
+    }
+
+    expect(project.shots.find(s => s.id === 'a')?.body).toEqual(originalBodyOfA)
+  })
+})
+
+/**
+ * Runda 1 recenzji: te dwie diagnostyki są poprawnym, uczciwym wynikiem
+ * interfejsu robiącego dokładnie to, o co proszony — nie błędem do ukrycia.
+ * Testy tu je jawnie DOKUMENTUJĄ (asercja, że diagnostyka SIĘ POJAWIA), żeby
+ * ktoś przyszły nie próbował ich "naprawić" jako regresji.
+ */
+describe('wyniki uczciwe — walidator ma rację, nie próbujemy tego ukryć', () => {
+  /**
+   * Materiał `twoShots()` ma 8000 ms. Dla domyślnego tekstu placeholdera
+   * ("new line", 2 słowa, ok. 741 ms przy tempie `WORDS_PER_SECOND=2.7`) i
+   * domyślnej tolerancji `FIT_TOLERANCE=1.5`, okno musi być krótsze niż
+   * ok. 494 ms, żeby reguła się zapaliła — a `rangeFrom` przycina okno do
+   * tego, co zostało do końca materiału. Policzone dokładnie (patrz raport
+   * zadania): dla tego materiału próg leży przy playheadzie ok. 7521 ms,
+   * czyli w ostatnim ok. pół sekundy (479 ms) z 8000 ms — nie w ostatniej
+   * sekundzie, jak sugerowałaby sama `DEFAULT_LENGTH_MS`. Kwestia naprawdę
+   * się nie mieści — 741 ms tekstu w oknie krótszym niż 83 ms przy
+   * playheadzie na samym końcu materiału.
+   */
+  it('kwestia dodana w ostatnim ~pół sekundy materiału łapie SPEECH_FITS, bo naprawdę się nie mieści', () => {
+    const next = addDialogue(twoShots(), 7990, null)
+    expect(diagnosticIds(next)).toContain('SPEECH_FITS')
+  })
+
+  /**
+   * `SOUNDSCAPE_NA_ONLY_IF_SILENT` (shared/src/validate/rules/audio.ts)
+   * czyta, czy `diegeticSfx` jest OBECNE — projekt, który deklaruje pełną
+   * ciszę (`overallSoundscape: 'N/A'`) i dostaje pierwszy dźwięk, naprawdę
+   * zaczyna sobie przeczyć. To dokładnie przypadek, przed którym ostrzega
+   * brief zadania w akapicie o `SOUNDSCAPE_NA_ONLY_IF_SILENT`.
+   */
+  it('dodanie dźwięku do projektu z overallSoundscape="N/A" łapie SOUNDSCAPE_NA_ONLY_IF_SILENT', () => {
+    const project = { ...twoShots(), audio: { overallSoundscape: 'N/A', nonDiegeticMusic: '' } }
+    const next = addSfx(project, 1000)
+    expect(diagnosticIds(next)).toContain('SOUNDSCAPE_NA_ONLY_IF_SILENT')
   })
 })

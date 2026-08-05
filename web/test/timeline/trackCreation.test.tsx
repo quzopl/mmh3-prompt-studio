@@ -1,9 +1,12 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { buildPrompt } from '@mmh3/shared'
 import { createScale } from '../../src/timeline/scale.js'
 import { CameraTrack } from '../../src/timeline/CameraTrack.js'
 import { SfxTrack } from '../../src/timeline/SfxTrack.js'
+import { DialogueTracks } from '../../src/timeline/DialogueTracks.js'
+import { ScreenTextTrack } from '../../src/timeline/ScreenTextTrack.js'
 import { useTimelineShortcuts } from '../../src/timeline/useTimelineShortcuts.js'
 import { useProject } from '../../src/store/projectStore.js'
 import { usePlayhead } from '../../src/store/playheadStore.js'
@@ -33,6 +36,23 @@ const grab = (name: RegExp) => {
   return element
 }
 
+/**
+ * `baseProject` (fixtures.ts) zostawia `overallSoundscape`/`nonDiegeticMusic`
+ * jako puste stringi, co SAMO w sobie zapala `SOUNDSCAPE_SENTENCES`/
+ * `MUSIC_SENTENCES` (guide wymaga 1–4, odpowiednio 1–3 zdań; 0 nie mieści się
+ * w żadnym z tych zakresów) — nawet na projekcie, którego ta ścieżka w ogóle
+ * nie dotyka. Pełne `toEqual([])` byłoby więc fałszywym dowodem: łapałoby
+ * ten szum tła jako rzekomą regresję. Sprawdzamy zamiast tego wprost te dwie
+ * diagnostyki, których globalne ograniczenie tego zadania faktycznie
+ * zabrania — brak segmentu w `body` (`BODY_REFS_COMPLETE`) i wybuch kompilacji
+ * (`COMPILE_FAILED`) — czyli dokładnie to, co ten test ma udowodnić.
+ */
+const assertNoBodyRegression = (): void => {
+  const ids = buildPrompt(useProject.getState().project!).diagnostics.map(d => d.ruleId)
+  expect(ids).not.toContain('BODY_REFS_COMPLETE')
+  expect(ids).not.toContain('COMPILE_FAILED')
+}
+
 beforeEach(() => {
   useSelection.setState({ selected: [] })
   usePlayhead.setState({ ms: 5000, playing: false })
@@ -50,6 +70,7 @@ describe('tworzenie i usuwanie na CameraTrack', () => {
     const clip = grab(/^Ruch kamery/i)
     expect(clip).toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(1)
+    assertNoBodyRegression()
 
     await user.click(clip)
     expect(useSelection.getState().selected).toHaveLength(1)
@@ -72,12 +93,69 @@ describe('tworzenie i usuwanie na SfxTrack', () => {
     const clip = grab(/^Dźwięk:/i)
     expect(clip).toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(1)
+    assertNoBodyRegression()
 
     await user.click(clip)
     expect(useSelection.getState().selected).toHaveLength(1)
 
     await user.keyboard('{Delete}')
     expect(screen.queryByRole('button', { name: /^Dźwięk:/i })).not.toBeInTheDocument()
+    expect(useProject.getState().past).toHaveLength(2)
+    expect(useSelection.getState().selected).toEqual([])
+  })
+})
+
+/**
+ * Runda 1 recenzji: przyciski Dialogue i ScreenText nie miały żadnego testu —
+ * Dialogue to własna decyzja projektowa (pas „bez mówcy", nie ma jej w
+ * briefie), ScreenText po prostu został pominięty. Oba pokryte tym samym
+ * wzorcem co Camera/Sfx wyżej, z dodatkowym dowodem, że utworzony obiekt się
+ * kompiluje i nie zapala diagnostyki, której projekt wcześniej nie miał.
+ */
+describe('tworzenie i usuwanie na DialogueTracks', () => {
+  it('przycisk dodaje kwestię bez mówcy na playheadzie, Delete ją usuwa jednym wpisem historii razem z dodaniem', async () => {
+    const user = userEvent.setup()
+    render(<Harness><DialogueTracks scale={scale} /></Harness>)
+
+    expect(screen.queryByRole('button', { name: /^Kwestia/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /dodaj kwestię/i }))
+
+    const clip = grab(/^Kwestia/i)
+    expect(clip).toBeInTheDocument()
+    expect(useProject.getState().past).toHaveLength(1)
+    assertNoBodyRegression()
+
+    await user.click(clip)
+    expect(useSelection.getState().selected).toHaveLength(1)
+
+    await user.keyboard('{Delete}')
+    expect(screen.queryByRole('button', { name: /^Kwestia/i })).not.toBeInTheDocument()
+    expect(useProject.getState().past).toHaveLength(2)
+    expect(useSelection.getState().selected).toEqual([])
+  })
+})
+
+describe('tworzenie i usuwanie na ScreenTextTrack', () => {
+  it('przycisk dodaje tekst na ekranie w ujęciu pod playheadem, Delete go usuwa jednym wpisem historii razem z dodaniem', async () => {
+    const user = userEvent.setup()
+    render(<Harness><ScreenTextTrack scale={scale} /></Harness>)
+
+    expect(screen.queryByRole('button', { name: /^Tekst na ekranie/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /dodaj tekst na ekranie/i }))
+
+    // Bez `grab`: klip tekstu na ekranie nie niesie `onPointerDown` (patrz
+    // `ScreenTextTrack.tsx` — nie da się go przeciągnąć), więc nie potrzebuje
+    // stubu `set/releasePointerCapture`, tak jak w `screenTextTrack.test.tsx`.
+    const clip = screen.getByRole('button', { name: /^Tekst na ekranie/i })
+    expect(clip).toBeInTheDocument()
+    expect(useProject.getState().past).toHaveLength(1)
+    assertNoBodyRegression()
+
+    await user.click(clip)
+    expect(useSelection.getState().selected).toHaveLength(1)
+
+    await user.keyboard('{Delete}')
+    expect(screen.queryByRole('button', { name: /^Tekst na ekranie/i })).not.toBeInTheDocument()
     expect(useProject.getState().past).toHaveLength(2)
     expect(useSelection.getState().selected).toEqual([])
   })

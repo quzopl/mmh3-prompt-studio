@@ -70,6 +70,25 @@ describe('useTimelineShortcuts', () => {
     expect(useProject.getState().project!.shots.map(s => s.id)).toEqual(['b'])
   })
 
+  /**
+   * Runda 1 recenzji, bug drobny: `kind: 'audio'` (pas pejzażu dźwiękowego,
+   * `AudioBedTracks.tsx`) to rodzaj zaznaczenia, którego ani `removeShots`,
+   * ani `removeSelected` (createOnTrack.ts) nie ruszają. Przed tym zadaniem
+   * taki przypadek w ogóle nie łapał się w warunek `ids.length === 0` i
+   * klawisz leciał dalej bez efektu; wersja bez strażnika `DELETABLE_KINDS`
+   * w `useTimelineShortcuts.ts` i tak woła `handled()` (konsumuje klawisz) i
+   * czyści całe zaznaczenie, mimo że w projekcie nic się nie zmienia — to i
+   * historia, i zaznaczenie w niewłaściwym stanie na sytuację „nic nie robię".
+   */
+  it('Delete z zaznaczonym tylko pasem dźwiękowym nie konsumuje klawisza ani nie czyści zaznaczenia', async () => {
+    useSelection.getState().select({ kind: 'audio', id: 'overallSoundscape' })
+    render(<Harness />)
+    const before = useProject.getState().past.length
+    await userEvent.keyboard('{Delete}')
+    expect(useProject.getState().past.length).toBe(before)
+    expect(useSelection.getState().selected).toEqual([{ kind: 'audio', id: 'overallSoundscape' }])
+  })
+
   it('Ctrl+Z cofa, Ctrl+Shift+Z ponawia', async () => {
     usePlayhead.setState({ ms: 2000, playing: false })
     render(<Harness />)

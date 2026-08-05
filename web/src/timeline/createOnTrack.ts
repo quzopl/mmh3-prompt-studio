@@ -93,6 +93,24 @@ export function addCameraMove(project: Project, atMs: number): Project {
 }
 
 export function addDialogue(project: Project, atMs: number, speakerId: string | null): Project {
+  /**
+   * Mówca musi istnieć w `project.speakers`, jeśli jest podany. Bez tej
+   * straży `renderSpeakerSegment` (shared/src/compile/renderSpeaker.ts)
+   * dostałby `speakerIds: [speakerId]` bez odpowiadającego rekordu, jego
+   * `.find(...)` zwróciłby `undefined`, a funkcja rzuca na to jawnym
+   * wyjątkiem (`Brak mówcy o id ${id}`) — `buildPrompt` zamienia taki
+   * wyjątek w `COMPILE_FAILED` na projekcie, który przed wywołaniem się
+   * kompilował. Dziś jedyne miejsce wołające tę funkcję z interfejsu
+   * przekazuje `null` (patrz `DialogueTracks.tsx`), więc nieznany
+   * `speakerId` jest dziś nieosiągalny z UI — ale funkcja jest eksportowana,
+   * test briefu woła ją wprost, a kolejne zadanie przepina te przyciski, więc
+   * nieznany identyfikator to pomyłka wołającego: oddajemy projekt bez zmian,
+   * tak samo jak `spanAt` odmawia dla playheada poza jakimkolwiek ujęciem.
+   */
+  if (speakerId !== null && !project.speakers.some(candidate => candidate.id === speakerId)) {
+    return project
+  }
+
   const span = spanAt(project, atMs)
   if (!span) return project
   const range = rangeFrom(Math.max(atMs, span.startMs), project.video.durationMs)
@@ -101,21 +119,28 @@ export function addDialogue(project: Project, atMs: number, speakerId: string | 
   /**
    * Segment mówcy tylko, gdy mówca jest znany. Bez niego (`speakerId ===
    * null`) `{kind:'speaker', speakerIds: []}` byłby jedyną opcją — a
-   * `renderSpeakerSegment` (shared/src/compile/renderSpeaker.ts) czyta
-   * `resolved[0]` bez sprawdzenia długości i wybuchłby na pustej tablicy,
-   * zamieniając kompilację w wyjątek (`COMPILE_FAILED`) na projekcie, który
-   * wcześniej się kompilował — więc kwestia bez mówcy zostaje sama, jak
+   * `renderSpeakerSegment` czyta `resolved[0]` bez sprawdzenia długości i
+   * wybuchłby na pustej tablicy — więc kwestia bez mówcy zostaje sama, jak
    * kwestia narracyjna w danych testowych (`d4` w `fixtures.ts`).
    *
    * `form: 'full'` niezależnie od tego, czy mówca był już wcześniej
-   * wprowadzony — bezpieczne w KAŻDYM przypadku: `SPEAKER_FIRST_INTRO`
-   * (shared/src/validate/rules/speech.ts) sprawdza formę TYLKO przy
-   * pierwszym w całym projekcie wystąpieniu danego mówcy w `body`, a `'full'`
-   * ten warunek zawsze spełnia; przy kolejnych wystąpieniach reguła w ogóle
-   * nie patrzy na formę segmentu. Odtworzenie pełnej logiki „czy to
-   * pierwsze wystąpienie" z `proposals.ts` (`speakerIntroducedBefore`) nie
-   * daje więc żadnej dodatkowej ochrony przed diagnostyką — tylko rzadziej
-   * powtarzałoby pełny opis mówcy w prozie, co jest kosmetyką, nie regułą.
+   * wprowadzony. To bezpieczne wyłącznie względem `SPEAKER_FIRST_INTRO`
+   * (shared/src/validate/rules/speech.ts): ta reguła sprawdza formę TYLKO
+   * przy pierwszym w całym projekcie wystąpieniu danego mówcy w `body`, a
+   * `'full'` ten warunek zawsze spełnia; przy kolejnych wystąpieniach reguła
+   * w ogóle nie patrzy na formę segmentu. To NIE znaczy „bezpieczne w każdym
+   * przypadku" (poprzednia wersja tego komentarza tak twierdziła — błędnie,
+   * złapane w rundzie 1 recenzji): jeśli `speaker.fullDescriptor` jest puste
+   * (dopuszczalny, realny stan — mówca dodany i jeszcze nie opisany),
+   * `renderSpeakerSegment` odda pusty opis przed `(Sx)` — walidator tego nie
+   * złapie (reguła patrzy na `form`/`descriptor` SEGMENTU, nie na treść
+   * rozstrzygniętego opisu), ale prompt i tak wyjdzie ubogi. A dla mówcy z
+   * już bogatym opisem, użytym gdzie indziej, każde kolejne dodanie kwestii
+   * tym przyciskiem powtarza ten sam pełny opis w prozie — bez błędu, ale
+   * coraz bardziej rozwlekle. Odtworzenie pełnej logiki „czy to pierwsze
+   * wystąpienie" z `proposals.ts` (`speakerIntroducedBefore`) nie naprawia
+   * żadnej z tych dwóch rzeczy (żadna z nich nie zależy od pozycji w
+   * projekcie) — zostaje więc jako świadomy kompromis, nie przeoczenie.
    */
   const additions: Segment[] = speakerId === null
     ? [{ kind: 'dialogue', eventId: id }]
@@ -193,6 +218,67 @@ export function addSfx(project: Project, atMs: number): Project {
   }
 }
 
+const isWhitespaceText = (seg: Segment): boolean => seg.kind === 'text' && seg.text.trim() === ''
+
+/**
+ * Sprząta `body` po tym, jak `removeSelected` wyfiltrował segmenty
+ * przywołujące usunięte obiekty. Dwa osobne przebiegi, oba GENERALNE — nie
+ * dowiązane do tego, KTÓRY konkretnie obiekt akurat zniknął (złapane w
+ * rundzie 1 recenzji jako „nie specjalizuj parowania, sprzątaj ogólnie"):
+ *
+ * 1. Segment mówcy, który przestał cokolwiek wprowadzać. „Wprowadza" liczy
+ *    się strukturalnie: segmenty między nim a NASTĘPNYM segmentem mówcy (albo
+ *    końcem `body`, gdy kolejnego nie ma) — jeśli w tym przedziale nie ma już
+ *    ŻADNEGO segmentu `dialogue`, mówca zostaje zdjęty. To reguła pozycyjna
+ *    do przedziału, nie do konkretnego id kwestii, więc poprawnie obsługuje
+ *    mówcę wprowadzającego kilka kwestii z rzędu: usunięcie JEDNEJ z nich
+ *    zostawia resztę w przedziale, więc segment mówcy przeżywa; dopiero
+ *    usunięcie WSZYSTKICH kwestii w przedziale go zdejmuje. Wersja liczona
+ *    „czy TA KONKRETNA usunięta kwestia była tuż po tym mówcy" dawałaby
+ *    złą odpowiedź właśnie w tym przypadku.
+ * 2. Separatory-spacje (`{kind:'text', text:' '}` z `appendToBody`), które
+ *    przestały cokolwiek rozdzielać: ciąg kolejnych spacji zwija się do
+ *    jednej, a spacja na samym początku/końcu `body` znika całkiem — na
+ *    krawędzi nie ma już dwóch stron do rozdzielenia. Bez tego przebiegu
+ *    trzy cykle „dodaj obiekt, usuń go" na ujęciu z jednym przetrwałym
+ *    obiektem zostawiały po sobie TRZY osierocone spacje (usunięcie kasowało
+ *    tylko sam obiekt, nigdy separator przed nim) — złapane w rundzie 1
+ *    recenzji jako wyciek do `project.json`.
+ *
+ * Kolejność ma znaczenie: krok 1 może osierocić WŁASNY separator mówcy
+ * (`{kind:'speaker'}, {text:' '}, {kind:'dialogue'}` z `addDialogue` — gdy
+ * cała trójka traci ostatni żywy segment `dialogue` w przedziale, zdjęcie
+ * mówcy zostawia samą spację), więc krok 2 musi biec PO kroku 1, nie przed
+ * ani równolegle.
+ */
+function pruneBody(body: Segment[]): Segment[] {
+  const withoutOrphanSpeakers = body.filter((seg, index) => {
+    if (seg.kind !== 'speaker') return true
+    const rest = body.slice(index + 1)
+    const nextSpeakerOffset = rest.findIndex(candidate => candidate.kind === 'speaker')
+    const run = nextSpeakerOffset === -1 ? rest : rest.slice(0, nextSpeakerOffset)
+    return run.some(candidate => candidate.kind === 'dialogue')
+  })
+
+  const collapsed: Segment[] = []
+  for (const seg of withoutOrphanSpeakers) {
+    const previous = collapsed[collapsed.length - 1]
+    if (isWhitespaceText(seg) && previous !== undefined && isWhitespaceText(previous)) continue
+    collapsed.push(seg)
+  }
+  while (collapsed.length > 0) {
+    const first = collapsed[0]
+    if (first === undefined || !isWhitespaceText(first)) break
+    collapsed.shift()
+  }
+  while (collapsed.length > 0) {
+    const last = collapsed[collapsed.length - 1]
+    if (last === undefined || !isWhitespaceText(last)) break
+    collapsed.pop()
+  }
+  return collapsed
+}
+
 /**
  * Usuwa obiekty ścieżek po referencji zaznaczenia. Ujęć celowo nie rusza —
  * od nich jest `removeShots`, które umie utrzymać niezmienniki listy ujęć,
@@ -207,6 +293,14 @@ export function addSfx(project: Project, atMs: number): Project {
  * diagnostykę `COMPILE_FAILED` — samo Delete zapaliłoby więc walidator na
  * projekcie, który przed kliknięciem był czysty. `diegeticSfx` nie ma
  * odpowiednika segmentu, więc dla niego czyszczenie `body` nie dotyczy.
+ *
+ * `pruneBody` (patrz komentarz tam) biegnie TYLKO nad ujęciem, w którym
+ * `dropsSegment` faktycznie coś wyfiltrował (`afterRemoval.length !==
+ * shot.body.length`) — nie nad każdym ujęciem projektu. Bez tej straży
+ * sprzątanie separatorów ruszałoby też `body` ujęć, których to usunięcie
+ * wcale nie dotyczyło; zwijanie/przycinanie jest tam bez efektu (nie ma czego
+ * sprzątać), ale straż czyni to jawnym, zamiast polegać na przypadkowej
+ * niezmienności przebiegu na nietkniętych danych.
  */
 export function removeSelected(project: Project, selected: ObjectRef[]): Project {
   const ids = (kind: string) => selected.filter(ref => ref.kind === kind).map(ref => ref.id)
@@ -223,13 +317,17 @@ export function removeSelected(project: Project, selected: ObjectRef[]): Project
 
   return {
     ...project,
-    shots: project.shots.map(shot => ({
-      ...shot,
-      cameraMoves: shot.cameraMoves.filter(move => !cameras.includes(move.id)),
-      dialogue: shot.dialogue.filter(event => !lines.includes(event.id)),
-      screenText: shot.screenText.filter(entry => !texts.includes(entry.id)),
-      diegeticSfx: shot.diegeticSfx.filter(sound => !sounds.includes(sound.id)),
-      body: shot.body.filter(seg => !dropsSegment(seg)),
-    })),
+    shots: project.shots.map(shot => {
+      const afterRemoval = shot.body.filter(seg => !dropsSegment(seg))
+      const body = afterRemoval.length === shot.body.length ? shot.body : pruneBody(afterRemoval)
+      return {
+        ...shot,
+        cameraMoves: shot.cameraMoves.filter(move => !cameras.includes(move.id)),
+        dialogue: shot.dialogue.filter(event => !lines.includes(event.id)),
+        screenText: shot.screenText.filter(entry => !texts.includes(entry.id)),
+        diegeticSfx: shot.diegeticSfx.filter(sound => !sounds.includes(sound.id)),
+        body,
+      }
+    }),
   }
 }
