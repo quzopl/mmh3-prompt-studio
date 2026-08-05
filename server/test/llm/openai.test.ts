@@ -51,7 +51,11 @@ describe('klient endpointu OpenAI', () => {
     expect(result.completionTokens).toBe(34)
   })
 
-  it('brak liczników w odpowiedzi daje zera, a nie NaN', async () => {
+  // Round 1 recenzji zadania 9: brak liczników w odpowiedzi nie jest tym
+  // samym co zgłoszone zero — model po prostu nie powiedział, ile tokenów
+  // zużył. `null` niesie tę różnicę dalej (do `runTask`, do zdarzenia
+  // `done`), zamiast udawać precyzję, której nikt nie zgłosił.
+  it('brak liczników w odpowiedzi daje null, nie zero — model tego nie zgłosił', async () => {
     mockFetch(() => new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] })))
     const result = await createOpenAiProvider(settings).complete({
       messages: [{ role: 'user', content: 'x' }],
@@ -59,8 +63,8 @@ describe('klient endpointu OpenAI', () => {
       maxTokens: 100,
       signal: new AbortController().signal,
     })
-    expect(result.promptTokens).toBe(0)
-    expect(Number.isNaN(result.completionTokens)).toBe(false)
+    expect(result.promptTokens).toBeNull()
+    expect(result.completionTokens).toBeNull()
   })
 
   it('odpowiedź spoza dwusetki niesie kod i treść w komunikacie', async () => {

@@ -92,6 +92,47 @@ describe('Provider.stream — kawałek przecięty w pół między dwoma pakietam
   })
 })
 
+// Runda 1 recenzji zadania 9: test wyżej tnie STRING, a potem koduje każdy
+// kawałek osobno — `TextEncoder.encode` zawsze koduje cały punkt kodowy
+// naraz, więc ten test nigdy nie mógł przeciąć pojedynczego znaku w środku.
+// Ten blok tnie gotowe BAJTY, dokładnie w środku dwubajtowego kodowania
+// polskiej litery — jedyny przypadek, w którym `{ stream: true }` na
+// `TextDecoder.decode` faktycznie coś robi: bez niego pierwszy kawałek
+// kończy się urwanym bajtem kontynuacji UTF-8, `TextDecoder` (bez trybu
+// strumieniowego) zamienia go na znak zastępczy „�", i część znaku ginie na
+// zawsze — string nigdy się nie sklei z powrotem, bo połówki bajtów nie da
+// się już odzyskać po osobnym zdekodowaniu każdej strony cięcia.
+describe('Provider.stream — kawałek przecięty w środku wielobajtowego znaku UTF-8', () => {
+  it('polska litera rozdzielona dokładnie między dwoma bajtami swojego kodowania nie ginie i nie zamienia się w znak zastępczy', async () => {
+    const encoder = new TextEncoder()
+    const fullText = `${deltaEvent('łąka')}\n\n${usageEvent(1, 1)}\n\ndata: [DONE]\n\n`
+
+    const charIndex = fullText.indexOf('ą')
+    const bytesBeforeChar = encoder.encode(fullText.slice(0, charIndex)).length
+    const charByteLength = encoder.encode('ą').length
+    expect(charByteLength).toBe(2) // sanity: „ą" to dwa bajty w UTF-8 (Latin Extended-A)
+
+    const fullBytes = encoder.encode(fullText)
+    const splitPoint = bytesBeforeChar + 1 // dokładnie w środku dwubajtowego znaku
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(fullBytes.slice(0, splitPoint))
+        controller.enqueue(fullBytes.slice(splitPoint))
+        controller.close()
+      },
+    })
+    mockFetch(() => new Response(stream))
+
+    const onChunk = vi.fn()
+    const result = await createOpenAiProvider(settings).stream(req(new AbortController().signal), onChunk)
+
+    expect(onChunk).toHaveBeenCalledWith('łąka')
+    expect(result.text).toBe('łąka')
+    expect(result.text).not.toContain('�') // znak zastępczy „�" — objaw zdekodowania połówki znaku osobno
+  })
+})
+
 describe('Provider.stream — przerwanie sygnałem', () => {
   it('kończy strumień i nie woła onChunk po przerwaniu', async () => {
     const encoder = new TextEncoder()
@@ -161,5 +202,20 @@ describe('Provider.stream — błąd w środku strumienia', () => {
     await expect(createOpenAiProvider(settings).stream(req(new AbortController().signal), onChunk))
       .rejects.toThrow(/404/)
     expect(onChunk).not.toHaveBeenCalled()
+  })
+})
+
+// Runda 1 recenzji zadania 9: brak kawałka z `usage` (serwer, który nie
+// wspiera `stream_options.include_usage`) ma dać `null`, nie ciche zero —
+// zero wygląda jak precyzyjna odpowiedź, a to po prostu brak odpowiedzi.
+describe('Provider.stream — liczniki tokenów jako number | null', () => {
+  it('gdy żaden kawałek nie niesie usage, wynik ma null, nie zero', async () => {
+    const body = [deltaEvent('ok'), 'data: [DONE]'].join('\n\n') + '\n\n'
+    mockFetch(() => new Response(body))
+
+    const result = await createOpenAiProvider(settings).stream(req(new AbortController().signal), vi.fn())
+
+    expect(result.promptTokens).toBeNull()
+    expect(result.completionTokens).toBeNull()
   })
 })

@@ -17,9 +17,19 @@ export interface TaskDefinition<T> {
 
 export interface TaskResult<T> {
   value: T
-  promptTokens: number
-  completionTokens: number
+  /** `null`, gdy serwer modelu nie zgłosił tej liczby w ŻADNEJ z prób —
+   * patrz komentarz przy `CompletionResult.promptTokens` w `provider.ts`. */
+  promptTokens: number | null
+  completionTokens: number | null
   repaired: boolean
+}
+
+/** Suma liczników z obu prób. `null` w którejkolwiek próbie znaczy „ta próba
+ * nie zgłosiła tej liczby" — dodanie do niej czegokolwiek dalej byłoby
+ * zgadywaniem sumy, więc `null` przechodzi przez sumę zamiast cichnąć jako
+ * zero (dokładnie ten błąd naprawiła runda 1 recenzji zadania 9). */
+function sumTokens(a: number | null, b: number | null): number | null {
+  return a === null || b === null ? null : a + b
 }
 
 /**
@@ -115,12 +125,21 @@ function repairMessage(failure: ParseFailure): ChatMessage {
  * poprawnym JSON-em — spróbuj dokładnie raz jeszcze, pokazując modelowi jego
  * własną odpowiedź i błąd. Druga porażka kończy się wyjątkiem, nie kolejną
  * próbą: pętla bez granicy to koszt, za który płaci użytkownik czasem.
+ *
+ * `onRepairStart` (round 1 recenzji zadania 9) odpala się dokładnie raz,
+ * tylko wtedy, gdy pierwsza próba nie przeszła walidacji i druga faktycznie
+ * rusza — jedyne miejsce w tej funkcji, które wie, że druga próba się
+ * zaczyna. Trasa (`routes/llm.ts`) używa tego, żeby wysłać zdarzenie SSE
+ * `repair`: bez niego przerwa między pierwszą (nieudaną) a drugą próbą nie
+ * miałaby żadnego zdarzenia — cisza nie do odróżnienia od modelu, który
+ * wciąż myśli nad PIERWSZĄ odpowiedzią.
  */
 export async function runTask<T>(
   provider: Provider,
   task: TaskDefinition<T>,
   input: unknown,
   signal: AbortSignal,
+  onRepairStart?: () => void,
 ): Promise<TaskResult<T>> {
   const messages = task.buildMessages(input)
   const first = await provider.complete({ messages, schema: task.jsonSchema, maxTokens: task.maxTokens, signal })
@@ -134,13 +153,17 @@ export async function runTask<T>(
     }
   }
 
+  onRepairStart?.()
+
   const repairMessages = [...messages, repairMessage(firstAttempt.failure)]
   const second = await provider.complete({ messages: repairMessages, schema: task.jsonSchema, maxTokens: task.maxTokens, signal })
   const secondAttempt = parseResponse(second.text, task.schema)
   // Tokeny sumują się przez obie próby — naprawa kosztuje drugie zapytanie,
   // a użytkownik ma widzieć pełny koszt, nie tylko koszt ostatniej próby.
-  const promptTokens = first.promptTokens + second.promptTokens
-  const completionTokens = first.completionTokens + second.completionTokens
+  // `sumTokens`, nie zwykłe `+`: `null` w którejkolwiek próbie ma zostać
+  // `null`, nie cichnąć jako część sumy.
+  const promptTokens = sumTokens(first.promptTokens, second.promptTokens)
+  const completionTokens = sumTokens(first.completionTokens, second.completionTokens)
 
   if (secondAttempt.ok) {
     return { value: secondAttempt.value, promptTokens, completionTokens, repaired: true }

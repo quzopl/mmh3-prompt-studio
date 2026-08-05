@@ -17,8 +17,18 @@ export interface CompletionRequest {
 
 export interface CompletionResult {
   text: string
-  promptTokens: number
-  completionTokens: number
+  /**
+   * `null` znaczy „serwer modelu w ogóle nie zgłosił tej liczby" (np. lokalny
+   * serwer bez wsparcia dla `stream_options.include_usage`, albo pole `usage`
+   * nieobecne w odpowiedzi bez strumienia) — to co innego niż zgłoszone `0`.
+   * Mylenie tych dwóch (round 1 recenzji zadania 9: `clampTokenCount` cicho
+   * zamieniało brak na zero) sprawiało, że licznik w interfejsie rósł w
+   * trakcie strumieniowania, a na końcu spadał do zera, wyglądając na
+   * skłamany od początku. Zero ma zostać zerem tylko wtedy, gdy model
+   * naprawdę tyle zgłosił.
+   */
+  promptTokens: number | null
+  completionTokens: number | null
 }
 
 export interface Provider {

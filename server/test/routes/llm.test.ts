@@ -67,6 +67,13 @@ const chatResponse = (content: string) => new Response([
   'data: [DONE]',
 ].join('\n\n') + '\n\n')
 
+// Runda 1 recenzji zadania 9: serwer, który nie wspiera
+// `stream_options.include_usage` — nigdy nie wysyła kawałka z `usage`.
+const chatResponseNoUsage = (content: string) => new Response([
+  `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`,
+  'data: [DONE]',
+].join('\n\n') + '\n\n')
+
 const validStructureJson = JSON.stringify({
   shots: [{ startSeconds: 0, composition: 'a wide shot of an empty platform', action: 'a woman waits alone' }],
 })
@@ -250,11 +257,78 @@ describe('POST /api/llm/run', () => {
     const events = parseSse(res.payload)
     const doneIndex = events.findIndex(e => e.event === 'done')
     const chunkEvents = events.filter(e => e.event === 'chunk')
-    expect(chunkEvents.length).toBeGreaterThan(0)
+    // Guard właściwy zamiast rzutu `as` na dostęp indeksowany (runda 1
+    // recenzji zadania 9: rzut na wynik indeksowania to zamaskowana asercja
+    // non-null — `noUncheckedIndexedAccess` istnieje właśnie po to, żeby
+    // to złapać, a rzut go obchodzi).
+    const firstChunk = chunkEvents[0]
+    if (firstChunk === undefined) throw new Error('brak zdarzenia "chunk" w odpowiedzi')
     // "done" niesie łatkę i musi przyjść PO wszystkich kawałkach — łatka
     // budowana jest dopiero po zamknięciu strumienia (brief zadania 9), nie
     // wcześniej.
-    expect(events.indexOf(chunkEvents[0] as SseEvent)).toBeLessThan(doneIndex)
+    expect(events.indexOf(firstChunk)).toBeLessThan(doneIndex)
+  })
+
+  // Runda 1 recenzji zadania 9: `repair` sygnalizuje start drugiej próby —
+  // bez tego przerwa między nieudaną pierwszą odpowiedzią a drugim
+  // zapytaniem do modelu nie miałaby żadnego zdarzenia.
+  it('wysyła zdarzenie "repair" dokładnie raz, między kawałkami pierwszej a drugiej próby, przed "done"', async () => {
+    const slug = await createProject('Test projekt')
+    await enableProvider()
+    mockFetch(callIndex => (callIndex === 0 ? chatResponse('zepsuty JSON') : chatResponse(validStructureJson)))
+    const res = await app.inject({
+      method: 'POST', url: '/api/llm/run',
+      payload: runBody({ projectSlug: slug }),
+    })
+
+    const events = parseSse(res.payload)
+    const repairEvents = events.filter(e => e.event === 'repair')
+    expect(repairEvents).toHaveLength(1)
+
+    const repairIndex = events.findIndex(e => e.event === 'repair')
+    const doneIndex = events.findIndex(e => e.event === 'done')
+    const chunkIndices = events.map((e, i) => (e.event === 'chunk' ? i : -1)).filter(i => i !== -1)
+    const firstChunkIndex = chunkIndices[0]
+    const lastChunkIndex = chunkIndices[chunkIndices.length - 1]
+    if (firstChunkIndex === undefined || lastChunkIndex === undefined) {
+      throw new Error('brak zdarzeń "chunk" w odpowiedzi')
+    }
+
+    // Kawałki płyną przez cały czas trwania zadania (obie próby przez ten
+    // sam kanał `onChunk`, patrz `toChunkForwardingProvider`) — "repair"
+    // musi więc wypaść GDZIEŚ w środku ciągu kawałków, nie przed pierwszym
+    // ani po ostatnim, i zawsze przed "done".
+    expect(repairIndex).toBeGreaterThan(firstChunkIndex)
+    expect(repairIndex).toBeLessThan(lastChunkIndex)
+    expect(repairIndex).toBeLessThan(doneIndex)
+  })
+
+  it('NIE wysyła zdarzenia "repair", gdy pierwsza próba od razu przechodzi walidację', async () => {
+    const slug = await createProject('Test projekt')
+    await enableProvider()
+    mockFetch(() => chatResponse(validStructureJson))
+    const res = await app.inject({
+      method: 'POST', url: '/api/llm/run',
+      payload: runBody({ projectSlug: slug }),
+    })
+    const events = parseSse(res.payload)
+    expect(events.some(e => e.event === 'repair')).toBe(false)
+  })
+
+  // Runda 1 recenzji zadania 9: serwer, który nigdy nie zgłasza `usage`
+  // (nie wspiera `stream_options`), ma dać `null` w zdarzeniu "done", nie
+  // ciche zero — zero wygląda jak precyzyjna odpowiedź modelu.
+  it('gdy model nigdy nie zgłasza usage, "done" niesie promptTokens/completionTokens jako null, nie zero', async () => {
+    const slug = await createProject('Test projekt')
+    await enableProvider()
+    mockFetch(() => chatResponseNoUsage(validStructureJson))
+    const res = await app.inject({
+      method: 'POST', url: '/api/llm/run',
+      payload: runBody({ projectSlug: slug }),
+    })
+    const body = doneData(res.payload)
+    expect(body.promptTokens).toBeNull()
+    expect(body.completionTokens).toBeNull()
   })
 
   /**

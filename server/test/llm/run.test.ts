@@ -164,3 +164,92 @@ describe('runTask — komunikaty rozdzielone dla modelu i dla użytkownika', () 
     }
   })
 })
+
+// Runda 1 recenzji zadania 9: `onRepairStart` — sygnał dla trasy, że druga
+// (naprawcza) próba właśnie rusza, i liczniki tokenów jako `number | null`
+// (`null` = model nie zgłosił, nie „zgłosił zero").
+describe('runTask — onRepairStart', () => {
+  it('nie jest wołany, gdy pierwsza próba od razu przechodzi walidację', async () => {
+    const onRepairStart = vi.fn()
+    await runTask(providerReturning('{"liczba":5}'), task, {}, new AbortController().signal, onRepairStart)
+    expect(onRepairStart).not.toHaveBeenCalled()
+  })
+
+  it('jest wołany dokładnie raz, PRZED drugim wywołaniem provider.complete()', async () => {
+    const calls: string[] = []
+    const provider: Provider = {
+      listModels: async () => [],
+      complete: vi.fn(async () => {
+        calls.push('complete')
+        return calls.filter(c => c === 'complete').length === 1
+          ? { text: '{"liczba":"nie"}', promptTokens: 1, completionTokens: 1 }
+          : { text: '{"liczba":5}', promptTokens: 1, completionTokens: 1 }
+      }),
+      stream: notUsedByRunTask,
+    }
+    const onRepairStart = vi.fn(() => calls.push('repairStart'))
+
+    await runTask(provider, task, {}, new AbortController().signal, onRepairStart)
+
+    expect(onRepairStart).toHaveBeenCalledTimes(1)
+    expect(calls).toEqual(['complete', 'repairStart', 'complete'])
+  })
+
+  it('jest wołany raz nawet gdy obie próby zawiodą (nie dwa razy)', async () => {
+    const onRepairStart = vi.fn()
+    await expect(
+      runTask(providerReturning('{"liczba":"nie"}'), task, {}, new AbortController().signal, onRepairStart),
+    ).rejects.toThrow()
+    expect(onRepairStart).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('runTask — liczniki tokenów jako number | null', () => {
+  it('gdy dostawca nie zgłasza liczników (null), wynik pierwszej próby też jest null, nie zero', async () => {
+    const provider: Provider = {
+      listModels: async () => [],
+      complete: vi.fn(async () => ({ text: '{"liczba":5}', promptTokens: null, completionTokens: null })),
+      stream: notUsedByRunTask,
+    }
+    const result = await runTask(provider, task, {}, new AbortController().signal)
+    expect(result.promptTokens).toBeNull()
+    expect(result.completionTokens).toBeNull()
+  })
+
+  it('suma dwóch prób jest null, gdy JEDNA z nich nie zgłosiła liczników — nie połowiczna suma', async () => {
+    let call = 0
+    const provider: Provider = {
+      listModels: async () => [],
+      complete: vi.fn(async () => {
+        call += 1
+        return call === 1
+          ? { text: '{"liczba":"nie"}', promptTokens: 3, completionTokens: 5 }
+          : { text: '{"liczba":5}', promptTokens: null, completionTokens: null }
+      }),
+      stream: notUsedByRunTask,
+    }
+    const result = await runTask(provider, task, {}, new AbortController().signal)
+    expect(result.repaired).toBe(true)
+    // Gdyby `null` cichł jako zero, suma wyszłaby `3` i `5` — połowa
+    // prawdziwego kosztu, podana z fałszywą precyzją.
+    expect(result.promptTokens).toBeNull()
+    expect(result.completionTokens).toBeNull()
+  })
+
+  it('suma dwóch prób jest liczbą, gdy OBIE zgłosiły liczniki', async () => {
+    let call = 0
+    const provider: Provider = {
+      listModels: async () => [],
+      complete: vi.fn(async () => {
+        call += 1
+        return call === 1
+          ? { text: '{"liczba":"nie"}', promptTokens: 3, completionTokens: 5 }
+          : { text: '{"liczba":5}', promptTokens: 7, completionTokens: 11 }
+      }),
+      stream: notUsedByRunTask,
+    }
+    const result = await runTask(provider, task, {}, new AbortController().signal)
+    expect(result.promptTokens).toBe(10)
+    expect(result.completionTokens).toBe(16)
+  })
+})

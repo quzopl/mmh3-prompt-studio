@@ -42,10 +42,18 @@ async function readOrThrow(response: Response, apiKey: string): Promise<unknown>
   return response.json()
 }
 
-// Model bywa niekonsekwentny w licznikach — ujemna wartość nie ma sensu i w
-// liczniku w interfejsie wygląda jak błąd po naszej stronie, więc przycinamy
-// do zera zamiast przepuszczać dalej. Wspólne dla `complete` i `stream`.
-const clampTokenCount = (value: unknown): number => typeof value === 'number' ? Math.max(0, value) : 0
+/**
+ * `null`, gdy pole w ogóle nie jest liczbą — to znaczy „model tego nie
+ * zgłosił", nie „zgłosił zero" (round 1 recenzji zadania 9: wcześniejsza
+ * wersja zamieniała brak na `0`, więc licznik w interfejsie rósł w trakcie
+ * strumieniowania, a na końcu spadał do zera, jakby od początku kłamał).
+ * Ujemna wartość, którą model NAPRAWDĘ zgłosił, wciąż nie ma sensu i wciąż
+ * wygląda jak błąd po naszej stronie — to przycinamy do zera, bo to
+ * sanitizacja prawdziwej (choć wadliwej) odpowiedzi, nie zgadywanie
+ * nieobecnej. Wspólne dla `complete` i `stream`.
+ */
+const clampTokenCount = (value: unknown): number | null =>
+  typeof value === 'number' ? Math.max(0, value) : null
 
 interface StreamChunkPayload {
   choices?: Array<{ delta?: { content?: unknown } }>
@@ -82,8 +90,12 @@ async function readCompletionStream(
   const decoder = new TextDecoder()
   let buffer = ''
   let text = ''
-  let promptTokens = 0
-  let completionTokens = 0
+  // `null`, dopóki nie przyjdzie kawałek z `usage` — zob. komentarz przy
+  // `clampTokenCount`. Serwer, który nie wspiera `stream_options`, nigdy
+  // takiego kawałka nie wyśle, i to ma zostać widoczne jako „nieznane", nie
+  // ciche zero.
+  let promptTokens: number | null = null
+  let completionTokens: number | null = null
   let finished = false
 
   try {

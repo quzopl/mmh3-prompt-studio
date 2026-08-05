@@ -45,6 +45,26 @@ function controllableStream() {
   return { stream, send, close }
 }
 
+/** Strumień, który przyjmuje surowe bajty zamiast całych zdarzeń SSE —
+ * `controllableStream` wyżej zawsze wpycha jeden KOMPLETNY blok zdarzenia na
+ * `send()`, więc nie da się nim odtworzyć kawałka rozdzielonego w pół między
+ * dwoma odczytami sieci (runda 1 recenzji zadania 9: dokładnie ta luka —
+ * dziewięć testów haka, ani jeden nie dzielił ramki w połowie). Ten helper
+ * pozwala wepchnąć dowolny fragment tekstu albo surowych bajtów, więc test
+ * decyduje sam, gdzie dokładnie przecina zdarzenie. */
+function rawStream() {
+  let ref: ReadableStreamDefaultController<Uint8Array> | null = null
+  const stream = new ReadableStream<Uint8Array>({ start: controller => { ref = controller } })
+  const encoder = new TextEncoder()
+  const pushText = (text: string): void => { ref?.enqueue(encoder.encode(text)) }
+  const pushBytes = (bytes: Uint8Array): void => { ref?.enqueue(bytes) }
+  const close = (): void => ref?.close()
+  return { stream, pushText, pushBytes, close }
+}
+
+/** Jedno zdarzenie SSE w kształcie, którego oczekuje `readEventStream`. */
+const sseEvent = (event: string, data: unknown): string => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+
 /** Odpowiednik kilku ticków mikrozadań — wystarczy, żeby pętla czytająca
  * strumień w `useLlmRun` (kilka zagnieżdżonych `await`) zdążyła przetworzyć
  * kawałek właśnie wepchnięty przez `send()` i wywołać `setState`. Nie zależy
@@ -319,5 +339,269 @@ describe('useLlmRun — błędy', () => {
 
     expect(currentOf(box).status).toBe('error')
     expect(currentOf(box).error).toBe('Nie udało się połączyć z serwerem.')
+  })
+})
+
+// Runda 1 recenzji zadania 9: dziewięć testów wyżej, ani jeden nie dzielił
+// ramki SSE między dwa odczyty sieci — dokładnie usterka, o którą pyta brief
+// zadania po stronie, której brief nie nazwał. `controllableStream.send()`
+// zawsze wpycha kompletne zdarzenie za jednym razem, więc podmiana
+// `buffer += decoder.decode(value, { stream: true })` na
+// `buffer = decoder.decode(value)` w `readEventStream` przechodziła bez
+// żadnej czerwonej asercji. Te testy dzielą ramkę w trzech miejscach z
+// briefu: w środku prefiksu "data:", w środku samego JSON-a, i dokładnie na
+// granicy pustej linii kończącej zdarzenie — każdy zweryfikowany jako
+// czerwony przeciw zepsutemu dekoderowi przed przywróceniem poprawki.
+describe('useLlmRun — kawałek strumienia rozdzielony w pół między dwoma odczytami sieci', () => {
+  it('rozdzielony dokładnie w środku prefiksu "data:" jest sklejany, nie gubiony', async () => {
+    const { stream, pushText, close } = rawStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+    act(() => currentOf(box).run(request))
+
+    const full = sseEvent('chunk', { text: 'część' })
+    const cut = full.indexOf('data:') + 2 // po "da", w środku "ta:"
+
+    await act(async () => { pushText(full.slice(0, cut)); await flush() })
+    // Kawałek niekompletny — nie ma jeszcze pełnej granicy "\n\n" w buforze.
+    expect(currentOf(box).text).toBe('')
+
+    await act(async () => {
+      pushText(full.slice(cut))
+      close()
+      await flush()
+    })
+    expect(currentOf(box).text).toBe('część')
+  })
+
+  it('rozdzielony w środku samego JSON-a jest sklejany, nie gubiony', async () => {
+    const { stream, pushText, close } = rawStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+    act(() => currentOf(box).run(request))
+
+    const full = sseEvent('chunk', { text: 'odpowiedź modelu' })
+    const cut = full.indexOf('"odpowiedź') + 6 // w środku wartości JSON-a
+
+    await act(async () => { pushText(full.slice(0, cut)); await flush() })
+    expect(currentOf(box).text).toBe('')
+
+    await act(async () => {
+      pushText(full.slice(cut))
+      close()
+      await flush()
+    })
+    expect(currentOf(box).text).toBe('odpowiedź modelu')
+  })
+
+  it('rozdzielony dokładnie na granicy pustej linii kończącej zdarzenie jest sklejany, nie gubiony', async () => {
+    const { stream, pushText, close } = rawStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+    act(() => currentOf(box).run(request))
+
+    const full = sseEvent('chunk', { text: 'ok' })
+    const boundary = full.indexOf('\n\n') + 1 // dokładnie między dwoma znakami nowej linii
+
+    await act(async () => { pushText(full.slice(0, boundary)); await flush() })
+    // Tylko jeden z dwóch znaków granicy dotarł — zdarzenie wciąż niekompletne.
+    expect(currentOf(box).text).toBe('')
+
+    await act(async () => {
+      pushText(full.slice(boundary))
+      close()
+      await flush()
+    })
+    expect(currentOf(box).text).toBe('ok')
+  })
+
+  // "Cut inside a multi-byte character on both sides" (runda 1 recenzji) —
+  // string sam w sobie nigdy nie dzieli punktu kodowego w środku (`.slice`
+  // tnie między znakami), więc ten test tnie gotowe BAJTY zakodowanego
+  // tekstu, dokładnie w środku dwubajtowego kodowania polskiej litery —
+  // ta sama technika, co po stronie serwera w `stream.test.ts`.
+  it('rozdzielony w środku wielobajtowego znaku UTF-8 (polska litera) nie ginie i nie zamienia się w znak zastępczy', async () => {
+    const { stream, pushBytes, close } = rawStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+    act(() => currentOf(box).run(request))
+
+    const encoder = new TextEncoder()
+    const fullText = sseEvent('chunk', { text: 'łąka' })
+    const charIndex = fullText.indexOf('ą')
+    const bytesBeforeChar = encoder.encode(fullText.slice(0, charIndex)).length
+    const charByteLength = encoder.encode('ą').length
+    expect(charByteLength).toBe(2) // sanity: „ą" to dwa bajty w UTF-8
+
+    const fullBytes = encoder.encode(fullText)
+    const splitPoint = bytesBeforeChar + 1 // dokładnie w środku dwubajtowego znaku
+
+    await act(async () => { pushBytes(fullBytes.slice(0, splitPoint)); await flush() })
+    expect(currentOf(box).text).toBe('')
+
+    await act(async () => {
+      pushBytes(fullBytes.slice(splitPoint))
+      close()
+      await flush()
+    })
+    expect(currentOf(box).text).toBe('łąka')
+    expect(currentOf(box).text).not.toContain('�')
+  })
+})
+
+// Runda 1 recenzji zadania 9: brak serwera zgłaszającego `usage` (np. lokalny
+// serwer bez wsparcia `stream_options`) nie może wyglądać jak zgłoszone zero.
+describe('useLlmRun — liczniki tokenów jako number | null', () => {
+  it('gdy serwer nie zgłasza completionTokens (null), tokens NIE spada do zera — zostaje przy przybliżeniu z kawałków', async () => {
+    const { stream, send, close } = controllableStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+
+    act(() => currentOf(box).run(request))
+    await act(async () => { send('chunk', { text: 'a' }); await flush() })
+    await act(async () => { send('chunk', { text: 'b' }); await flush() })
+    expect(currentOf(box).tokens).toBe(2)
+
+    await act(async () => {
+      send('done', { patch: { ops: [] }, promptTokens: null, completionTokens: null, repaired: false })
+      close()
+      await flush()
+    })
+
+    expect(currentOf(box).status).toBe('done')
+    // Runda 1: TU jest usterka, którą zgłosił recenzent — `tokens` cichło do
+    // zera, bo `typeof null === 'object'`, a stara asercja `=== 'number'`
+    // działała jako filtr TYLKO wtedy, gdy serwer sam już zamienił brak na
+    // literalne zero. Teraz serwer zgłasza `null` uczciwie, a hak ma się na
+    // to nie dać nabrać: zero nie jest lepszym przybliżeniem niż 2.
+    expect(currentOf(box).tokens).toBe(2)
+    expect(currentOf(box).promptTokens).toBeNull()
+    expect(currentOf(box).completionTokens).toBeNull()
+  })
+
+  it('gdy serwer zgłasza dokładne liczniki, tokens przyjmuje tę wartość, a promptTokens/completionTokens są liczbami', async () => {
+    const { stream, send, close } = controllableStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+
+    act(() => currentOf(box).run(request))
+    await act(async () => { send('chunk', { text: 'a' }); await flush() })
+
+    await act(async () => {
+      send('done', { patch: { ops: [] }, promptTokens: 5, completionTokens: 99, repaired: false })
+      close()
+      await flush()
+    })
+
+    expect(currentOf(box).tokens).toBe(99)
+    expect(currentOf(box).promptTokens).toBe(5)
+    expect(currentOf(box).completionTokens).toBe(99)
+  })
+})
+
+// Runda 1 recenzji zadania 9: zdarzenie "repair" sygnalizuje start drugiej,
+// naprawczej próby — bez niego przerwa między nieudaną pierwszą odpowiedzią
+// a drugim zapytaniem do modelu nie miałaby żadnego zdarzenia, i tekst drugiej
+// próby doklejałby się do zepsutego JSON-a pierwszej w jeden run-on.
+describe('useLlmRun — zdarzenie "repair" (druga, naprawcza próba)', () => {
+  it('resetuje text i tokens, ustawia retrying na true; po "done" retrying wraca do false, a text to WYŁĄCZNIE druga próba', async () => {
+    const { stream, send, close } = controllableStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+
+    act(() => currentOf(box).run(request))
+    expect(currentOf(box).retrying).toBe(false)
+
+    await act(async () => { send('chunk', { text: 'pierwsza próba, zły JSON' }); await flush() })
+    expect(currentOf(box).text).toBe('pierwsza próba, zły JSON')
+    expect(currentOf(box).tokens).toBe(1)
+
+    await act(async () => { send('repair', {}); await flush() })
+    expect(currentOf(box).retrying).toBe(true)
+    expect(currentOf(box).text).toBe('')
+    expect(currentOf(box).tokens).toBe(0)
+    expect(currentOf(box).status).toBe('running') // wciąż w toku, nie nowy/inny stan
+
+    await act(async () => { send('chunk', { text: 'druga próba' }); await flush() })
+    // Kluczowa asercja: NIE 'pierwsza próba, zły JSONdruga próba'.
+    expect(currentOf(box).text).toBe('druga próba')
+
+    await act(async () => {
+      send('done', { patch: { ops: [] }, promptTokens: 1, completionTokens: 1, repaired: true })
+      close()
+      await flush()
+    })
+
+    expect(currentOf(box).status).toBe('done')
+    expect(currentOf(box).retrying).toBe(false)
+    expect(currentOf(box).text).toBe('druga próba')
+  })
+})
+
+// Runda 1 recenzji zadania 9: kawałek, którego nie da się rozebrać jako JSON,
+// to usterka STRUMIENIA, nie sieci — poprzednia wersja dawała
+// `llm.networkError` ("nie udało się połączyć z serwerem"), co jest fałszywe:
+// połączenie działa, model po prostu wysłał coś zepsutego.
+describe('useLlmRun — kawałek strumienia, którego nie da się rozebrać jako JSON', () => {
+  it('daje status error z komunikatem o strumieniu, NIE z komunikatem sieciowym', async () => {
+    const { stream, pushText, close } = rawStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+
+    act(() => currentOf(box).run(request))
+    await act(async () => {
+      pushText('event: chunk\ndata: {zepsuty json bez zamknięcia\n\n')
+      close()
+      await flush()
+    })
+
+    expect(currentOf(box).status).toBe('error')
+    expect(currentOf(box).error).toBe('Błąd podczas odczytu odpowiedzi strumienia.')
+    expect(currentOf(box).error).not.toBe('Nie udało się połączyć z serwerem.')
+  })
+})
+
+// Runda 1 recenzji zadania 9: `useT()` zwraca nową funkcję przy każdym
+// renderze, a `elapsedMs` wywołuje nowy render co 100 ms przez cały czas
+// trwania zadania. Gdyby `t` siedziało w tablicy zależności `run`, `run`
+// zmieniałoby tożsamość dziesięć razy na sekundę — dowolny konsument z
+// `useEffect(…, [run])` zapętliłby się.
+describe('useLlmRun — stabilność referencji run()', () => {
+  it('run nie zmienia tożsamości mimo częstych re-renderów w trakcie działania ani zmiany języka', async () => {
+    vi.useFakeTimers()
+    const { stream, send, close } = controllableStream()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)))
+    const box: { current: UseLlmRunResult | null } = { current: null }
+    render(<Harness box={box} />)
+
+    const runBeforeStart = currentOf(box).run
+    act(() => currentOf(box).run(request))
+    expect(currentOf(box).run).toBe(runBeforeStart)
+
+    // Kilka tyknięć zegara elapsedMs — kilka re-renderów wywołanych stanem.
+    act(() => { vi.advanceTimersByTime(100) })
+    act(() => { vi.advanceTimersByTime(100) })
+    act(() => { vi.advanceTimersByTime(100) })
+    expect(currentOf(box).run).toBe(runBeforeStart)
+
+    // Zmiana języka — `useT()` zwraca inną funkcję `t`, a `run` mimo to
+    // zostaje tym samym obiektem funkcji.
+    act(() => { useLang.setState({ lang: 'en' }) })
+    expect(currentOf(box).run).toBe(runBeforeStart)
+
+    await act(async () => {
+      send('done', { patch: { ops: [] }, promptTokens: 1, completionTokens: 1, repaired: false })
+      close()
+      await flush()
+    })
+    expect(currentOf(box).status).toBe('done')
   })
 })

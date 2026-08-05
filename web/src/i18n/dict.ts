@@ -168,6 +168,10 @@ const pl = {
   'llm.networkError': 'Nie udało się połączyć z serwerem.',
   'llm.httpError': 'Serwer odpowiedział kodem {status}.',
   'llm.unknownError': 'Błąd modelu.',
+  // Round 1 recenzji zadania 9: kawałek strumienia, którego nie da się
+  // rozebrać jako JSON — połączenie samo w sobie działa, więc komunikat
+  // sieciowy byłby mylący.
+  'llm.streamError': 'Błąd podczas odczytu odpowiedzi strumienia.',
 } as const
 
 export type TKey = keyof typeof pl
@@ -315,6 +319,7 @@ const en: Record<TKey, string> = {
   'llm.networkError': 'Could not connect to the server.',
   'llm.httpError': 'The server responded with status {status}.',
   'llm.unknownError': 'Model error.',
+  'llm.streamError': 'Error while reading the streamed response.',
 }
 
 export const DICT: Record<Lang, Record<TKey, string>> = { pl, en }
