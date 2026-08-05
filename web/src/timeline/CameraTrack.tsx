@@ -16,12 +16,25 @@ import { shotSpans } from './spans.js'
  * żadna reguła walidatora nie wymaga rozłączności ruchów kamery, więc gest
  * celowo tego nie pilnuje. Dokładanie tu ograniczenia, którego nie ma w
  * modelu, byłoby zgadywaniem wymagania.
+ *
+ * Trzy decyzje niżej to wzorzec dla pozostałych ścieżek na tej samej
+ * maszynerii klipów, nie coś specyficznego dla kamery: etykieta klipu niesie
+ * numer ruchu w ujęciu, bo sam typ i numer ujęcia nie rozróżniają dwóch
+ * ruchów tego samego typu (a nachodzenie się dopuszczamy zdaniem wyżej, więc
+ * interfejs musi to przeżyć); Shift+klik dokłada do zaznaczenia jak w
+ * `ShotTrack`, bo późniejsze kasowanie wielu zaznaczonych obiektów na
+ * ścieżkach wymaga zaznaczenia więcej niż jednego naraz; a uchwyty krawędzi
+ * to `role="separator"` bez `tabIndex`, znowu jak w `ShotTrack` — zmiana
+ * rozmiaru klawiaturą nie istnieje nigdzie w tej maszynerii klipów, więc
+ * uchwyt osiągalny Tabem obiecywałby coś, czego Enter/Spacja i tak by nie
+ * zrobiły (co najwyżej odpaliłyby zaznaczenie przez wypłynięcie zdarzenia).
  */
 export function CameraTrack({ scale }: { scale: Scale }) {
   const t = useT()
   const project = useProject(state => state.project)
   const selected = useSelection(state => state.selected)
   const select = useSelection(state => state.select)
+  const toggle = useSelection(state => state.toggle)
 
   const spans = project ? shotSpans(project.shots, project.video.durationMs) : []
 
@@ -80,17 +93,25 @@ export function CameraTrack({ scale }: { scale: Scale }) {
       className="relative h-8 border-b border-neutral-800"
       style={{ width: msToPx(scale, scale.durationMs) }}
     >
-      {spans.flatMap(span => span.shot.cameraMoves.map(move => {
+      {spans.flatMap(span => span.shot.cameraMoves.map((move, position) => {
         const ref = { kind: 'camera' as const, id: move.id }
         const isSelected = selected.some(candidate => same(candidate, ref))
+        const label = t('camera.clipLabel', {
+          type: move.type, shot: span.shot.index + 1,
+          // 1-liczbowy numer ruchu w obrębie WŁASNEGO ujęcia — jedyne, co
+          // rozróżnia dwa ruchy tego samego typu w jednym ujęciu (patrz
+          // komentarz nad komponentem). Kolejność bierze się z porządku w
+          // `shot.cameraMoves`, którego zapis w `write` nie zmienia.
+          position: position + 1,
+        })
         return (
           <div
             key={move.id}
             role="button"
             tabIndex={0}
             aria-pressed={isSelected}
-            aria-label={t('camera.clipLabel', { type: move.type, shot: span.shot.index + 1 })}
-            onClick={() => select(ref)}
+            aria-label={label}
+            onClick={event => (event.shiftKey ? toggle(ref) : select(ref))}
             onKeyDown={event => {
               if (event.key !== 'Enter' && event.key !== ' ') return
               event.preventDefault()
@@ -114,14 +135,20 @@ export function CameraTrack({ scale }: { scale: Scale }) {
               byłyby nieklikalne na klipach przyciętych do MIN_CLIP_PX (8px).
             */}
             <span className="block h-full overflow-hidden">{move.type}</span>
-            <button
-              type="button"
+            {/*
+              `role="separator"` bez `tabIndex`, jak uchwyt granicy w
+              `ShotTrack` — opisany dla drzewa dostępności, ale nieosiągalny
+              Tabem, bo zmiana rozmiaru klawiaturą nie istnieje w tej
+              maszynerii klipów (dług do rozwiązania osobno, nie per ścieżka).
+            */}
+            <div
+              role="separator"
               aria-label={t('camera.dragStart', { type: move.type })}
               onPointerDown={event => startDrag(move.id, 'start', event)}
               className="absolute inset-y-0 left-0 w-1 cursor-ew-resize bg-violet-500/40"
             />
-            <button
-              type="button"
+            <div
+              role="separator"
               aria-label={t('camera.dragEnd', { type: move.type })}
               onPointerDown={event => startDrag(move.id, 'end', event)}
               className="absolute inset-y-0 right-0 w-1 cursor-ew-resize bg-violet-500/40"

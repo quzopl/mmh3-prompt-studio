@@ -46,7 +46,7 @@ const pl = {
   'timeline.addShot': 'Dodaj ujęcie',
   'timeline.shortcuts': 'Spacja odtwarza, S dzieli ujęcie, Delete usuwa zaznaczone',
 
-  'camera.clipLabel': 'Ruch kamery {type} w ujęciu {shot}',
+  'camera.clipLabel': 'Ruch kamery {type} nr {position} w ujęciu {shot}',
   'camera.dragStart': 'Przesuń początek ruchu {type}',
   'camera.dragEnd': 'Przesuń koniec ruchu {type}',
   'camera.add': 'Dodaj ruch kamery',
@@ -150,7 +150,7 @@ const en: Record<TKey, string> = {
   'timeline.addShot': 'Add shot',
   'timeline.shortcuts': 'Space plays, S splits a shot, Delete removes the selection',
 
-  'camera.clipLabel': 'Camera move {type} in shot {shot}',
+  'camera.clipLabel': 'Camera move {type} #{position} in shot {shot}',
   'camera.dragStart': 'Move start of {type}',
   'camera.dragEnd': 'Move end of {type}',
   'camera.add': 'Add camera move',
