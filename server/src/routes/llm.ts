@@ -5,6 +5,7 @@ import { LlmSettingsSchema, readSettings, redactSettings, writeSettings } from '
 import { createProvider } from '../llm/provider.js'
 import type { Provider } from '../llm/provider.js'
 import { startManaged, stopManaged, managedState } from '../llm/managed.js'
+import { detectUnloadCapability, unloadModel } from '../llm/unload.js'
 import { runTask } from '../llm/run.js'
 import { structureTask, structureToPatch, type StructureInput } from '../llm/tasks/structure.js'
 import {
@@ -193,6 +194,19 @@ export function registerLlmRoutes(app: FastifyInstance): void {
   })
 
   app.get('/api/llm/managed/state', async () => managedState())
+
+  // Wykrywanie i samo zwolnienie zawsze odpowiadają dwusetką — niepowodzenie
+  // zwolnienia (dostawca bez takiej możliwości, błąd po jego stronie) to
+  // WYNIK operacji, który klient ma pokazać, nie awaria protokołu HTTP.
+  app.get('/api/llm/unload/capability', async () => {
+    const settings = await readSettings(app.dataRoot)
+    return { capability: await detectUnloadCapability(settings) }
+  })
+
+  app.post('/api/llm/unload', async () => {
+    const settings = await readSettings(app.dataRoot)
+    return await unloadModel(settings)
+  })
 
   app.post('/api/llm/run', async (request, reply) => {
     const parsed = RunBody.safeParse(request.body)

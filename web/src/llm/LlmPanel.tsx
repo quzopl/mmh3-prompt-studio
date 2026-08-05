@@ -2,7 +2,9 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useProject } from '../store/projectStore.js'
 import { useCritic } from '../store/criticStore.js'
 import { useT, type Translate } from '../i18n/useT.js'
-import { settingsApi, type LlmMode, type LlmSettings, type ManagedState } from './settingsApi.js'
+import {
+  settingsApi, type LlmMode, type LlmSettings, type ManagedState, type UnloadCapability,
+} from './settingsApi.js'
 import { useLlmRun, type LlmRunRequest } from './useLlmRun.js'
 import { PatchReview } from './PatchReview.js'
 
@@ -19,6 +21,18 @@ const MANAGED_STATE_LABEL: Record<ManagedState['status'], (t: Translate) => stri
   starting: t => t('llm.managedStateStarting'),
   ready: t => t('llm.managedStateReady'),
   failed: t => t('llm.managedStateFailed'),
+}
+
+/** Podpowiedź przy przycisku „Zwolnij pamięć karty" mówi konkretnie, co się
+ * stanie u WYKRYTEGO dostawcy — żaden sposób nie jest uniwersalny (brief
+ * zadania 14), więc jedno ogólne zdanie dla wszystkich by kłamało. `null`
+ * (możliwość jeszcze nie wykryta) dzieli tekst z `'none'`, bo w obu
+ * przypadkach przycisk jest i tak nieaktywny. */
+const UNLOAD_HINT: Record<UnloadCapability, (t: Translate) => string> = {
+  managed: t => t('llm.unloadManaged'),
+  ollama: t => t('llm.unloadOllama'),
+  lmstudio: t => t('llm.unloadLmStudio'),
+  none: t => t('llm.unloadUnsupported'),
 }
 
 /** Cel redakcji — podzbiór `RedactTarget` z `server/src/llm/tasks/redact.ts`.
@@ -170,6 +184,13 @@ export function LlmPanel() {
   const [managedStateError, setManagedStateError] = useState<string | null>(null)
   const [managedError, setManagedError] = useState<string | null>(null)
   const [managedBusy, setManagedBusy] = useState(false)
+  // `null` = jeszcze nie wykryto (albo wykrywanie zawiodło) — przycisk
+  // zostaje nieaktywny tak samo jak przy `'none'`, ale bez udawania, że to
+  // już rozstrzygnięty brak możliwości.
+  const [unloadCapability, setUnloadCapability] = useState<UnloadCapability | null>(null)
+  const [unloadBusy, setUnloadBusy] = useState(false)
+  const [unloadMessage, setUnloadMessage] = useState<string | null>(null)
+  const [unloadError, setUnloadError] = useState<string | null>(null)
   // Potwierdzenie po kliknięciu „Wyczyść klucz" — bez niego użytkownik nie ma
   // jak się upewnić, że coś się w ogóle stało: pole było puste PRZED
   // wyczyszczeniem tak samo, jak jest puste po nim (fix round 1/5, punkt 1).
@@ -200,6 +221,12 @@ export function LlmPanel() {
         if (cancelled) return
         setManagedStateError(error instanceof Error ? error.message : String(error))
       })
+    // Wykrywanie możliwości zwolnienia pamięci to operacja pomocnicza — sieć
+    // niedostępna zostawia przycisk po prostu nieaktywnym (`null`), bez
+    // osobnego komunikatu błędu; nikt nie traci przez to reszty panelu.
+    settingsApi.getUnloadCapability()
+      .then(res => { if (!cancelled) setUnloadCapability(res.capability) })
+      .catch(() => { if (!cancelled) setUnloadCapability(null) })
     return () => { cancelled = true }
   }, [])
 
@@ -233,6 +260,11 @@ export function LlmPanel() {
 
   const tasksEnabled = configured && slug !== null && !busy
 
+  // Wyładowanie modelu w połowie generowania to gwarantowany błąd — przycisk
+  // ma być nieaktywny, dopóki jakiekolwiek zadanie biegnie, tak samo jak
+  // reszta formularza ustawień. `null`/`'none'` znaczą „nie ma czego zawołać".
+  const unloadDisabled = busy || unloadBusy || unloadCapability === null || unloadCapability === 'none'
+
   const saveSettings = async (): Promise<void> => {
     setSaveError(null)
     setKeyCleared(false)
@@ -248,6 +280,13 @@ export function LlmPanel() {
         },
       })
       setDraft(draftFrom(next))
+      // Zapisany dostawca mógł się zmienić (tryb, adres) — możliwość
+      // zwolnienia pamięci zależy od NIEGO, więc odświeżamy ją razem z
+      // ustawieniami, inaczej podpowiedź przy przycisku kłamałaby o
+      // poprzednim dostawcy.
+      settingsApi.getUnloadCapability()
+        .then(res => setUnloadCapability(res.capability))
+        .catch(() => setUnloadCapability(null))
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : String(error))
     }
@@ -279,6 +318,38 @@ export function LlmPanel() {
       setManagedError(error instanceof Error ? error.message : String(error))
     } finally {
       setManagedBusy(false)
+    }
+  }
+
+  /**
+   * Zwolnienie pamięci karty (zadanie 14) — operacja pomocnicza, więc jej
+   * niepowodzenie NIGDY nie rzuca (`unloadModel` po stronie serwera tego
+   * pilnuje), a tu dodatkowo `try/catch` łapie jeszcze sam błąd sieci
+   * (serwer padł, zanim żądanie dotarło). W trybie zarządzanym udane
+   * zwolnienie oznacza zatrzymany proces — stan lokalny wraca do `stopped`
+   * od razu, bez osobnego odpytania `GET /managed/state`, bo to właśnie
+   * gwarantuje `unloadModel` po stronie serwera dla tej gałęzi.
+   */
+  const runUnload = async (): Promise<void> => {
+    setUnloadError(null)
+    setUnloadMessage(null)
+    setUnloadBusy(true)
+    try {
+      const result = await settingsApi.unload()
+      if (result.freed) {
+        setUnloadMessage(t('llm.unloadDone'))
+        if (result.how === 'managed') {
+          setManaged(current => (current ? { ...current, status: 'stopped' } : current))
+        }
+      } else {
+        setUnloadError(t('llm.unloadFailed', { reason: result.reason ?? t('llm.unknownError') }))
+      }
+    } catch (error) {
+      setUnloadError(t('llm.unloadFailed', {
+        reason: error instanceof Error ? error.message : String(error),
+      }))
+    } finally {
+      setUnloadBusy(false)
     }
   }
 
@@ -358,6 +429,26 @@ export function LlmPanel() {
             />
           ))}
         </div>
+
+        {/*
+          Przycisk siedzi obok wyboru dostawcy, nie przy czterech zadaniach —
+          to operacja NA dostawcy (zwalnia VRAM, który zaraz potrzebuje
+          ComfyUI), nie na projekcie. Podpowiedź bierze się z wykrytej
+          możliwości (`UNLOAD_HINT`), więc mówi konkretnie, co się stanie u
+          TEGO dostawcy — zamiast jednego ogólnego zdania dla wszystkich.
+        */}
+        <div className="mb-2 flex items-center gap-2">
+          <ActionButton
+            label={t('llm.unload')}
+            disabled={unloadDisabled}
+            onClick={() => void runUnload()}
+          />
+          <span className="text-xs text-neutral-400">
+            {UNLOAD_HINT[unloadCapability ?? 'none'](t)}
+          </span>
+        </div>
+        {unloadMessage && <p className="mb-2 text-xs text-emerald-400">{unloadMessage}</p>}
+        {unloadError && <p className="mb-2 text-xs text-red-400">{unloadError}</p>}
 
         {draft.mode === 'endpoint' && (
           <div className="flex flex-col gap-2">

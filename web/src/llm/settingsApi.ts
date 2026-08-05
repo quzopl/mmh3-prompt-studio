@@ -31,6 +31,16 @@ export interface ManagedState {
   port: number
 }
 
+/** Lustrzane odbicie `UnloadCapability`/`UnloadResult` z `server/src/llm/unload.ts`
+ * — ten sam powód duplikacji co przy `LlmSettings` wyżej. */
+export type UnloadCapability = 'managed' | 'ollama' | 'lmstudio' | 'none'
+
+export interface UnloadResult {
+  freed: boolean
+  how: UnloadCapability
+  reason?: string
+}
+
 /** Ten sam kształt obsługi błędu co `web/src/api/uploadAsset.ts` — osobny
  * moduł, więc osobna (mała) kopia zamiast wyciągania współdzielonego helpera
  * z `client.ts`, którego ten plik nie modyfikuje. */
@@ -68,4 +78,11 @@ export const settingsApi = {
   startManaged: () => request<ManagedState>('/api/llm/managed/start', { method: 'POST' }),
 
   stopManaged: () => request<ManagedState>('/api/llm/managed/stop', { method: 'POST' }),
+
+  getUnloadCapability: () => request<{ capability: UnloadCapability }>('/api/llm/unload/capability'),
+
+  /** Odpowiada dwusetką nawet wtedy, gdy zwolnienie się nie udało (`freed`
+   * fałszywe) — to WYNIK operacji, nie błąd protokołu; `request` rzuciłby
+   * tylko przy prawdziwym błędzie HTTP (sieć padła, serwer nie odpowiada). */
+  unload: () => request<UnloadResult>('/api/llm/unload', { method: 'POST' }),
 }

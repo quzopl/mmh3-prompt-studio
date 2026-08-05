@@ -243,6 +243,17 @@ const pl = {
   'llm.streamPreview': 'Podgląd strumienia',
   'llm.noProject': 'Brak wczytanego projektu',
 
+  // Zwolnienie modelu z pamięci karty (zadanie 14) — sposób zależy od
+  // dostawcy i żaden nie jest uniwersalny, więc każda możliwość ma własny,
+  // konkretny opis zamiast jednego ogólnego zdania dla wszystkich.
+  'llm.unload': 'Zwolnij pamięć karty',
+  'llm.unloadManaged': 'Zatrzymuje serwer modelu i zwalnia całą pamięć karty',
+  'llm.unloadOllama': 'Prosi Ollamę o wyładowanie modelu z pamięci karty',
+  'llm.unloadLmStudio': 'Prosi LM Studio o wyładowanie modelu z pamięci karty',
+  'llm.unloadUnsupported': 'Ten dostawca nie umie zwolnić pamięci na żądanie — zatrzymaj go po swojej stronie',
+  'llm.unloadDone': 'Pamięć karty zwolniona',
+  'llm.unloadFailed': 'Nie udało się zwolnić pamięci: {reason}',
+
   // Przegląd łatki z wybiórczym przyjmowaniem operacji (zadanie 11).
   'patchReview.title': 'Przegląd łatki',
   'patchReview.empty': 'Łatka nie zawiera żadnych operacji.',
@@ -484,6 +495,14 @@ const en: Record<TKey, string> = {
   'llm.opsReady': 'Done — {count} operations ready for review',
   'llm.streamPreview': 'Stream preview',
   'llm.noProject': 'No project loaded',
+
+  'llm.unload': 'Free GPU memory',
+  'llm.unloadManaged': 'Stops the model server and frees all GPU memory',
+  'llm.unloadOllama': 'Asks Ollama to unload the model from GPU memory',
+  'llm.unloadLmStudio': 'Asks LM Studio to unload the model from GPU memory',
+  'llm.unloadUnsupported': 'This provider cannot free memory on request — stop it on your side',
+  'llm.unloadDone': 'GPU memory freed',
+  'llm.unloadFailed': 'Could not free memory: {reason}',
 
   'patchReview.title': 'Patch review',
   'patchReview.empty': 'The patch has no operations.',
