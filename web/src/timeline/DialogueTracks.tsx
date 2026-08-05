@@ -7,7 +7,7 @@ import { msToPx, type Scale } from './scale.js'
 import { clipBox } from './clips.js'
 import { useDragClip } from './useDragClip.js'
 import { shotSpans } from './spans.js'
-import { naturalDurationMs } from './speech.js'
+import { fitsClip, naturalDurationMs } from './speech.js'
 import { applyProposal, dialogueProposals } from './proposals.js'
 
 /**
@@ -159,7 +159,11 @@ export function DialogueTracks({ scale }: { scale: Scale }) {
               })
               const naturalMs = naturalDurationMs(event.text, wordsPerMinute)
               const actualMs = event.endMs - event.startMs
-              const fits = naturalMs <= actualMs
+              // Tolerancja walidatora (`fitsClip`), nie proste `<=` — patrz
+              // komentarz przy `fitsClip` w `speech.ts`. Cień kilka linii
+              // niżej rysuje się przy DOKŁADNEJ `naturalMs`, bez tolerancji —
+              // tolerancja dotyczy tylko tego, czy ostrzec.
+              const fits = fitsClip(naturalMs, actualMs)
               return (
                 <div
                   key={event.id}

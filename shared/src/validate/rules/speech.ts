@@ -5,8 +5,16 @@ import { defineRule, makeDiagnostic, type Diagnostic, type Rule } from '../types
 /** Domyślne tempo mowy używane do szacowania długości kwestii. */
 export const WORDS_PER_SECOND = 2.7
 
-/** Tolerancja: kwestia może przekroczyć swoje okno o połowę, zanim zgłosimy problem. */
-const FIT_TOLERANCE = 1.5
+/**
+ * Tolerancja: kwestia może przekroczyć swoje okno o połowę, zanim zgłosimy
+ * problem. Eksportowana (nie lokalna `const`) z tego samego powodu co
+ * `WORDS_PER_SECOND` niżej — oś czasu (`web/src/timeline/speech.ts`,
+ * `fitsClip`) pokazuje własną plakietkę „nie mieści się" na podstawie tego
+ * samego pytania, więc musi stosować tę samą tolerancję, inaczej plakietka
+ * zapalałaby się przy zerowym zapasie, a walidator dopiero po przekroczeniu
+ * okna o połowę.
+ */
+export const FIT_TOLERANCE = 1.5
 
 const SPEECH_VERBS = ['says', 'said', 'replies', 'exclaims', 'shouts', 'whispers', 'asks', 'answers']
 

@@ -56,19 +56,25 @@ describe('naturalna długość na klipie dialogowym', () => {
       .toBe(`${msToPx(scale, naturalDurationMs('jedno dwa', DEFAULT_WORDS_PER_MINUTE))}px`)
     expect(shadowD3.style.width)
       .toBe(`${msToPx(scale, naturalDurationMs('razem', DEFAULT_WORDS_PER_MINUTE))}px`)
-    // Była tu dodatkowo asercja „d1 to dokładnie 2× d3" (dwa słowa kontra
-    // jedno). Usunięta: po zmianie `DEFAULT_WORDS_PER_MINUTE` na
-    // `WORDS_PER_SECOND * 60` (162, nie okrągłe dawne 150) przestała być
-    // prawdziwa z przyczyn czysto arytmetycznych, nie przez błąd w
-    // `DialogueTracks` — `naturalDurationMs` zaokrągla NIEZALEŻNIE dla
-    // każdego tekstu (`Math.round`), a `round(2/162*60000) = 741` nie jest
-    // dokładnie `2 * round(1/162*60000) = 740`. Przy 150 oba dzielenia
-    // wychodziły całkowite (800 i 400), więc zbieżność była przypadkiem tej
-    // konkretnej stałej, nie właściwością wzoru. Nie była też jedyną obroną:
-    // asercje dwie linie wyżej już porównują każdy cień z DOKŁADNĄ
-    // oczekiwaną wartością tej samej formuły — silniejszy test niż
-    // przybliżona proporcja między nimi, i taki, który nie łamie się na
-    // zaokrągleniu.
+    // Wartości policzone RĘCZNIE, nie przez wywołanie `naturalDurationMs`/
+    // `msToPx` w samym teście jak dwie asercje wyżej. Te dwie asercje
+    // liczą oczekiwaną szerokość TĄ SAMĄ produkcyjną formułą, którą woła
+    // `DialogueTracks` — pinują więc, że cień bierze tekst właściwej
+    // kwestii, ale nie złapałyby złamanej proporcjonalności samej formuły:
+    // podstawienie `naturalDurationMs` stałą wartością (np. zawsze 500)
+    // dawałoby identyczny — bo policzony tą samą podmienioną funkcją —
+    // wynik po obu stronach porównania, i test przechodziłby mimo że cień
+    // przestał cokolwiek mówić o liczbie słów. Zweryfikowane różnicowo:
+    // podmiana `naturalDurationMs` na funkcję zwracającą zawsze 500
+    // zaczerwienia WŁAŚNIE poniższe dwie asercje, zostawiając resztę pliku
+    // zieloną.
+    //
+    // Przy DEFAULT_WORDS_PER_MINUTE = WORDS_PER_SECOND * 60 = 162 i
+    // pxPerMs = 800/8000 = 0,1:
+    //   'jedno dwa' (2 słowa) → round(2/162*60000) = 741 ms → 74,1px
+    //   'razem'     (1 słowo) → round(1/162*60000) = 370 ms → 37px
+    expect(shadowD1.style.width).toBe('74.10000000000001px')
+    expect(shadowD3.style.width).toBe('37px')
   })
 
   it('ostrzega, gdy kwestia nie mieści się w klipie', () => {
@@ -85,6 +91,32 @@ describe('naturalna długość na klipie dialogowym', () => {
     render(<DialogueTracks scale={scale} />)
     const lane = screen.getByLabelText(/dialog S1/i)
     expect(within(lane).getByRole('button', { name: /nie mieści się/i })).toBeTruthy()
+  })
+
+  it('trzysłowowa kwestia w oknie 1100 ms mieści się w granicach tolerancji walidatora, mimo że naturalMs > actualMs', () => {
+    // Dokładnie przykład koordynatora: naturalMs przy DEFAULT_WORDS_PER_MINUTE
+    // (162/min) dla trzech słów to round(3/162*60000) = 1111 ms — WIĘCEJ niż
+    // samo okno (1100 ms), więc proste `naturalMs <= actualMs` (usterka
+    // sprzed tej rundy) pokazywałoby ostrzeżenie, mimo że `SPEECH_FITS` w
+    // walidatorze milczy aż do 1,5-krotności okna (1650 ms) — dokładnie ta
+    // rozbieżność, którą `fitsClip` (`speech.ts`) zamyka.
+    useProject.getState().apply(project => ({
+      ...project,
+      shots: project.shots.map(shot => ({
+        ...shot,
+        dialogue: shot.dialogue.map(event =>
+          event.id === 'd1' ? { ...event, text: 'slowo jeden dwa', endMs: 2100 } : event),
+      })),
+    }))
+    render(<DialogueTracks scale={scale} />)
+    const lane = screen.getByLabelText(/dialog S1/i)
+    expect(within(lane).queryByRole('button', { name: /nie mieści się/i })).toBeNull()
+    // Cień mimo to rysuje się przy DOKŁADNEJ długości naturalnej (1111 ms) —
+    // tolerancja należy tylko do osądu, czy ostrzec, nie do samego rysunku
+    // (patrz komentarz przy `fitsClip`).
+    const shadow = lane.querySelector<HTMLElement>('[data-natural-length]')
+    if (!shadow) throw new Error('oczekiwano cienia naturalnej długości')
+    expect(shadow.style.width).toBe(`${msToPx(scale, 1111)}px`)
   })
 
   it('szybsze tempo usuwa ostrzeżenie', () => {

@@ -1,18 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import { buildPrompt, type Project } from '@mmh3/shared'
 import { applyProposal, dialogueProposals } from '../../src/timeline/proposals.js'
-import { baseProject, emptyShot, lineFixture } from './fixtures.js'
+import { baseProject, emptyShot, lineFixture, speaker } from './fixtures.js'
 
 const withDialogue = (
   startMs: number,
   endMs: number,
   extra: Partial<ReturnType<typeof lineFixture>> = {},
-  text = 'tekst',
-) =>
-  baseProject([
+  text = 'domyslny tekst',
+): Project => ({
+  ...baseProject([
     { ...emptyShot('a', 0, 0), dialogue: [{ ...lineFixture('d1', ['s1'], text, startMs, endMs), ...extra }] },
     emptyShot('b', 1, 4000),
-  ])
+  ]),
+  // Prawdziwy mówca, nie tylko id w `speakerIds` — od Rundy 2 podział
+  // dokłada segment mówcy do `body` następnego ujęcia (patrz opis niżej), a
+  // `renderSpeakerSegment` rzuca, gdy id nie rozwiązuje się do rekordu w
+  // `project.speakers`. Bez tego każdy test wołający `buildPrompt` na
+  // wyniku podziału dostałby pustą kompilację (`COMPILE_FAILED`) zamiast
+  // realnego tekstu.
+  speakers: [speaker('s1', 'S1')],
+})
 
 describe('dialogueProposals', () => {
   it('proponuje scenetrans dla kwestii przechodzącej przez cięcie', () => {
@@ -41,6 +49,22 @@ describe('dialogueProposals', () => {
 
   it('kwestia kończąca się dokładnie na końcu materiału nie wystaje', () => {
     expect(dialogueProposals(withDialogue(7000, 8000)).some(p => p.kind === 'cutoff')).toBe(false)
+  })
+
+  // Kwestia zbyt krótka, żeby podzielić ją na dwa NIEPUSTE bloki <d> — patrz
+  // `splitTextAtFraction`. Lepszy brak plakietki niż plakietka, która po
+  // kliknięciu eksportuje `<d>[English] </d>`: schemat (`text: z.string()`,
+  // bez `min(1)`) go nie odrzuci i żadna reguła walidatora tego nie łapie.
+  it('nie proponuje scenetrans dla kwestii jednowyrazowej, mimo że geometrycznie przechodzi przez cięcie', () => {
+    expect(dialogueProposals(withDialogue(3000, 5000, {}, 'jedno')).some(p => p.kind === 'scenetrans')).toBe(false)
+  })
+
+  it('nie proponuje scenetrans dla pustej kwestii', () => {
+    expect(dialogueProposals(withDialogue(3000, 5000, {}, '')).some(p => p.kind === 'scenetrans')).toBe(false)
+  })
+
+  it('nie proponuje scenetrans dla kwestii złożonej z samych białych znaków', () => {
+    expect(dialogueProposals(withDialogue(3000, 5000, {}, '   ')).some(p => p.kind === 'scenetrans')).toBe(false)
   })
 })
 
@@ -88,6 +112,15 @@ describe('applyProposal — scenetrans dzieli kwestię na cięciu', () => {
     expect(texts).toEqual(['raz', 'dwa'])
   })
 
+  it('kwestia jednowyrazowa wywołana wprost (z pominięciem listy propozycji) nie zmienia projektu', () => {
+    // Druga linia obrony: nawet gdyby coś ominęło filtr w `dialogueProposals`
+    // (stara propozycja trzymana w zamkniętym komponencie, ręczne wywołanie),
+    // `applyProposal` sam odmawia podziału, którego nie da się wykonać bez
+    // pustej strony.
+    const project = withDialogue(3000, 5000, {}, 'jedno')
+    expect(applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })).toBe(project)
+  })
+
   it('nowa połówka dostaje segment w body następnego ujęcia i trafia do skompilowanego promptu', () => {
     // Sama flaga i sam obiekt w `shot.dialogue` nie wystarczą — kompilator
     // czyta `shot.body`, nie `shot.dialogue` wprost (`renderShot.ts`). Test,
@@ -102,6 +135,44 @@ describe('applyProposal — scenetrans dzieli kwestię na cięciu', () => {
 
     expect(shotB.body).toContainEqual({ kind: 'dialogue', eventId: continuation.id })
     expect(buildPrompt(next).text).toContain('dwa trzy')
+  })
+
+  it('do ujęcia z JUŻ istniejącą treścią w body: nowa połówka dostaje własny segment mówcy i nie skleja się z sąsiadem', () => {
+    // Wszystkie pozostałe testy w tym pliku budują ujęcia przez `emptyShot`,
+    // którego `body` jest zawsze puste — usterka z Rundy 2 (sklejona proza,
+    // brak atrybucji mówcy) była niewidoczna właśnie dlatego, że nie było
+    // niczego, z czym nowe segmenty mogłyby się skleić, ani niczego przed
+    // segmentem dialogowym oryginału, z czego skopiować kształt mówcy. Tu
+    // `body` obu ujęć jest ręcznie wypełnione — jak w prawdziwym projekcie —
+    // żeby usterka miała szansę się ujawnić.
+    const project: Project = {
+      ...baseProject([
+        {
+          ...emptyShot('a', 0, 0),
+          dialogue: [lineFixture('d1', ['s1'], 'slowo jeden dwa trzy', 3000, 5000)],
+          body: [
+            { kind: 'speaker', speakerIds: ['s1'], form: 'full' },
+            { kind: 'text', text: ' ' },
+            { kind: 'dialogue', eventId: 'd1' },
+          ],
+        },
+        {
+          ...emptyShot('b', 1, 4000),
+          body: [{ kind: 'text', text: 'A wide street at dusk.' }],
+        },
+      ]),
+      speakers: [speaker('s1', 'S1')],
+    }
+    const next = applyProposal(project, { eventId: 'd1', kind: 'scenetrans' })
+    const text = buildPrompt(next).text
+
+    // Rozpięte na CAŁĄ granicę zszycia (atrybucja mówcy → dialog → to, co
+    // stało w `body` ujęcia b wcześniej), nie sam środek kwestii ("dwa
+    // trzy") — krótszy substring przeszedłby nawet na sklejonym tekście bez
+    // atrybucji, dokładnie tę usterkę, którą ta runda naprawia. Kształt
+    // segmentu mówcy ('full', 'a woman (S1)') skopiowany z segmentu, który w
+    // `body` ujęcia a stał tuż przed segmentem dialogowym oryginału.
+    expect(text).toContain('a woman (S1) <scenetrans> says: <d>[English] dwa trzy</d> A wide street at dusk.')
   })
 
   it('różnicowo: dwie flagi na jednym obiekcie łamią SCENETRANS_BOTH_SIDES, podział na dwa obiekty — nie', () => {
@@ -131,6 +202,40 @@ describe('applyProposal — scenetrans dzieli kwestię na cięciu', () => {
   it('scenetrans o nieznanym identyfikatorze zwraca ten sam obiekt', () => {
     const project = withDialogue(3000, 5000)
     expect(applyProposal(project, { eventId: 'brak', kind: 'scenetrans' })).toBe(project)
+  })
+})
+
+describe('applyProposal — cutoff i scenetrans na tej samej kwestii', () => {
+  it('kolejność „najpierw cutoff, potem scenetrans" (lewa plakietka, potem prawa) nie zostawia CUTOFF_AT_END zapalonego', () => {
+    // Kwestia, która JEDNOCZEŚNIE przechodzi przez cięcie (3000–9000 mija
+    // granicę ujęć w 4000) I wystaje poza materiał (durationMs=8000 z
+    // `baseProject`) — obie plakietki stoją na tym samym klipie naraz
+    // (patrz `dialogueProposals` i `DialogueTracks.tsx`), a kliknięcie od
+    // lewej do prawej trafia najpierw w `cutoff`. To zwykła ścieżka, nie
+    // naciągany przypadek.
+    const project = withDialogue(3000, 9000, {}, 'slowo jeden dwa trzy')
+    const afterCutoff = applyProposal(project, { eventId: 'd1', kind: 'cutoff' })
+    const afterSplit = applyProposal(afterCutoff, { eventId: 'd1', kind: 'scenetrans' })
+
+    const dialogue = afterSplit.shots.flatMap(s => s.dialogue)
+    const before = dialogue.find(e => e.id === 'd1')
+    const after = dialogue.find(e => e.id !== 'd1')
+    if (!before || !after) throw new Error('oczekiwano dwóch połówek kwestii')
+
+    // Granica cięcia (4000) leży W ŚRODKU materiału (durationMs=8000) —
+    // pierwsza połówka NIE wystaje, więc jej `cutoff` musi się wyczyścić,
+    // mimo że zwykły `...event` w spreadzie niósłby `true` z poprzedniego
+    // kliknięcia.
+    expect(before.endMs).toBe(4000)
+    expect(before.cutoff).toBe(false)
+    // Druga połówka dziedziczy koniec oryginału (9000), który NADAL wystaje
+    // poza durationMs (8000) — to ona powinna nieść `cutoff`, nie na sztywno
+    // `false`.
+    expect(after.endMs).toBe(9000)
+    expect(after.cutoff).toBe(true)
+
+    const diagnostics = buildPrompt(afterSplit).diagnostics.filter(d => d.ruleId === 'CUTOFF_AT_END')
+    expect(diagnostics).toEqual([])
   })
 })
 
