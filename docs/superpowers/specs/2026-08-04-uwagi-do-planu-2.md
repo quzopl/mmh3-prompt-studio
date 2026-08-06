@@ -541,3 +541,32 @@ niewidoczny dla typów i dla testów każdego z zadań osobno.
 redakcji z powrotem wejście w interfejsie — na przykład jako jedno kliknięcie
 wewnątrz okna rozmowy („przetłumacz to pole"), które wysyła turę bez pisania
 polecenia. Drugie wyjście zachowuje jedne drzwi i odzyskuje funkcję.
+
+## 26. Zakaz słów nastroju obowiązuje w promptcie wszędzie, a w walidatorze tylko w muzyce
+
+Zmierzone na prawdziwym modelu (Qwen2.5 14B Q4_K_M, RTX PRO 6000, 2026-08-06),
+zaraz po wdrożeniu rozmowy o polu.
+
+Prompt systemowy zadania `fieldChat` (`server/src/llm/tasks/fieldChat.ts`) mówi
+modelowi: „Never name an emotion or atmosphere directly", i wymienia z nazwy
+`melancholic`, `dramatic`, `eerie`, `tense`. Reguła walidatora, która to
+egzekwuje — `MUSIC_NO_MOOD_WORDS` (`shared/src/validate/rules/audio.ts:124`) —
+sprawdza JEDNO pole: `nonDiegeticMusic`. Lista `MOOD_WORDS`
+(`shared/src/vocab/moodWords.ts`) zawiera `dramatic`.
+
+W uruchomieniu model napisał do pola `style`: *„A cinematic night train platform
+under a heavy rain, with **dramatic** lighting and reflections."* Żadna
+diagnostyka się nie zapaliła, bo styl nie ma reguły o nastroju. W polach audio
+model zachował się poprawnie — tam, gdzie reguła istnieje.
+
+To nie jest usterka rozmowy: prompt zrobił, co mógł, a walidator zrobił, co ma
+zapisane. Ale rozjazd jest realny i wart nazwania — instrukcja obiecuje więcej,
+niż cokolwiek sprawdza, a przewodnik MMH3 żąda obrazu zamiast nastroju w CAŁYM
+opisie, nie tylko w ścieżce muzycznej.
+
+**Dwa wyjścia:** albo rozszerzyć regułę na `style` i prozę ujęć (ostrzeżenie, nie
+błąd — „dramatic lighting" bywa świadomym wyborem operatora, a reguła o
+dotkliwości błędu blokowałaby eksport), albo zawęzić prompt tak, żeby nie
+obiecywał egzekwowania tam, gdzie go nie ma. Pierwsze wyjście jest zgodne z
+przewodnikiem; drugie jest tańsze i uczciwsze wobec dzisiejszego stanu.
+
