@@ -159,7 +159,7 @@ Five tasks:
 | Task | Input | Output |
 |---|---|---|
 | **Structure from idea** | Two sentences, plus the mode and duration | A whole shot structure with times, camera moves and dialogue |
-| **Redact PL→EN** | One field | The same field in English, in the guide's conventions |
+| **Discuss this field** | One field, your instruction, and the conversation so far | A note to read and a proposed new field text |
 | **Translate whole project** | Everything written as prose | One patch translating all of it |
 | **Audio suggestion** | The shot content | A soundscape and a music description |
 | **Critic** | The compiled prompt | Notes pointing at specific objects |
@@ -170,6 +170,20 @@ Two rules govern all of it:
 - **Critic notes are not validator rules.** They appear in their own group in the validation panel, marked as coming from a language model, and they can never block export. A rule cites the guide and is provable; a note is an opinion that may be confidently wrong.
 
 The API key is stored on the server, redacted from every response, and never written into a project file or an export. Leaving the key field blank on save keeps the stored key; **Clear key** removes it.
+
+### Talking to the model about one field
+
+Pick a field in the list — the visual style, either audio field, a shot's text, a speaker's descriptor — and open a conversation about it.
+
+![A conversation scoped to a single field](docs/screenshots/07-field-chat.png)
+
+Write what you want in Polish or English: *add rain and cold light*, *make it shorter*, *more contrast on her face*. The reply comes in two parts. The note is for you to read. The proposed field text arrives as an operation in the same patch review as every other task, so nothing changes until you select it.
+
+Because the conversation remembers its earlier turns, a follow-up is one word: *stronger*, *less rain*, *keep it but drop the fog*. This is the whole reason it replaced the one-shot field redaction it grew out of — that version could translate a field, but every refinement meant writing the instruction again from scratch.
+
+**Asking for effects.** MiniMax-H3 has no separate field for effects; they live in the prose of the shot and in the camera phrase. The model is told to reach for four families of observable, physical detail — lighting transitions, weather and atmosphere, how materials behave, and speed of motion — and to never name a mood directly. *Melancholic* and *dramatic* are rejected by a validation rule anyway; *rain beading on cold glass as the light drops* is what the video model can actually draw.
+
+Each field keeps its own conversation, stored in `chats.json` next to `project.json`, so it survives closing the window and restarting the app. A thread holds its last 20 turns; **Clear conversation** empties one thread without touching the others.
 
 ### Prompts are always English
 
@@ -219,6 +233,7 @@ Shortcuts never fire while you are typing in a field.
 ~/mmh3-studio/projects/
     <project-name>/
         project.json      the whole project
+        chats.json        field conversations, one thread per field
         assets/           images, video and audio you uploaded
         exports/          generated files
     llm-settings.json     provider settings, machine-wide

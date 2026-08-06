@@ -94,4 +94,12 @@ test('zrzuty panelu LLM', async ({ page }) => {
   await page.getByRole('button', { name: /save settings/i }).click()
   await expect(page.getByText(/model is not configured/i)).toHaveCount(0)
   await panel.screenshot({ path: join(SHOTS, '06-llm-endpoint.png'), animations: 'disabled' })
+
+  // Okno rozmowy o polu: ten sam panel, ale otwarte wejście do rozmowy. Zrzut
+  // robimy z pustym wątkiem, bo tak wygląda pierwsze spotkanie użytkownika z
+  // tą funkcją — z podpowiedzią, co w ogóle można napisać.
+  await page.getByRole('button', { name: /discuss this field/i }).click()
+  const chat = page.getByRole('dialog', { name: /field conversation/i })
+  await expect(chat).toBeVisible()
+  await chat.screenshot({ path: join(SHOTS, '07-field-chat.png'), animations: 'disabled' })
 })

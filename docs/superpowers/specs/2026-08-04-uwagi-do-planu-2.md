@@ -362,6 +362,17 @@ dokładnie ten kształt, który trasa już przyjmuje i waliduje. Nic po stronie
 serwera nie wymaga zmiany; brakuje wyłącznie miejsca w interfejsie, z którego
 dałoby się to wywołać.
 
+**Stan po planie „okno dialogowe LLM" (2026-08-06):** punkt zostaje otwarty, ale
+zmienił się jego kształt. Zadanie `redact` przestało mieć własne wejście w
+panelu — zastąpiła je rozmowa o polu (`web/src/llm/FieldChat.tsx`), która
+przyjmuje ten sam `RedactTarget` i tę samą listę celów, więc `shotText` nadal
+nie ma skąd zostać wywołany. To, czego brakuje, jest teraz jednym przyciskiem:
+„Rozmawiaj o tym polu" przy polu tekstowym segmentu w `Inspector.tsx`,
+otwierający `FieldChat` z `target: { kind: 'shotText', shotId, segmentIndex }`.
+Cała reszta — trasa, wątek, historia, przegląd operacji — już działa i jest
+pokryta testami; brakuje wyłącznie miejsca, z którego użytkownik może w to
+kliknąć.
+
 ## 21. `replaceShots` może zastosować się dwukrotnie przy dwóch kliknięciach złapanych w jedną, niezatwierdzoną partię Reactu
 
 Plan 5, zadanie 11 (`web/src/llm/PatchReview.tsx`), fix round 2 — zgłoszone

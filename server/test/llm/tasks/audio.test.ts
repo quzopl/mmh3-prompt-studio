@@ -8,7 +8,7 @@ import {
   type Speaker,
 } from '@mmh3/shared'
 import { AudioSchema, audioInputFromProject, audioTask, audioToPatch, type AudioResult } from '../../../src/llm/tasks/audio.js'
-import { newProject } from '../../fixtures/newProject.js'
+import { cleanProject, cleanSpeaker as speaker } from '../../fixtures/cleanProject.js'
 
 /**
  * Testujemy `audioToPatch`, nie rozmowę z modelem — rozmowa (budowa
@@ -16,56 +16,6 @@ import { newProject } from '../../fixtures/newProject.js'
  * czterech zadań i pokryta przez `run.test.ts` (zadanie 5). Ten sam podział
  * co `redact.test.ts`/`structure.test.ts` (zadania 6–7).
  */
-
-const speaker: Speaker = {
-  id: 'sp1', code: 'S1', characterType: 'kobieta', age: '30s', gender: 'female',
-  pitch: 'mid', timbre: 'warm', rate: 'even', accent: 'neutral', onScreen: true,
-  fullDescriptor: 'a woman in a blue coat', shortDescriptor: 'the woman',
-}
-
-/**
- * Projekt bez błędów walidatora, z mówcą i kwestią dialogową — potrzebne, żeby
- * `hasSound` (`SOUNDSCAPE_NA_ONLY_IF_SILENT`) było prawdziwe w scenariuszu
- * „N/A → treść" niżej, i żeby `SOUNDSCAPE_NO_DIALOGUE` miało czego pilnować.
- * Obie ścieżki dźwiękowe już wypełnione, poprawną liczbą zdań i bez słów
- * o nastroju — punkt odniesienia „czysty projekt" dla testów niezmienników.
- */
-function cleanProject(): Project {
-  const project = newProject()
-  const shot = project.shots[0]
-  if (shot === undefined) throw new Error('fixture bez ujęcia')
-  return {
-    ...project,
-    speakers: [speaker],
-    shots: [{
-      ...shot,
-      composition: 'a wide shot of an empty platform at dawn',
-      dialogue: [{
-        id: 'line-1',
-        speakerIds: ['sp1'],
-        verb: 'says',
-        punctuation: ':',
-        language: 'English',
-        text: 'I still have time to change my mind.',
-        voiceover: false,
-        sceneTransBefore: false,
-        sceneTransAfter: false,
-        cutoff: false,
-        startMs: 0,
-        endMs: 2000,
-      }],
-      body: [
-        { kind: 'text', text: 'A woman stands alone at the edge of the platform.' },
-        { kind: 'speaker', speakerIds: ['sp1'], form: 'full' },
-        { kind: 'dialogue', eventId: 'line-1' },
-      ],
-    }],
-    audio: {
-      overallSoundscape: 'Distant traffic hums beyond the platform. A train brakes with a long metallic screech.',
-      nonDiegeticMusic: 'A slow piano melody plays over sparse strings.',
-    },
-  }
-}
 
 // Przyjęte wyjątki od reguły „żadna nowa diagnostyka" — ustalone w poprzednich
 // planach, wspólne dla wszystkich zadań językowych (patrz brief).
