@@ -618,3 +618,48 @@ describe('StructureShotSchema — treść kwestii bez znaczników (recenzja koń
     expect(added.some(d => d.ruleId === 'DIALOGUE_D_TAG_PURE' && d.severity === 'error')).toBe(true)
   })
 })
+
+describe('proza ujęcia domyka zdania między częściami', () => {
+  /**
+   * Zmierzone na prawdziwym modelu podczas wdrożenia na serwerze z RTX PRO
+   * 6000: Qwen2.5 14B napisał kompozycję jako równoważnik zdania bez kropki, a
+   * doklejenie akcji samą spacją dało w wyeksportowanym prompcie
+   * „…the platform is empty and it is raining The woman exits the train…".
+   * Model wideo czyta to jako jedno zdanie.
+   */
+  it('kompozycja bez kropki dostaje ją przed dołączeniem akcji', () => {
+    const patch = structureToPatch(
+      { shots: [{ startSeconds: 0, composition: 'the platform is empty and it is raining', action: 'The woman exits the train' }] },
+      newProject(),
+    )
+    const op = patch.ops[0]
+    if (op?.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
+    const first = op.shots[0]?.body[0]
+    if (first?.kind !== 'text') throw new Error('oczekiwano segmentu tekstowego')
+    expect(first.text).toBe('the platform is empty and it is raining. The woman exits the train.')
+  })
+
+  it('kompozycja zakończona kropką nie dostaje drugiej', () => {
+    const patch = structureToPatch(
+      { shots: [{ startSeconds: 0, composition: 'A wide shot of the street.', action: 'Rain falls.' }] },
+      newProject(),
+    )
+    const op = patch.ops[0]
+    if (op?.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
+    const first = op.shots[0]?.body[0]
+    if (first?.kind !== 'text') throw new Error('oczekiwano segmentu tekstowego')
+    expect(first.text).toBe('A wide shot of the street. Rain falls.')
+  })
+
+  it('znak zapytania i wykrzyknik też liczą się jako domknięcie', () => {
+    const patch = structureToPatch(
+      { shots: [{ startSeconds: 0, composition: 'Who is she?', action: 'Nobody answers!' }] },
+      newProject(),
+    )
+    const op = patch.ops[0]
+    if (op?.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
+    const first = op.shots[0]?.body[0]
+    if (first?.kind !== 'text') throw new Error('oczekiwano segmentu tekstowego')
+    expect(first.text).toBe('Who is she? Nobody answers!')
+  })
+})

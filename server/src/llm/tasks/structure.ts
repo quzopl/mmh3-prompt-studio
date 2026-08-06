@@ -228,11 +228,24 @@ function findSpeakerByCode(project: Project, name: string): Speaker | undefined 
  * patrz `sentenceJoin` niżej), zaczynało się od wielkiej litery po kropce, a
  * nie w środku tego samego zdania.
  */
+const endSentence = (text: string): string =>
+  text === '' || /[.!?]$/.test(text) ? text : `${text}.`
+
+/**
+ * Domknięcie zdania obowiązuje po KAŻDEJ części, nie tylko po ostatniej.
+ * Zmierzone na prawdziwym modelu (Qwen2.5 14B, serwer z RTX PRO 6000): model
+ * potrafi napisać kompozycję jako równoważnik zdania bez kropki, a doklejenie
+ * akcji samą spacją dawało w skompilowanym prompcie „…the platform is empty and
+ * it is raining The woman exits the train…". Model wideo czyta to jako jedno
+ * zdanie, więc jest to błąd odczytu, nie kwestia estetyki — ta sama klasa, którą
+ * `sentenceJoin` niżej zamyka dla frazy kamery, przeoczona o jedną pozycję
+ * wcześniej.
+ */
 function composeBodyText(composition: string, action: string): string {
-  const parts = [composition.trim(), action.trim()].filter(part => part !== '')
-  const text = parts.join(' ')
-  if (text === '' || /[.!?]$/.test(text)) return text
-  return `${text}.`
+  const parts = [composition.trim(), action.trim()]
+    .filter(part => part !== '')
+    .map(endSentence)
+  return parts.join(' ')
 }
 
 /**
