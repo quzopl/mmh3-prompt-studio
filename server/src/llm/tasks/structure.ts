@@ -15,6 +15,7 @@ import {
 } from '@mmh3/shared'
 import type { ChatMessage } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
+import { dialogueTextSchema } from './dialogueText.js'
 
 /**
  * Zadanie 1 z czterech: dwa zdania pomysłu (po polsku, bez tłumaczenia) plus
@@ -30,7 +31,12 @@ export const StructureShotSchema = z.object({
   action: z.string().min(1),
   cameraMove: CameraMotionSchema.optional(),
   speaker: z.string().min(1).optional(),
-  line: z.string().min(1).optional(),
+  // `line` ląduje w `DialogueEvent.text` bez żadnej obróbki (patrz
+  // `structureToPatch` niżej) — to JEDYNE miejsce w aplikacji, gdzie treść
+  // kwestii dialogowej w ogóle powstaje z odpowiedzi modelu, więc jedyne,
+  // które musi ją przepytać strażą z `dialogueText.ts` (recenzja końcowa,
+  // punkt 1).
+  line: dialogueTextSchema().optional(),
 })
 
 export const StructureSchema = z.object({
@@ -118,7 +124,10 @@ const SYSTEM_PROMPT = [
     + 'schema. Leave "cameraMove" out entirely when the shot is static or you '
     + 'are unsure.',
   '"line" is the spoken dialogue, written in English regardless of the '
-    + 'language of the idea.',
+    + 'language of the idea. It carries the spoken words only: no "<d>" or '
+    + '"</d>" tags, no "[English]" or any other bracketed language marker, no '
+    + 'speaker name or code, no stage direction — the compiler adds all of '
+    + 'that around your words itself.',
   '"startSeconds" is your best estimate of when the shot starts, in seconds '
     + 'from the beginning of the video — it will be snapped to the exact frame '
     + 'grid by the caller, so approximate values are fine.',

@@ -7,7 +7,7 @@ import {
   type Project,
   type Speaker,
 } from '@mmh3/shared'
-import { AudioSchema, audioInputFromProject, audioToPatch, type AudioResult } from '../../../src/llm/tasks/audio.js'
+import { AudioSchema, audioInputFromProject, audioTask, audioToPatch, type AudioResult } from '../../../src/llm/tasks/audio.js'
 import { newProject } from '../../fixtures/newProject.js'
 
 /**
@@ -68,9 +68,25 @@ function cleanProject(): Project {
 }
 
 // Przyjęte wyjątki od reguły „żadna nowa diagnostyka" — ustalone w poprzednich
-// planach, wspólne dla wszystkich czterech zadań językowych (patrz brief).
+// planach, wspólne dla wszystkich zadań językowych (patrz brief).
+//
+// Cztery pierwsze to reguły, których zapalenie jest UCZCIWYM skutkiem akcji, o
+// którą użytkownik prosił (punkt 18
+// `docs/superpowers/specs/2026-08-04-uwagi-do-planu-2.md`).
+//
+// Dwie ostatnie to reguły TREŚCI, dopisane w recenzji końcowej gałęzi (punkt
+// 5): rozstrzygnięcie zadania 11 mówi, że schemat odpowiedzi modelu pilnuje
+// KSZTAŁTU (liczba zdań, brak bloku `<d>`), a nie TREŚCI — więc słowo o
+// nastroju w muzyce i kwestia dialogowa powtórzona w pejzażu to uczciwa
+// informacja zwrotna na ekranie przeglądu, nie usterka kodu. Lista musiała je
+// nazwać, żeby napisana reguła i napisane rozstrzygnięcie mówiły to samo
+// (punkt 22 tego samego dokumentu). `SOUNDSCAPE_NO_DIALOGUE` niesie pod jednym
+// identyfikatorem TAKŻE pytanie o kształt (blok `<d>`) — ono jest pilnowane w
+// schemacie (`server/src/llm/tasks/audioFieldText.ts`) i ma tam własny test,
+// więc przyjęcie identyfikatora tutaj nie zostawia go bez dowodu.
 const ACCEPTED_NEW_DIAGNOSTICS = new Set([
   'SPEECH_FITS', 'SOUNDSCAPE_NA_ONLY_IF_SILENT', 'SPEAKER_SILENT_NO_ID', 'FL2VA_PREFER_SINGLE_SHOT',
+  'MUSIC_NO_MOOD_WORDS', 'SOUNDSCAPE_NO_DIALOGUE',
 ])
 
 /**
@@ -95,6 +111,19 @@ function assertNoUnexpectedDiagnostics(before: Project, after: Project): void {
   const unexpected = added.filter(d => !ACCEPTED_NEW_DIAGNOSTICS.has(d.ruleId))
   expect(unexpected).toEqual([])
 }
+
+/** Zakaz, który to zadanie niosło od początku — asercja dopisana w recenzji
+ * końcowej gałęzi (punkt 3) razem z tymi samymi zdaniami w promptach redakcji
+ * pojedynczego pola i tłumaczenia całego projektu, żeby wszystkie trzy drzwi
+ * do tych samych dwóch pól mówiły modelowi to samo i żeby każde z tych zdań
+ * miało swojego strażnika. */
+describe('audioTask — prompt systemowy zabrania powtarzania kwestii dialogowej', () => {
+  it('mówi wprost, że pejzaż nie powtarza ani nie parafrazuje dialogu', () => {
+    const messages = audioTask.buildMessages({ shots: [{ content: 'kobieta stoi na peronie' }] })
+    const system = messages.find(m => m.role === 'system')?.content ?? ''
+    expect(system).toMatch(/never repeat or paraphrase spoken dialogue/i)
+  })
+})
 
 describe('audioToPatch — dwie operacje, jedna na pejzaż, jedna na muzykę', () => {
   it('wynik z obu pól tworzy dwie operacje setAudio, każdą z własnym identyfikatorem', () => {
@@ -346,5 +375,49 @@ describe('AudioSchema — liczba zdań pilnowana w schemacie, nie dopiero przez 
     // jednej rozmowy — patrz `audioFieldText.ts`.
     expect(message).toContain('overallSoundscape')
     expect(message).toContain('1 to 4 sentences')
+  })
+})
+
+/**
+ * Recenzja końcowa gałęzi, punkt 3: `audioFieldText.ts` deklarował w swoim
+ * opisie, że JEST regułą dla tekstu przeznaczonego na pola audio, a sprawdzał
+ * wyłącznie liczbę zdań. `SOUNDSCAPE_NO_DIALOGUE` (BŁĄD, pierwsza połowa to
+ * zwykłe `includes('<d>')`) jest kontrolą DOKŁADNIE tego samego rodzaju i
+ * dotąd nie stała nigdzie — a odpowiedź modelu cytująca kwestię w bloku `<d>`
+ * jest w tym zadaniu wprost przewidziana promptem („Never repeat or paraphrase
+ * spoken dialogue"), więc realna. To pierwsze z trojga drzwi; drugie i trzecie
+ * mają swoje testy w `redact.test.ts` i `translateAll.test.ts`.
+ */
+describe('AudioSchema — blok <d> odrzucany w schemacie, nie dopiero przez walidator (recenzja końcowa, punkt 3)', () => {
+  it('pejzaż z blokiem <d> jest odrzucany, choć liczba zdań się zgadza', () => {
+    const result = AudioSchema.safeParse({
+      soundscape: 'Rain falls on the platform and a woman says <d>Wait for me</d>.',
+      music: '',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('muzyka z blokiem <d> jest odrzucana tak samo', () => {
+    const result = AudioSchema.safeParse({ soundscape: '', music: 'A piano plays under <d>Wait for me</d>.' })
+    expect(result.success).toBe(false)
+  })
+
+  it('komunikat błędu mówi modelowi, czego nie wolno, po angielsku i z nazwą pola', () => {
+    const result = AudioSchema.safeParse({ soundscape: 'Someone says <d>Wait</d>.', music: '' })
+    if (result.success) throw new Error('oczekiwano odrzucenia')
+    const message = result.error.issues[0]?.message ?? ''
+    expect(message).toContain('overallSoundscape')
+    expect(message).toContain('<d>')
+    // Komunikat o liczbie zdań byłby tu mylący — tekst ma jedno zdanie i to
+    // nie liczba zdań jest problemem.
+    expect(message).not.toContain('sentences')
+  })
+
+  it('opis dźwięku BEZ bloku <d>, nawet mówiący o mówieniu, przechodzi — pilnowany jest znacznik, nie temat', () => {
+    const result = AudioSchema.safeParse({
+      soundscape: 'Muffled conversation carries from the far end of the platform.',
+      music: '',
+    })
+    expect(result.success).toBe(true)
   })
 })

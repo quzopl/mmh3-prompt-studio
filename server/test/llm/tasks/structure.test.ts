@@ -29,9 +29,25 @@ const speaker: Speaker = {
 const projectWithSpeaker = (): Project => ({ ...newProject(), speakers: [speaker] })
 
 // Przyjęte wyjątki od reguły „żadna nowa diagnostyka" — ustalone w poprzednich
-// planach, wspólne dla wszystkich czterech zadań językowych (patrz brief).
+// planach, wspólne dla wszystkich zadań językowych (patrz brief).
+//
+// Cztery pierwsze to reguły, których zapalenie jest UCZCIWYM skutkiem akcji, o
+// którą użytkownik prosił (punkt 18
+// `docs/superpowers/specs/2026-08-04-uwagi-do-planu-2.md`).
+//
+// Dwie ostatnie to reguły TREŚCI, dopisane w recenzji końcowej gałęzi (punkt
+// 5): rozstrzygnięcie zadania 11 mówi, że schemat odpowiedzi modelu pilnuje
+// KSZTAŁTU (liczba zdań, brak bloku `<d>`), a nie TREŚCI — więc słowo o
+// nastroju w muzyce i kwestia dialogowa powtórzona w pejzażu to uczciwa
+// informacja zwrotna na ekranie przeglądu, nie usterka kodu. Lista musiała je
+// nazwać, żeby napisana reguła i napisane rozstrzygnięcie mówiły to samo
+// (punkt 22 tego samego dokumentu). `SOUNDSCAPE_NO_DIALOGUE` niesie pod jednym
+// identyfikatorem TAKŻE pytanie o kształt (blok `<d>`) — ono jest pilnowane w
+// schemacie (`server/src/llm/tasks/audioFieldText.ts`) i ma tam własny test,
+// więc przyjęcie identyfikatora tutaj nie zostawia go bez dowodu.
 const ACCEPTED_NEW_DIAGNOSTICS = new Set([
   'SPEECH_FITS', 'SOUNDSCAPE_NA_ONLY_IF_SILENT', 'SPEAKER_SILENT_NO_ID', 'FL2VA_PREFER_SINGLE_SHOT',
+  'MUSIC_NO_MOOD_WORDS', 'SOUNDSCAPE_NO_DIALOGUE',
 ])
 
 /**
@@ -527,5 +543,78 @@ describe('structureToPatch — niezmienniki projektu', () => {
     const patch = structureToPatch(buildResult(), before)
     const after = applyOps(before, patch.ops)
     expect(() => parseProject(after)).not.toThrow()
+  })
+})
+
+/**
+ * Recenzja końcowa gałęzi, punkt 1 (krytyczny). To zadanie jako JEDYNE tworzy
+ * treść kwestii dialogowej — cztery pozostałe zadania językowe traktują ją
+ * jako nietykalną i każde z osobna tłumaczy, czemu nie da się jej dosięgnąć.
+ * Tu jednak `input.line` szło do `DialogueEvent.text` NIETKNIĘTE, a schemat
+ * nie miał żadnego refinementu: zwykła odpowiedź modelu („<d>Wait for me</d>",
+ * „[English] Wait for me" — nawyk tym silniejszy, że otaczający format używa
+ * dokładnie tych znaczników) zapalała `DIALOGUE_D_TAG_PURE` o dotkliwości
+ * BŁĘDU na projekcie, który jej nie miał, i `isExportReady` odmawiało eksportu.
+ */
+describe('StructureShotSchema — treść kwestii bez znaczników (recenzja końcowa, punkt 1)', () => {
+  const shot = (line: string) => ({
+    startSeconds: 0, composition: 'zbliżenie na kobietę', action: 'kobieta odwraca się', speaker: 'S1', line,
+  })
+
+  it('kwestia w bloku <d> jest odrzucona przez schemat', () => {
+    expect(StructureShotSchema.safeParse(shot('<d>Wait for me</d>')).success).toBe(false)
+  })
+
+  it('sam domykający </d> też jest odrzucony — model bywa niekonsekwentny', () => {
+    expect(StructureShotSchema.safeParse(shot('Wait for me</d>')).success).toBe(false)
+  })
+
+  it('wiodący znacznik języka "[English]" jest odrzucony', () => {
+    expect(StructureShotSchema.safeParse(shot('[English] Wait for me')).success).toBe(false)
+  })
+
+  it('zwykła kwestia przechodzi — pilnowane są znaczniki, nie treść wypowiedzi', () => {
+    expect(StructureShotSchema.safeParse(shot('Wait for me, I am almost ready.')).success).toBe(true)
+  })
+
+  it('nawias kwadratowy w ŚRODKU zdania nie jest znacznikiem języka i przechodzi', () => {
+    expect(StructureShotSchema.safeParse(shot('I said it twice [twice] and nobody moved.')).success).toBe(true)
+  })
+
+  it('komunikat błędu jest po angielsku i nazywa oba zakazane znaczniki — to on wraca do modelu w rundzie naprawy', () => {
+    const result = StructureShotSchema.safeParse(shot('<d>Wait for me</d>'))
+    if (result.success) throw new Error('oczekiwano odrzucenia')
+    const message = result.error.issues[0]?.message ?? ''
+    expect(message).toContain('<d>')
+    expect(message).toContain('[Language]')
+  })
+
+  it('prompt systemowy wprost zakazuje znaczników w "line"', () => {
+    const messages = structureTask.buildMessages({
+      ideaA: 'Kobieta stoi samotnie na peronie.',
+      ideaB: 'Pociąg odjeżdża bez niej.',
+      mode: 'T2VA',
+      durationSeconds: 8,
+      speakers: [],
+    })
+    const system = messages.find(m => m.role === 'system')
+    expect(system?.content).toMatch(/no "<d>"/i)
+    expect(system?.content).toMatch(/language marker/i)
+  })
+
+  /**
+   * Dowód, że straż jest POTRZEBNA, a nie ozdobna: ta sama treść przepuszczona
+   * OBOK schematu (wprost do `structureToPatch`, jak zrobiłby to każdy przyszły
+   * wołający, który zbuduje `StructureResult` sam) faktycznie zapala regułę o
+   * dotkliwości BŁĘDU na projekcie, który jej nie miał. Bez tego testu
+   * refinement w schemacie byłby asercją o samym sobie.
+   */
+  it('ta sama kwestia z pominięciem schematu zapala DIALOGUE_D_TAG_PURE na projekcie, który go nie miał', () => {
+    const before = projectWithSpeaker()
+    const result: StructureResult = { shots: [shot('<d>Wait for me</d>')] }
+    const after = applyOps(before, structureToPatch(result, before).ops)
+    const added = newDiagnostics(diagnosticsOf(before), diagnosticsOf(after))
+    expect(added.map(d => d.ruleId)).toContain('DIALOGUE_D_TAG_PURE')
+    expect(added.some(d => d.ruleId === 'DIALOGUE_D_TAG_PURE' && d.severity === 'error')).toBe(true)
   })
 })

@@ -3,6 +3,7 @@ import {
   applyOps,
   buildPrompt,
   parseProject,
+  VIDEO_EDIT_SUMMARY_OPENING,
   type Diagnostic,
   type Label,
   type Project,
@@ -13,7 +14,8 @@ import {
   chunkFields,
   collectTranslatableFields,
   runTranslateAll,
-  TranslateAllSchema,
+  translateAllSchemaFor,
+  translateAllTaskFor,
   translateAllToPatch,
   type TranslatableField,
   type TranslateAllResult,
@@ -90,10 +92,26 @@ function cleanProject(): Project {
   }
 }
 
-// Przyjęte wyjątki od reguły „żadna nowa diagnostyka" — ustalone w
-// poprzednich planach, wspólne dla wszystkich zadań językowych (patrz brief).
+// Przyjęte wyjątki od reguły „żadna nowa diagnostyka" — ustalone w poprzednich
+// planach, wspólne dla wszystkich zadań językowych (patrz brief).
+//
+// Cztery pierwsze to reguły, których zapalenie jest UCZCIWYM skutkiem akcji, o
+// którą użytkownik prosił (punkt 18
+// `docs/superpowers/specs/2026-08-04-uwagi-do-planu-2.md`).
+//
+// Dwie ostatnie to reguły TREŚCI, dopisane w recenzji końcowej gałęzi (punkt
+// 5): rozstrzygnięcie zadania 11 mówi, że schemat odpowiedzi modelu pilnuje
+// KSZTAŁTU (liczba zdań, brak bloku `<d>`), a nie TREŚCI — więc słowo o
+// nastroju w muzyce i kwestia dialogowa powtórzona w pejzażu to uczciwa
+// informacja zwrotna na ekranie przeglądu, nie usterka kodu. Lista musiała je
+// nazwać, żeby napisana reguła i napisane rozstrzygnięcie mówiły to samo
+// (punkt 22 tego samego dokumentu). `SOUNDSCAPE_NO_DIALOGUE` niesie pod jednym
+// identyfikatorem TAKŻE pytanie o kształt (blok `<d>`) — ono jest pilnowane w
+// schemacie (`server/src/llm/tasks/audioFieldText.ts`) i ma tam własny test,
+// więc przyjęcie identyfikatora tutaj nie zostawia go bez dowodu.
 const ACCEPTED_NEW_DIAGNOSTICS = new Set([
   'SPEECH_FITS', 'SOUNDSCAPE_NA_ONLY_IF_SILENT', 'SPEAKER_SILENT_NO_ID', 'FL2VA_PREFER_SINGLE_SHOT',
+  'MUSIC_NO_MOOD_WORDS', 'SOUNDSCAPE_NO_DIALOGUE',
 ])
 
 function diagnosticsOf(project: Project): Diagnostic[] {
@@ -128,16 +146,36 @@ const nonStandaloneLabel: Label = {
   id: 'lab-inline', kind: 'subject', index: 2, assetIds: [],
   definition: 'mężczyzna w tle', role: 'postać drugoplanowa', standalone: false,
 }
+/** Etykieta wideo istnieje po to, żeby `<Video 1>` z narzuconego zdania
+ * otwierającego (`VIDEO_EDIT_SUMMARY_OPENING`) był etykietą ZDEFINIOWANĄ —
+ * inaczej `REF_NO_NEW_LABELS_IN_SUMMARY` paliłoby się w fiksturze od pierwszej
+ * klatki i test „ta reguła zapala się dopiero po złej odpowiedzi" nie
+ * mierzyłby niczego. */
+const videoLabel: Label = {
+  id: 'lab-video', kind: 'video', index: 1, assetIds: [],
+  definition: 'materiał źródłowy nakręcony z ręki', role: 'wideo wejściowe', standalone: true,
+}
 
 /**
- * `cleanProject()` w trybie REF, z etykietami (jedną `standalone`, jedną nie)
- * i wpisem retencji — dokładnie te pola, które `emitRef`
- * (`shared/src/compile/emitRef.ts`) rzeczywiście czyta. Ujęcie dostaje
- * segment `label`, żeby `<Subject 1>` pojawiało się w treści promptu (tego
- * wymaga `RETENTION_LABEL_IN_PROSE` w `shared/src/validate/rules/ref.ts`) —
- * bez tego testy niezmienników (`assertNoUnexpectedDiagnostics`) mierzyłyby
- * różnicę względem projektu, który i tak miał tę diagnostykę PRZED
- * tłumaczeniem, nie po nim.
+ * `cleanProject()` w trybie REF — fikstura przebudowana w recenzji końcowej
+ * gałęzi (punkt 2), bo poprzednia czyniła test „łatka nie wnosi diagnostyki"
+ * NIEZDOLNYM DO UPADKU z dwóch niezależnych powodów:
+ *
+ * 1. `<Subject 1>` stał także w segmencie `label` ciała ujęcia, więc
+ *    `REF_LABEL_USED` czytało go z opisu szczegółowego NIEZALEŻNIE od tego, co
+ *    tłumaczenie zrobiło z podsumowaniem — token dało się z podsumowania
+ *    skasować bez śladu w diagnostyce. Komentarz uzasadniający ten segment
+ *    powoływał się na regułę `RETENTION_LABEL_IN_PROSE`, której W CAŁYM
+ *    REPOZYTORIUM NIE MA (jedyne trafienie grepa to sam ten komentarz). Teraz
+ *    token żyje WYŁĄCZNIE w `ref.summaryText`.
+ * 2. `taskTypes` nie zawierało `'video editing'`, więc `REF_VIDEO_EDIT_OPENING`
+ *    (BŁĄD) było martwe — model mógł przepisać narzucone zdanie otwierające i
+ *    żadna asercja nie miała jak tego zobaczyć. Teraz zadanie JEST montażowe, a
+ *    podsumowanie zaczyna się od `VIDEO_EDIT_SUMMARY_OPENING`.
+ *
+ * Cztery testy „fikstura nie jest bezwładna" niżej trzymają oba te warunki
+ * przy życiu: każdy podaje jedną z odpowiedzi, które recenzent odtworzył na
+ * prawdziwym modelu, i wymaga, żeby diagnostyka SIĘ POJAWIŁA.
  */
 function refProject(): Project {
   const base = cleanProject()
@@ -146,22 +184,74 @@ function refProject(): Project {
   return {
     ...base,
     mode: 'REF',
-    labels: [standaloneLabel, nonStandaloneLabel],
-    shots: [{
-      ...shot,
-      labelRefs: [standaloneLabel.id],
-      body: [...shot.body, { kind: 'label', labelId: standaloneLabel.id, bracketed: true }],
-    }],
+    labels: [standaloneLabel, nonStandaloneLabel, videoLabel],
+    shots: [shot],
     ref: {
-      taskTypes: ['reference generation'],
-      summaryText: 'Zachowaj ten sam strój i twarz kobiety we wszystkich ujęciach.',
-      retention: [{
-        id: 'ret1', labelId: standaloneLabel.id, scope: '', marker: 'fully_preserved',
-        note: 'twarz i płaszcz muszą pozostać identyczne',
-      }],
+      taskTypes: ['video editing'],
+      summaryText: `${VIDEO_EDIT_SUMMARY_OPENING} Zachowaj ten sam strój i twarz <Subject 1> we wszystkich ujęciach.`,
+      retention: [
+        {
+          id: 'ret1', labelId: standaloneLabel.id, scope: '', marker: 'fully_preserved',
+          note: 'twarz i płaszcz muszą pozostać identyczne',
+        },
+        {
+          id: 'ret2', labelId: videoLabel.id, scope: '', marker: 'partially_preserved',
+          note: 'montaż zachowuje kolejność scen z materiału źródłowego',
+        },
+      ],
     },
   }
 }
+
+/**
+ * Poprawna odpowiedź modelu dla `retention:summary`: narzucone zdanie
+ * otwierające przepisane CO DO ZNAKU, token `<Subject 1>` przeniesiony
+ * dosłownie, reszta zdania po angielsku. Wspólna stała, bo używa jej i test
+ * kształtu operacji, i test „żadna nowa diagnostyka" — a każda z pięciu
+ * odpowiedzi wrogich niżej różni się od niej dokładnie jedną rzeczą.
+ */
+const GOOD_SUMMARY_ENGLISH =
+  `${VIDEO_EDIT_SUMMARY_OPENING} Keep the same outfit and face of <Subject 1> in every shot.`
+
+/** Cztery reguły, które czytają to, co tłumaczenie może zepsuć w polach REF —
+ * wszystkie MUSZĄ być nieaktywne w samej fiksturze, inaczej testy niżej
+ * mierzyłyby różnicę względem projektu, który diagnostykę miał już przed
+ * tłumaczeniem. */
+const REF_RULES_AT_RISK = [
+  'REF_LABEL_USED', 'REF_NO_NEW_LABELS_IN_SUMMARY',
+  'REF_VIDEO_EDIT_OPENING', 'REF_NO_SPEAKER_IN_RETENTION',
+]
+
+/**
+ * Prompt systemowy jest JEDYNĄ rzeczą, która wymusza zachowanie po stronie
+ * modelu — schemat może odpowiedź odrzucić, ale nie umie jej podpowiedzieć,
+ * jak ma wyglądać. Te trzy asercje pilnują zdań dopisanych w recenzji
+ * końcowej gałęzi (punkty 2 i 3): bez nich skasowanie każdego z nich
+ * zostawiłoby całą resztę tego pliku zieloną.
+ */
+describe('translateAllTaskFor — prompt systemowy', () => {
+  const system = (): string => {
+    const messages = translateAllTaskFor([]).buildMessages({
+      fields: [{ id: 'style', text: 'Realistyczne ujęcia, naturalne światło.' }],
+    })
+    return messages.find(m => m.role === 'system')?.content ?? ''
+  }
+
+  it('każe przenosić tokeny etykiet dosłownie i zabrania ich zmyślania', () => {
+    expect(system()).toMatch(/VERBATIM/)
+    expect(system()).toMatch(/<Subject 1>/)
+    expect(system()).toMatch(/never introduce a token/i)
+  })
+
+  it('nakazuje odtworzyć narzucone zdanie otwierające bez zmian — z jego dosłowną treścią w promptcie', () => {
+    expect(system()).toContain(VIDEO_EDIT_SUMMARY_OPENING)
+  })
+
+  it('zabrania znaczników i powtarzania kwestii w polach audio — tak samo jak prompt zadania audio', () => {
+    expect(system()).toMatch(/never write a "<d>" tag/i)
+    expect(system()).toMatch(/never repeat or paraphrase spoken dialogue/i)
+  })
+})
 
 describe('collectTranslatableFields', () => {
   it('projekt bez żadnej prozy nie daje żadnego pola', () => {
@@ -376,14 +466,14 @@ describe('translateAllToPatch — jedna łatka, wiele operacji', () => {
   it('w trybie REF: pole "retention" (scope: summary) daje setRetentionText ze scope { kind: "summary" }', () => {
     const before = refProject()
     const result: TranslateAllResult = {
-      fields: [{ id: 'retention:summary', english: 'Keep the same outfit and face across every shot.' }],
+      fields: [{ id: 'retention:summary', english: GOOD_SUMMARY_ENGLISH }],
     }
     const patch = translateAllToPatch(result, before)
     expect(patch.ops).toHaveLength(1)
     const op = patch.ops[0]
     if (op === undefined || op.kind !== 'setRetentionText') throw new Error('oczekiwano setRetentionText')
     expect(op.scope).toEqual({ kind: 'summary' })
-    expect(op.text).toBe('Keep the same outfit and face across every shot.')
+    expect(op.text).toBe(GOOD_SUMMARY_ENGLISH)
   })
 
   it('w trybie REF: pole "retention" (scope: entry) daje setRetentionText ze scope { kind: "entry", entryId }', () => {
@@ -518,7 +608,7 @@ describe('translateAllToPatch — jedna łatka, wiele operacji', () => {
     const result: TranslateAllResult = {
       fields: [
         { id: `label:${standaloneLabel.id}:definition`, english: 'a woman in a blue coat, in her 30s' },
-        { id: 'retention:summary', english: 'Keep the same outfit and face across every shot.' },
+        { id: 'retention:summary', english: GOOD_SUMMARY_ENGLISH },
         { id: 'retention:entry:ret1', english: 'face and coat must remain identical' },
       ],
     }
@@ -555,13 +645,176 @@ describe('translateAllToPatch — jedna łatka, wiele operacji', () => {
     const result: TranslateAllResult = {
       fields: [
         { id: `label:${standaloneLabel.id}:definition`, english: 'a woman in a blue coat, in her 30s' },
-        { id: 'retention:summary', english: 'Keep the same outfit and face across every shot.' },
+        { id: 'retention:summary', english: GOOD_SUMMARY_ENGLISH },
         { id: 'retention:entry:ret1', english: 'face and coat must remain identical' },
       ],
     }
     const patch = translateAllToPatch(result, before)
     const after = applyOps(before, patch.ops)
     expect(() => parseProject(after)).not.toThrow()
+  })
+})
+
+/**
+ * Recenzja końcowa gałęzi, punkt 2. Test „łatka nie wnosi diagnostyki" dla
+ * trybu REF NIE MÓGŁ PAŚĆ: token etykiety stał także w ciele ujęcia, a typy
+ * zadania czyniły regułę zdania otwierającego martwą. Poniższe pięć testów to
+ * te same pięć odpowiedzi, które recenzent odtworzył na prawdziwym modelu —
+ * każdy z nich wymaga, żeby ZŁA odpowiedź faktycznie zapaliła diagnostykę
+ * (albo została odrzucona przez schemat). Padają natychmiast, gdy fikstura
+ * wróci do stanu bezwładnego: dopisanie segmentu `label` do ciała ujęcia
+ * gasi dwa pierwsze, usunięcie `'video editing'` z typów zadania — czwarty.
+ */
+describe('translateAll — pięć odpowiedzi psujących pola REF (fikstura, która potrafi to zobaczyć)', () => {
+  /** Diagnostyki, które POJAWIŁY SIĘ po zastosowaniu odpowiedzi modelu —
+   * różnica zbiorów, dokładnie jak `assertNoUnexpectedDiagnostics`, tylko
+   * zwrócona zamiast asercji, bo tu chodzi o to, żeby JAKAŚ się pojawiła. */
+  function ruleIdsAddedBy(field: { id: string; english: string }): string[] {
+    const before = refProject()
+    const patch = translateAllToPatch({ fields: [field] }, before)
+    expect(patch.ops).toHaveLength(1)
+    const after = applyOps(before, patch.ops)
+    return newDiagnostics(diagnosticsOf(before), diagnosticsOf(after)).map(d => d.ruleId)
+  }
+
+  it('sama fikstura NIE ma żadnej z czterech reguł, które te odpowiedzi psują', () => {
+    // Bez tego wszystkie testy niżej mierzyłyby różnicę względem projektu,
+    // który diagnostykę miał już przed tłumaczeniem — czyli nie mierzyłyby nic.
+    const ids = diagnosticsOf(refProject()).map(d => d.ruleId)
+    for (const rule of REF_RULES_AT_RISK) expect(ids).not.toContain(rule)
+  })
+
+  it('(1) podsumowanie bez <Subject 1> zapala REF_LABEL_USED — token żyje TYLKO w podsumowaniu', () => {
+    expect(ruleIdsAddedBy({
+      id: 'retention:summary',
+      english: `${VIDEO_EDIT_SUMMARY_OPENING} Keep the same outfit and face in every shot.`,
+    })).toContain('REF_LABEL_USED')
+  })
+
+  it('(2) token zlokalizowany na <Podmiot 1> zapala REF_LABEL_USED', () => {
+    expect(ruleIdsAddedBy({
+      id: 'retention:summary',
+      english: `${VIDEO_EDIT_SUMMARY_OPENING} Keep the same outfit and face of <Podmiot 1> in every shot.`,
+    })).toContain('REF_LABEL_USED')
+  })
+
+  // Token zmyślony musi być spoza `subject_definitions` — fikstura definiuje
+  // etykiety 1 (standalone) i 2 (nie-standalone), więc pierwszym naprawdę
+  // nieznanym jest `<Subject 3>`. Zmierzone: `<Subject 2>` NIE zapala tej
+  // reguły, bo `definedLabelTexts` (`shared/src/validate/rules/ref.ts`) nie
+  // filtruje po `standalone`.
+  it('(3) zmyślony <Subject 3> zapala REF_NO_NEW_LABELS_IN_SUMMARY (BŁĄD — blokuje eksport)', () => {
+    expect(ruleIdsAddedBy({
+      id: 'retention:summary',
+      english: `${VIDEO_EDIT_SUMMARY_OPENING} Keep <Subject 1> and <Subject 3> unchanged in every shot.`,
+    })).toContain('REF_NO_NEW_LABELS_IN_SUMMARY')
+  })
+
+  it('(4) przepisane zdanie otwierające zapala REF_VIDEO_EDIT_OPENING (BŁĄD — blokuje eksport)', () => {
+    expect(ruleIdsAddedBy({
+      id: 'retention:summary',
+      english: 'The final video is an edit of <Video 1>. Keep the same outfit and face of <Subject 1> in every shot.',
+    })).toContain('REF_VIDEO_EDIT_OPENING')
+  })
+
+  it('(5) notatka retencji z identyfikatorem mówcy zapala REF_NO_SPEAKER_IN_RETENTION (BŁĄD — blokuje eksport)', () => {
+    expect(ruleIdsAddedBy({
+      id: 'retention:entry:ret1',
+      english: 'the face and coat of the woman (S1) must remain identical',
+    })).toContain('REF_NO_SPEAKER_IN_RETENTION')
+  })
+})
+
+/**
+ * Recenzja końcowa gałęzi, punkt 5: rozstrzygnięcie zadania 11 („schemat
+ * pilnuje KSZTAŁTU, nie TREŚCI") i lista przyjętych wyjątków mówiły dotąd co
+ * innego — lista nie znała reguł treści, więc pierwsza odpowiedź modelu ze
+ * słowem o nastroju czerwieniłaby test, który tę odpowiedź ma uznawać za
+ * uczciwą informację zwrotną. Ten test przypina rozstrzygnięcie do kodu:
+ * diagnostyka MA się pojawić i MA być zaakceptowana. Padnie, gdy któraś
+ * strona znów zacznie mówić co innego.
+ */
+describe('translateAll — reguły TREŚCI są uczciwą informacją zwrotną, nie usterką (punkt 5)', () => {
+  it('słowo o nastroju w muzyce zapala MUSIC_NO_MOOD_WORDS, a mimo to łatka przechodzi asercję niezmiennika', () => {
+    const before = cleanProject()
+    const patch = translateAllToPatch({
+      fields: [{ id: 'audio:nonDiegeticMusic', english: 'A tense drone hums under sparse strings.' }],
+    }, before)
+    expect(patch.ops).toHaveLength(1)
+    const after = applyOps(before, patch.ops)
+
+    // Reguła NAPRAWDĘ się zapala — bez tej asercji test niżej byłby spełniony
+    // także przez odpowiedź, która nic nie zmienia.
+    expect(newDiagnostics(diagnosticsOf(before), diagnosticsOf(after)).map(d => d.ruleId))
+      .toContain('MUSIC_NO_MOOD_WORDS')
+    assertNoUnexpectedDiagnostics(before, after)
+  })
+})
+
+/**
+ * Straż tokenów etykiet w SCHEMACIE odpowiedzi — pierwsza linia obrony, przed
+ * `translateAllToPatch`: zła odpowiedź nie dociera nawet na ekran przeglądu,
+ * tylko wraca do modelu jako runda naprawy (`runTask`). Schemat powstaje na
+ * partię, ze źródeł tej partii — dlatego funkcja, nie stała.
+ */
+describe('translateAllSchemaFor — tokeny etykiet przenoszone dosłownie (recenzja końcowa, punkt 2)', () => {
+  const sources = new Map([[
+    'retention:summary',
+    `${VIDEO_EDIT_SUMMARY_OPENING} Zachowaj ten sam strój i twarz <Subject 1> we wszystkich ujęciach.`,
+  ]])
+  const parse = (english: string) =>
+    translateAllSchemaFor(sources).safeParse({ fields: [{ id: 'retention:summary', english }] })
+
+  it('odpowiedź przenosząca oba tokeny co do znaku jest przyjęta', () => {
+    expect(parse(GOOD_SUMMARY_ENGLISH).success).toBe(true)
+  })
+
+  it('odpowiedź gubiąca <Subject 1> jest odrzucona', () => {
+    expect(parse(`${VIDEO_EDIT_SUMMARY_OPENING} Keep the same outfit and face in every shot.`).success).toBe(false)
+  })
+
+  it('odpowiedź tłumacząca token na <Podmiot 1> jest odrzucona', () => {
+    expect(parse(`${VIDEO_EDIT_SUMMARY_OPENING} Keep the face of <Podmiot 1> unchanged.`).success).toBe(false)
+  })
+
+  // Straż schematu jest tu OSTRZEJSZA od walidatora — i słusznie: `<Subject 2>`
+  // jest etykietą zdefiniowaną w projekcie (więc `REF_NO_NEW_LABELS_IN_SUMMARY`
+  // by go przepuściło), ale nie było go w treści źródłowej TEGO pola, więc
+  // model go dopisał, a nie przetłumaczył.
+  it('odpowiedź zmyślająca <Subject 2> jest odrzucona, mimo że oryginalny token zostaje', () => {
+    const result = parse(`${VIDEO_EDIT_SUMMARY_OPENING} Keep <Subject 1> and <Subject 2> unchanged.`)
+    if (result.success) throw new Error('oczekiwano odrzucenia')
+    expect(result.error.issues[0]?.path).toEqual(['fields', 0, 'english'])
+  })
+
+  it('pole spoza źródeł partii (model zgadł identyfikator) przechodzi tę straż — odsiewa je translateAllToPatch', () => {
+    const result = translateAllSchemaFor(sources).safeParse({
+      fields: [{ id: 'nie-ma-takiego-pola', english: 'anything at all' }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('pole bez ani jednego tokenu w źródle nie jest niczym ograniczone', () => {
+    const plain = new Map([['style', 'Realistyczne ujęcia, naturalne światło.']])
+    const result = translateAllSchemaFor(plain).safeParse({
+      fields: [{ id: 'style', english: 'Realistic footage, natural light.' }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('straż jest zbudowana ze ŹRÓDEŁ PARTII — to samo zadanie dla innej partii nie wymaga cudzych tokenów', () => {
+    // Dowód, że schemat NIE jest stały: ta sama odpowiedź, która przechodzi
+    // dla partii bez `retention:summary`, odpada dla partii, która to pole
+    // niesie. Gdyby schemat wrócił do postaci stałej, oba wywołania
+    // zwróciłyby to samo.
+    const answer = { fields: [{ id: 'retention:summary', english: 'Keep everything the same.' }] }
+    expect(translateAllTaskFor([]).schema.safeParse(answer).success).toBe(true)
+    const batch: TranslatableField[] = [{
+      id: 'retention:summary',
+      target: { kind: 'retention', scope: { kind: 'summary' } },
+      text: sources.get('retention:summary') ?? '',
+    }]
+    expect(translateAllTaskFor(batch).schema.safeParse(answer).success).toBe(false)
   })
 })
 
@@ -655,40 +908,40 @@ describe('runTranslateAll — orkiestracja partii', () => {
  * idzie WYŁĄCZNIE po formacie `id` (`audio:${field}`) — ten sam identyfikator
  * budowany przez `collectTranslatableFields` niżej w tym pliku.
  */
-describe('TranslateAllSchema — superRefine pilnuje liczby zdań dla pól audio, po id (fix round 2/5, punkt 2)', () => {
+describe('translateAllSchemaFor — straż pól audio po id (fix round 2/5, punkt 2)', () => {
   const sentences = (count: number, prefix: string): string =>
     Array.from({ length: count }, (_, i) => `${prefix} ${i + 1} is happening now`).join('. ') + '.'
 
   it('id "audio:overallSoundscape" z siedmioma zdaniami (poza 1–4) odrzucone', () => {
-    const result = TranslateAllSchema.safeParse({
+    const result = translateAllSchemaFor(new Map()).safeParse({
       fields: [{ id: 'audio:overallSoundscape', english: sentences(7, 'Wind') }],
     })
     expect(result.success).toBe(false)
   })
 
   it('id "audio:nonDiegeticMusic" z pięcioma zdaniami (poza 1–3) odrzucone', () => {
-    const result = TranslateAllSchema.safeParse({
+    const result = translateAllSchemaFor(new Map()).safeParse({
       fields: [{ id: 'audio:nonDiegeticMusic', english: sentences(5, 'A drum') }],
     })
     expect(result.success).toBe(false)
   })
 
   it('id "audio:overallSoundscape" w granicach 1–4 zdań przyjęte', () => {
-    const result = TranslateAllSchema.safeParse({
+    const result = translateAllSchemaFor(new Map()).safeParse({
       fields: [{ id: 'audio:overallSoundscape', english: sentences(3, 'Wind') }],
     })
     expect(result.success).toBe(true)
   })
 
   it('pole NIE-audio (np. "style") przyjmuje siedem zdań bez ograniczeń — reguła dotyczy tylko pól audio', () => {
-    const result = TranslateAllSchema.safeParse({
+    const result = translateAllSchemaFor(new Map()).safeParse({
       fields: [{ id: 'style', english: sentences(7, 'A wide shot') }],
     })
     expect(result.success).toBe(true)
   })
 
   it('partia mieszająca poprawne i złe pole odrzuca CAŁĄ partię ze wskazaniem właściwej ścieżki błędu', () => {
-    const result = TranslateAllSchema.safeParse({
+    const result = translateAllSchemaFor(new Map()).safeParse({
       fields: [
         { id: 'style', english: sentences(7, 'A wide shot') },
         { id: 'audio:overallSoundscape', english: sentences(7, 'Wind') },
@@ -697,5 +950,23 @@ describe('TranslateAllSchema — superRefine pilnuje liczby zdań dla pól audio
     if (result.success) throw new Error('oczekiwano odrzucenia')
     const issue = result.error.issues[0]
     expect(issue?.path).toEqual(['fields', 1, 'english'])
+  })
+
+  // Recenzja końcowa gałęzi, punkt 3: TRZECIE drzwi do tych samych dwóch pól.
+  // `SOUNDSCAPE_NO_DIALOGUE` (BŁĄD) nie było pilnowane w żadnych z trzech,
+  // mimo że `audioFieldText.ts` deklarował w swoim opisie, że JEST regułą dla
+  // tekstu przeznaczonego na pola audio.
+  it('blok <d> w polu audio jest odrzucony, choć liczba zdań się zgadza', () => {
+    const result = translateAllSchemaFor(new Map()).safeParse({
+      fields: [{ id: 'audio:overallSoundscape', english: 'Rain falls and someone says <d>Wait for me</d>.' }],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('ten sam blok <d> w polu NIE-audio przechodzi — reguła należy do pól audio, nie do całego zadania', () => {
+    const result = translateAllSchemaFor(new Map()).safeParse({
+      fields: [{ id: 'style', english: 'Neo-noir with <d> in the text for some reason.' }],
+    })
+    expect(result.success).toBe(true)
   })
 })

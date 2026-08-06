@@ -1,6 +1,6 @@
 import type { Project } from '../../model/types.js'
 import {
-  AUDIO_MARKERS, REF_TASK_TYPES, VIDEO_EDIT_SUMMARY_OPENING, VISUAL_MARKERS,
+  AUDIO_MARKERS, labelTokensIn, REF_TASK_TYPES, VIDEO_EDIT_SUMMARY_OPENING, VISUAL_MARKERS,
 } from '../../vocab/refVocab.js'
 import { renderDetailedDescription, renderSummary } from '../../compile/emitRef.js'
 import { labelText } from '../../compile/renderLabel.js'
@@ -8,7 +8,6 @@ import { defineRule, makeDiagnostic, type Diagnostic, type Rule } from '../types
 
 const MIN_WORDS = 350
 const MAX_WORDS = 500
-const LABEL_PATTERN = /<(Subject|Picture|Video|Audio) (\d+)>/g
 
 const isRef = (project: Project): boolean => project.mode === 'REF'
 
@@ -222,7 +221,7 @@ const refNoNewLabelsInSummary = defineRule({
   run: ({ project }) => {
     if (!isRef(project)) return []
     const defined = definedLabelTexts(project)
-    const found = project.ref.summaryText.match(LABEL_PATTERN) ?? []
+    const found = labelTokensIn(project.ref.summaryText)
     return [...new Set(found)]
       .filter(token => !defined.has(token))
       .map(token => makeDiagnostic(

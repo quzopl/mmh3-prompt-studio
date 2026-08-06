@@ -63,6 +63,15 @@ const SYSTEM_PROMPT = [
     + 'translating and tightening the wording, not summarizing or expanding.',
   'If the field is already in English and already follows this convention, '
     + 'return it unchanged.',
+  // Ten sam zakaz, który zadanie „Podpowiedź audio" (`audio.ts`) niosło od
+  // początku, a te same dwa pola audio da się zapisać także stąd — recenzja
+  // końcowa, punkt 3: „the audio task tells the model never to repeat spoken
+  // dialogue; the other two write the same field and say nothing".
+  'Never write a "<d>" tag or a bracketed language marker such as "[English]" '
+    + 'into the field — the compiler adds those itself and a rule rejects them. '
+    + 'If the field is an audio field (a soundscape or score music), never '
+    + 'repeat or paraphrase spoken dialogue in it: describe the sound, do not '
+    + 'quote the words.',
   'Return only the redacted field text in "english" — no extra commentary, '
     + 'no quotation marks around it.',
 ].join('\n')

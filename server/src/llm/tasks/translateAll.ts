@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import type { Project, ProjectPatch } from '@mmh3/shared'
+import { labelTokensIn, VIDEO_EDIT_SUMMARY_OPENING, type Project, type ProjectPatch } from '@mmh3/shared'
 import type { ChatMessage, Provider } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
 import { runTask } from '../run.js'
@@ -64,35 +64,96 @@ export const TranslateAllFieldResultSchema = z.object({
   english: z.string(),
 })
 
-/**
- * `superRefine` pilnuje liczby zdań dla pól przeznaczonych na
- * `overallSoundscape`/`nonDiegeticMusic` — fix round 2/5, zadanie 11, punkt
- * 2: ten sam otwór co w `redact.ts` (identyczna luka, to samo pole, inne
- * drzwi). Rozpoznanie celu pola idzie WYŁĄCZNIE po formacie `id`
- * (`audio:${field}`, nadawanym przez `collectTranslatableFields` niżej, nigdy
- * przez model) — `AUDIO_FIELD_RULE_BY_ID` (`audioFieldText.ts`) nie
- * potrzebuje więc dostępu do `project`/`target`: jedna partia
- * (`chunkFields`) niesie tylko PODZBIÓR wszystkich pól, ale identyfikator
- * sam mówi, jakiej reguły pilnować, więc ten sam statyczny schemat działa
- * dla każdej partii bez przebudowywania go per-żądanie.
- */
-export const TranslateAllSchema = z.object({
+/** Kształt odpowiedzi BEZ żadnej z dwóch straży — same pola. Straże dokłada
+ * `translateAllSchemaFor` niżej; ten schemat nie jest eksportowany, żeby
+ * nikt nie mógł go wziąć zamiast tamtego i po cichu stracić obie. */
+const TranslateAllShapeSchema = z.object({
   fields: z.array(TranslateAllFieldResultSchema),
-}).superRefine((value, ctx) => {
-  value.fields.forEach((field, index) => {
-    const rule = AUDIO_FIELD_RULE_BY_ID[field.id]
-    if (rule === undefined) return
-    if (audioFieldTextOk(rule, field.english)) return
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['fields', index, 'english'],
-      message: audioFieldTextMessage(rule, field.english),
-    })
-  })
 })
 
 export type TranslateAllFieldResult = z.infer<typeof TranslateAllFieldResultSchema>
-export type TranslateAllResult = z.infer<typeof TranslateAllSchema>
+export type TranslateAllResult = z.infer<typeof TranslateAllShapeSchema>
+
+/**
+ * Tokeny etykiet (`<Subject 1>`, `<Video 1>`, …), które model ma przenieść z
+ * treści źródłowej do tłumaczenia CO DO ZNAKU. Zwraca komunikat błędu albo
+ * `null`, gdy zestaw tokenów się zgadza.
+ *
+ * Recenzja końcowa gałęzi, punkt 2: `ref.summaryText` jest oferowany do
+ * tłumaczenia, a jego treść niesie tokeny, które czytają TRZY reguły —
+ * `REF_LABEL_USED` (czy etykieta w ogóle gdzieś występuje),
+ * `REF_NO_NEW_LABELS_IN_SUMMARY` (BŁĄD, gdy w summary stoi token spoza
+ * `subject_definitions`) i `REF_VIDEO_EDIT_OPENING` (BŁĄD, gdy summary
+ * zadania montażowego nie zaczyna się od zdania z `<Video 1>`). Recenzent
+ * odtworzył pięć różnych odpowiedzi psujących te tokeny: zgubienie
+ * `<Subject 1>`, przetłumaczenie go na `<Podmiot 1>`, zmyślenie
+ * `<Subject 2>`, przepisanie narzuconego zdania otwierającego i dopisanie
+ * identyfikatora mówcy do notatki retencji.
+ *
+ * Sprawdzane są OBIE strony różnicy — token zgubiony i token zmyślony — bo to
+ * jedna reguła („przenieś dosłownie"), a nie dwie: pierwsza połowa łapie
+ * zgubienie i lokalizację (`<Podmiot 1>` nie jest tokenem, więc oryginał
+ * znika), druga zmyślenie, które samo w sobie jest BŁĘDEM walidatora.
+ * Porównujemy ZBIORY, nie listy: powtórzenie tego samego tokenu w innym
+ * miejscu zdania jest legalną decyzją tłumaczenia, a nie zmianą znaczenia.
+ */
+function labelTokenProblem(source: string, english: string): string | null {
+  const expected = new Set(labelTokensIn(source))
+  const actual = new Set(labelTokensIn(english))
+  const lost = [...expected].filter(token => !actual.has(token))
+  const invented = [...actual].filter(token => !expected.has(token))
+  if (lost.length === 0 && invented.length === 0) return null
+
+  const parts: string[] = []
+  if (lost.length > 0) parts.push(`dropped or altered ${lost.join(', ')}`)
+  if (invented.length > 0) parts.push(`introduced ${invented.join(', ')}`)
+  return `Label tokens must be carried over verbatim, but this answer ${parts.join(' and ')}. `
+    + 'Reproduce every "<Subject N>"/"<Picture N>"/"<Video N>"/"<Audio N>" token exactly '
+    + 'as it appears in the input field, and never add one that is not there.'
+}
+
+/**
+ * Schemat odpowiedzi dla JEDNEJ partii, zbudowany ze źródeł tej partii
+ * (`id` → polska treść wysłana do modelu). Dwie straże:
+ *
+ * 1. Liczba zdań i brak `<d>` dla pól przeznaczonych na
+ *    `overallSoundscape`/`nonDiegeticMusic` — fix round 2/5, zadanie 11,
+ *    punkt 2 (ta sama luka co w `redact.ts`: to samo pole, inne drzwi).
+ *    Rozpoznanie celu idzie WYŁĄCZNIE po formacie `id` (`audio:${field}`,
+ *    nadawanym przez `collectTranslatableFields`, nigdy przez model), więc
+ *    `AUDIO_FIELD_RULE_BY_ID` (`audioFieldText.ts`) wystarczy bez dostępu do
+ *    projektu.
+ * 2. Tokeny etykiet przeniesione dosłownie (`labelTokenProblem` wyżej) — ta
+ *    straż POTRZEBUJE treści źródłowej, więc schemat nie może być stałą, jak
+ *    był do recenzji końcowej: powstaje per-partia, tak jak
+ *    `redactTaskFor(target)` powstaje per-cel (zadanie 7). Pole, którego nie
+ *    ma w źródłach partii (model zgadł identyfikator), nie ma z czym być
+ *    porównane i przechodzi tę straż — i tak odpadnie w
+ *    `translateAllToPatch`, które zna pełną listę oferowanych celów.
+ */
+export function translateAllSchemaFor(sources: ReadonlyMap<string, string>): z.ZodType<TranslateAllResult> {
+  return TranslateAllShapeSchema.superRefine((value, ctx) => {
+    value.fields.forEach((field, index) => {
+      const path = ['fields', index, 'english']
+
+      const rule = AUDIO_FIELD_RULE_BY_ID[field.id]
+      if (rule !== undefined && !audioFieldTextOk(rule, field.english)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path,
+          message: audioFieldTextMessage(rule, field.english),
+        })
+      }
+
+      const source = sources.get(field.id)
+      if (source === undefined) return
+      const problem = labelTokenProblem(source, field.english)
+      if (problem !== null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: problem })
+      }
+    })
+  })
+}
 
 const translateAllJsonSchema = {
   type: 'object',
@@ -147,6 +208,28 @@ const SYSTEM_PROMPT = [
     + 'return it in "english" completely unchanged — this matters: running '
     + 'this task again on an already-translated project must not reshuffle '
     + 'wording that does not need to change.',
+  // Recenzja końcowa gałęzi, punkt 2: bez tego akapitu nic w tym promptcie
+  // nie mówiło modelowi, że w treści siedzą tokeny, które czytają trzy
+  // reguły walidatora — a dwie z nich są BŁĘDAMI blokującymi eksport.
+  'Some fields embed label tokens written in angle brackets: "<Subject 1>", '
+    + '"<Picture 2>", "<Video 1>", "<Audio 3>". Carry every such token over into '
+    + '"english" VERBATIM, character for character — never translate the word '
+    + 'inside the brackets, never renumber it, never drop it, and never '
+    + 'introduce a token that the same input field did not already contain. '
+    + 'The tokens are identifiers, not prose.',
+  // Zdanie narzucone formatem (`REF_VIDEO_EDIT_OPENING`, BŁĄD) — jest już po
+  // angielsku, więc „przetłumaczenie" go jest zawsze pogorszeniem.
+  `One opening sentence is mandated by the format and is already in English: a `
+    + `video-editing summary must begin with "${VIDEO_EDIT_SUMMARY_OPENING}" If an `
+    + 'input field begins with that exact sentence, reproduce it unchanged at the '
+    + 'start of "english" and redact only the text that follows it.',
+  // Ten sam zakaz, który zadanie „Podpowiedź audio" (`audio.ts`) niosło od
+  // początku — te same dwa pola audio da się zapisać także stąd (recenzja
+  // końcowa, punkt 3).
+  'Never write a "<d>" tag or a bracketed language marker such as "[English]" '
+    + 'into any field — the compiler adds those itself and a rule rejects them. '
+    + 'In an audio field (a soundscape or score music), never repeat or '
+    + 'paraphrase spoken dialogue: describe the sound, do not quote the words.',
   'Return only the "fields" array — no extra commentary, no quotation marks '
     + 'around any field value.',
 ].join('\n')
@@ -162,21 +245,30 @@ function buildUserMessage(input: TranslateAllInput): string {
   return `Fields (Polish content, one per id):\n\n${blocks}`
 }
 
-export const translateAllTask: TaskDefinition<TranslateAllResult> = {
-  name: 'redakcja całego projektu PL→EN',
-  schema: TranslateAllSchema,
-  jsonSchema: translateAllJsonSchema,
-  // Więcej niż `redactTask` (600) — jedna partia niesie do kilkudziesięciu
-  // pól naraz, zob. `chunkFields`/`DEFAULT_TRANSLATE_ALL_BATCH_CHAR_BUDGET`
-  // za uzasadnieniem konkretnej liczby.
-  maxTokens: 3000,
-  buildMessages: (input: unknown): ChatMessage[] => {
-    const parsed = TranslateAllInputSchema.parse(input)
-    return [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: buildUserMessage(parsed) },
-    ]
-  },
+/**
+ * Zadanie dla JEDNEJ partii — funkcja, nie stała, bo schemat odpowiedzi
+ * zależy od treści źródłowych tej partii (straż tokenów etykiet w
+ * `translateAllSchemaFor`). Ten sam układ co `redactTaskFor(target)` w
+ * zadaniu 7: wszystko poza schematem (`name`, `jsonSchema`, `maxTokens`,
+ * `buildMessages`) od partii nie zależy.
+ */
+export function translateAllTaskFor(fields: TranslatableField[]): TaskDefinition<TranslateAllResult> {
+  return {
+    name: 'redakcja całego projektu PL→EN',
+    schema: translateAllSchemaFor(new Map(fields.map(field => [field.id, field.text]))),
+    jsonSchema: translateAllJsonSchema,
+    // Więcej niż `redactTask` (600) — jedna partia niesie do kilkudziesięciu
+    // pól naraz, zob. `chunkFields`/`DEFAULT_TRANSLATE_ALL_BATCH_CHAR_BUDGET`
+    // za uzasadnieniem konkretnej liczby.
+    maxTokens: 3000,
+    buildMessages: (input: unknown): ChatMessage[] => {
+      const parsed = TranslateAllInputSchema.parse(input)
+      return [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: buildUserMessage(parsed) },
+      ]
+    },
+  }
 }
 
 /**
@@ -516,7 +608,7 @@ export async function runTranslateAll(
 
   for (const batch of batches) {
     const input: TranslateAllInput = { fields: batch.map(field => ({ id: field.id, text: field.text })) }
-    const result = await runTask(provider, translateAllTask, input, signal, onRepairStart)
+    const result = await runTask(provider, translateAllTaskFor(batch), input, signal, onRepairStart)
     collected.push(...result.value.fields)
     promptTokens = sumTokens(promptTokens, result.promptTokens)
     completionTokens = sumTokens(completionTokens, result.completionTokens)

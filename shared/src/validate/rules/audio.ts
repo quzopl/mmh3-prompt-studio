@@ -19,6 +19,22 @@ export function countSentences(text: string): number {
 
 const isNA = (text: string): boolean => text.trim() === 'N/A'
 
+/**
+ * Czy tekst niesie blok dialogowy — pierwsza połowa `SOUNDSCAPE_NO_DIALOGUE`
+ * (niżej). Eksportowana z tego samego powodu co `countSentences`: każde
+ * zadanie językowe zdolne napisać do `overallSoundscape`/`nonDiegeticMusic`
+ * pyta o to samo TĄ SAMĄ funkcją, w schemacie odpowiedzi modelu
+ * (`server/src/llm/tasks/audioFieldText.ts`), zanim tekst zdąży zapalić błąd
+ * na projekcie, który go nie miał. Świadomie SŁABSZE od
+ * `containsDialogueMarkup` (`rules/speech.ts`, gdzie tag języka też jest
+ * zakazany) — reguła walidatora dla pól audio pyta wyłącznie o `<d>`, a
+ * schemat odrzucający więcej niż reguła kosztowałby rundę naprawy za
+ * odpowiedź, którą walidator by przyjął.
+ */
+export function containsDialogueBlock(text: string): boolean {
+  return text.includes('<d>')
+}
+
 const allDialogueTexts = (project: Project): string[] =>
   project.shots.flatMap(shot => shot.dialogue.map(d => d.text))
 
@@ -65,7 +81,7 @@ const soundscapeNoDialogue = defineRule({
   run: ({ project }) => {
     const text = project.audio.overallSoundscape
     const out: Diagnostic[] = []
-    if (text.includes('<d>')) {
+    if (containsDialogueBlock(text)) {
       out.push(makeDiagnostic(
         soundscapeNoDialogue,
         { kind: 'audio', id: 'overallSoundscape' },

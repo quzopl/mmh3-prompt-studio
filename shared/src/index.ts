@@ -31,6 +31,17 @@ export * from './patch/describe.js'
 // `fitsClip`) — inaczej dwa miejsca liczące „czy kwestia się mieści" tym
 // samym pytaniem dawałyby dwie różne odpowiedzi.
 export { WORDS_PER_SECOND, FIT_TOLERANCE } from './validate/rules/speech.js'
+// Ten sam wyjątek: `containsDialogueMarkup` jest pytaniem reguły
+// `DIALOGUE_D_TAG_PURE` (`validate/rules/speech.ts`), a zadanie językowe
+// tworzące kwestie dialogowe (`server/src/llm/tasks/dialogueText.ts`) musi
+// odrzucić dokładnie ten sam tekst w schemacie odpowiedzi modelu — inaczej
+// zwykła odpowiedź modelu („<d>Wait for me</d>") zapala BŁĄD na projekcie,
+// który go nie miał, i blokuje eksport.
+export { containsDialogueMarkup } from './validate/rules/speech.js'
+// Jw. dla pierwszej połowy `SOUNDSCAPE_NO_DIALOGUE`
+// (`validate/rules/audio.ts`) i wspólnej straży pól audio
+// (`server/src/llm/tasks/audioFieldText.ts`).
+export { containsDialogueBlock } from './validate/rules/audio.js'
 // Ten sam wyjątek co wyżej: `countSentences` liczy zdania dla
 // `SOUNDSCAPE_SENTENCES`/`MUSIC_SENTENCES` (`validate/rules/audio.ts`), a
 // zadanie audio po stronie serwera (`server/src/llm/tasks/audio.ts`, fix

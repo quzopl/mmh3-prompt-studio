@@ -50,9 +50,25 @@ function cleanProject(): Project {
 }
 
 // Przyjęte wyjątki od reguły „żadna nowa diagnostyka" — ustalone w poprzednich
-// planach, wspólne dla wszystkich czterech zadań językowych (patrz brief).
+// planach, wspólne dla wszystkich zadań językowych (patrz brief).
+//
+// Cztery pierwsze to reguły, których zapalenie jest UCZCIWYM skutkiem akcji, o
+// którą użytkownik prosił (punkt 18
+// `docs/superpowers/specs/2026-08-04-uwagi-do-planu-2.md`).
+//
+// Dwie ostatnie to reguły TREŚCI, dopisane w recenzji końcowej gałęzi (punkt
+// 5): rozstrzygnięcie zadania 11 mówi, że schemat odpowiedzi modelu pilnuje
+// KSZTAŁTU (liczba zdań, brak bloku `<d>`), a nie TREŚCI — więc słowo o
+// nastroju w muzyce i kwestia dialogowa powtórzona w pejzażu to uczciwa
+// informacja zwrotna na ekranie przeglądu, nie usterka kodu. Lista musiała je
+// nazwać, żeby napisana reguła i napisane rozstrzygnięcie mówiły to samo
+// (punkt 22 tego samego dokumentu). `SOUNDSCAPE_NO_DIALOGUE` niesie pod jednym
+// identyfikatorem TAKŻE pytanie o kształt (blok `<d>`) — ono jest pilnowane w
+// schemacie (`server/src/llm/tasks/audioFieldText.ts`) i ma tam własny test,
+// więc przyjęcie identyfikatora tutaj nie zostawia go bez dowodu.
 const ACCEPTED_NEW_DIAGNOSTICS = new Set([
   'SPEECH_FITS', 'SOUNDSCAPE_NA_ONLY_IF_SILENT', 'SPEAKER_SILENT_NO_ID', 'FL2VA_PREFER_SINGLE_SHOT',
+  'MUSIC_NO_MOOD_WORDS', 'SOUNDSCAPE_NO_DIALOGUE',
 ])
 
 /**
@@ -77,6 +93,29 @@ function assertNoUnexpectedDiagnostics(before: Project, after: Project): void {
   const unexpected = added.filter(d => !ACCEPTED_NEW_DIAGNOSTICS.has(d.ruleId))
   expect(unexpected).toEqual([])
 }
+
+/**
+ * Recenzja końcowa gałęzi, punkt 3: „the audio task tells the model never to
+ * repeat spoken dialogue; the other two write the same field and say nothing".
+ * Redakcja pojedynczego pola pisze do TYCH SAMYCH dwóch pól audio, więc niesie
+ * teraz ten sam zakaz — a bez tej asercji skasowanie go z promptu zostawiłoby
+ * cały plik zielony.
+ */
+describe('redactTaskFor — prompt systemowy zabrania znaczników i cytowania dialogu', () => {
+  const system = (): string => {
+    const messages = redactTaskFor({ kind: 'style' }).buildMessages({ text: 'Realistyczne ujęcia.' })
+    return messages.find(m => m.role === 'system')?.content ?? ''
+  }
+
+  it('zabrania bloku <d> i znacznika języka', () => {
+    expect(system()).toMatch(/never write a "<d>" tag/i)
+    expect(system()).toMatch(/\[English\]/)
+  })
+
+  it('zabrania powtarzania kwestii dialogowej w polu audio', () => {
+    expect(system()).toMatch(/never repeat or paraphrase spoken dialogue/i)
+  })
+})
 
 describe('RedactTarget — bez wariantu dla kwestii dialogowej', () => {
   it('typ target nie ma wariantu wskazującego na DialogueEvent.text — wymuszone przez kompilator', () => {
@@ -340,6 +379,22 @@ describe('redactTaskFor — schemat zależny od celu pilnuje liczby zdań dla p�
   it('cel NIE-audio (speaker): siedem zdań przyjęte bez ograniczeń', () => {
     const schema = redactTaskFor({ kind: 'speaker', speakerId: 'sp1', field: 'fullDescriptor' }).schema
     const result = schema.safeParse({ english: sentences(7, 'A tall woman') })
+    expect(result.success).toBe(true)
+  })
+
+  // Recenzja końcowa gałęzi, punkt 3: DRUGIE z trojga drzwi do tych samych
+  // dwóch pól (pierwsze — `audio.ts`, trzecie — `translateAll.ts`). Straż
+  // przyszła z tego samego wspólnego modułu, więc te trzy schematy nie mogą
+  // się już rozjechać.
+  it('cel audio: blok <d> odrzucony, choć liczba zdań się zgadza', () => {
+    const schema = redactTaskFor({ kind: 'audio', field: 'overallSoundscape' }).schema
+    const result = schema.safeParse({ english: 'Rain falls and a woman says <d>Wait for me</d>.' })
+    expect(result.success).toBe(false)
+  })
+
+  it('cel NIE-audio (style): ten sam blok <d> przechodzi — reguła należy do pól audio', () => {
+    const schema = redactTaskFor({ kind: 'style' }).schema
+    const result = schema.safeParse({ english: 'Neo-noir with <d> somewhere in the text.' })
     expect(result.success).toBe(true)
   })
 })

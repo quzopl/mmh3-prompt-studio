@@ -18,6 +18,20 @@ export const FIT_TOLERANCE = 1.5
 
 const SPEECH_VERBS = ['says', 'said', 'replies', 'exclaims', 'shouts', 'whispers', 'asks', 'answers']
 
+/**
+ * Znaczniki, których treść kwestii nie ma prawa nieść, bo dokłada je sam
+ * kompilator: blok `<d>`/`</d>` i wiodący tag języka (`[English]`). To jedyna
+ * definicja tego pytania — reguła `DIALOGUE_D_TAG_PURE` (niżej) pyta nią, i
+ * pyta nią też zadanie językowe, które JAKO JEDYNE tworzy kwestie dialogowe
+ * (`server/src/llm/tasks/dialogueText.ts`, zadanie „struktura ujęć"): schemat
+ * odpowiedzi modelu odrzuca taki tekst, ZANIM trafi do projektu i zapali
+ * błąd, którego projekt wcześniej nie miał. Dwie kopie tego wzorca rozjechałyby
+ * się tak samo, jak ostrzega komentarz przy `WORDS_PER_SECOND`.
+ */
+export function containsDialogueMarkup(text: string): boolean {
+  return /<\/?d>|^\s*\[[A-Za-z]+\]/.test(text)
+}
+
 export function estimateSpeechMs(text: string): number {
   const words = text.trim().split(/\s+/).filter(Boolean).length
   if (words === 0) return 0
@@ -120,7 +134,7 @@ const dialogueDTagPure = defineRule({
   severity: 'error',
   guideRef: 'guide_base §4.4',
   run: ({ project }) => eachDialogue(project, event =>
-    /<\/?d>|^\s*\[[A-Za-z]+\]/.test(event.text)
+    containsDialogueMarkup(event.text)
       ? [makeDiagnostic(
           dialogueDTagPure,
           { kind: 'dialogue', id: event.id },
