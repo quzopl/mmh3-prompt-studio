@@ -59,6 +59,11 @@ async function assertRowsAligned(page: Page, keys: readonly string[]): Promise<v
 async function createProject(page: Page, mode: string): Promise<string> {
   const name = `E2E tracks ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   await page.goto('/')
+  // Domyślnym językiem interfejsu jest angielski. Ten scenariusz szuka
+  // elementów po polskich nazwach dostępności, więc wybiera język JAWNIE —
+  // inaczej zmiana wartości domyślnej sprawiłaby, że selektory przestają
+  // cokolwiek znajdować, zamiast paść z sensownym komunikatem.
+  await page.getByRole('button', { name: 'PL', exact: true }).click()
   await page.getByRole('button', { name: /nowy projekt/i }).click()
   await page.getByLabel(/nazwa projektu/i).fill(name)
   await page.getByRole('button', { name: new RegExp(`^${mode}`) }).click()

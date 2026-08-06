@@ -3,9 +3,20 @@ import { DICT, type Lang, type TKey } from './dict.js'
 
 const STORAGE_KEY = 'mmh3.lang'
 
-const initialLang = (): Lang => {
+/**
+ * Angielski jest domyślny, bo prompt i tak wychodzi po angielsku, a
+ * dokumentacja projektu jest angielska. Polski zostaje pełnoprawnym wyborem —
+ * raz wybrany, wraca po przeładowaniu, bo siedzi w `localStorage`.
+ *
+ * Testy NIE mogą polegać na tej wartości. Pakiet jednostkowy przypina język
+ * jawnie w `web/test/setup.ts`, a scenariusze e2e klikają przełącznik na
+ * starcie — inaczej zmiana tej jednej linii wywracałaby dwadzieścia kilka
+ * plików testowych, a selektor po nazwie dostępności przestawałby cokolwiek
+ * znajdować zamiast paść z sensownym komunikatem.
+ */
+export const readInitialLang = (): Lang => {
   const stored = typeof localStorage === 'undefined' ? null : localStorage.getItem(STORAGE_KEY)
-  return stored === 'en' || stored === 'pl' ? stored : 'pl'
+  return stored === 'en' || stored === 'pl' ? stored : 'en'
 }
 
 interface LangState {
@@ -14,7 +25,7 @@ interface LangState {
 }
 
 export const useLang = create<LangState>(set => ({
-  lang: initialLang(),
+  lang: readInitialLang(),
   setLang: lang => {
     if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY, lang)
     set({ lang })

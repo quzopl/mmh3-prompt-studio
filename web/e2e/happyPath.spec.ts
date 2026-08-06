@@ -3,6 +3,11 @@ import { test, expect } from '@playwright/test'
 test('od utworzenia projektu do gotowego promptu', async ({ page }) => {
   const name = `E2E ${Date.now()}`
   await page.goto('/')
+  // Domyślnym językiem interfejsu jest angielski. Ten scenariusz szuka
+  // elementów po polskich nazwach dostępności, więc wybiera język JAWNIE —
+  // inaczej zmiana wartości domyślnej sprawiłaby, że selektory przestają
+  // cokolwiek znajdować, zamiast paść z sensownym komunikatem.
+  await page.getByRole('button', { name: 'PL', exact: true }).click()
 
   await page.getByRole('button', { name: /nowy projekt/i }).click()
   await page.getByLabel(/nazwa projektu/i).fill(name)

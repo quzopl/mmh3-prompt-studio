@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { DICT } from '../src/i18n/dict.js'
-import { useT, useLang } from '../src/i18n/useT.js'
+import { useT, readInitialLang, useLang } from '../src/i18n/useT.js'
 
 beforeEach(() => {
   localStorage.clear()
@@ -50,5 +50,28 @@ describe('useT', () => {
     const { result } = renderHook(() => useLang())
     act(() => result.current.setLang('en'))
     expect(localStorage.getItem('mmh3.lang')).toBe('en')
+  })
+})
+
+describe('domyślny język', () => {
+  /**
+   * Reszta pakietu przypina język jawnie (`web/test/setup.ts`), żeby selektory
+   * po polskich nazwach dostępności nie zależały od tej wartości. Ten test jest
+   * jedynym miejscem, które ją sprawdza — bez niego zmiana domyślnego języka
+   * przechodziłaby przez cały pakiet niezauważona.
+   */
+  it('bez zapisanego wyboru interfejs startuje po angielsku', () => {
+    localStorage.removeItem('mmh3.lang')
+    expect(readInitialLang()).toBe('en')
+  })
+
+  it('zapisany wybór wygrywa z domyślnym', () => {
+    localStorage.setItem('mmh3.lang', 'pl')
+    expect(readInitialLang()).toBe('pl')
+  })
+
+  it('śmieć w pamięci przeglądarki nie wywraca startu — wraca domyślny', () => {
+    localStorage.setItem('mmh3.lang', 'klingoński')
+    expect(readInitialLang()).toBe('en')
   })
 })
