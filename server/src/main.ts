@@ -1,8 +1,13 @@
 import { buildApp } from './app.js'
+import { installShutdownHooks } from './llm/managed.js'
 import { loadConfig } from './config.js'
 
 const config = loadConfig()
 const app = await buildApp({ dataRoot: config.dataRoot, runtimeRoot: config.runtimeRoot })
+
+// Bez tego zabicie API zostawia osierocony `llama-server` trzymający cały
+// model w pamięci karty — patrz komentarz przy `installShutdownHooks`.
+installShutdownHooks()
 
 app.listen({ port: config.port, host: config.host })
   .then(address => {

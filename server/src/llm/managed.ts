@@ -260,3 +260,33 @@ export async function stopManaged(): Promise<void> {
     proc.kill('SIGTERM')
   })
 }
+
+/**
+ * Zatrzymuje model, gdy ginie proces API — i to jest jedyny powód, dla którego
+ * ta funkcja istnieje.
+ *
+ * `llama-server` jest DZIECKIEM procesu API, ale na Linuksie śmierć rodzica go
+ * nie zabija: init go przygarnia i proces żyje dalej, trzymając pełny model w
+ * pamięci karty. Zmierzone na serwerze 2026-08-06 — dwa osierocone
+ * `llama-server` z PPID 1, po 9,9 GB każdy, po dwóch wdrożeniach, które ubiły
+ * API bez zatrzymania modelu. Nowe API nie ma do nich żadnego uchwytu, więc
+ * przycisk „Zwolnij pamięć karty" nie ma czego zatrzymać: dla niego żaden model
+ * nie działa.
+ *
+ * Podpinamy się pod SIGTERM i SIGINT, bo tymi sygnałami kończy proces zarówno
+ * `kill` w skrypcie wdrożeniowym, jak i Ctrl+C w terminalu. `exit` nie
+ * wystarcza — jest synchroniczny, a zatrzymanie dziecka wymaga poczekania na
+ * jego wyjście.
+ */
+export function installShutdownHooks(onDone: () => void = () => process.exit(0)): void {
+  let closing = false
+  const shutdown = (): void => {
+    // Drugi sygnał w trakcie zamykania nie ma prawa zacząć zamykania od nowa —
+    // inaczej dwa SIGTERM-y pod rząd dałyby dwa równoległe oczekiwania.
+    if (closing) return
+    closing = true
+    void stopManaged().finally(onDone)
+  }
+  process.once('SIGTERM', shutdown)
+  process.once('SIGINT', shutdown)
+}
