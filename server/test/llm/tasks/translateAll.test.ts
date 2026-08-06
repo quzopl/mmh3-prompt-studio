@@ -757,6 +757,66 @@ describe('translateAll — reguły TREŚCI są uczciwą informacją zwrotną, ni
  * tylko wraca do modelu jako runda naprawy (`runTask`). Schemat powstaje na
  * partię, ze źródeł tej partii — dlatego funkcja, nie stała.
  */
+describe('translateAllSchemaFor — zdanie otwierające i identyfikator mówcy (recenzja końcowa, runda 2)', () => {
+  /**
+   * Blok wyżej („pięć odpowiedzi psujących pola REF") dowodzi, że te
+   * odpowiedzi FAKTYCZNIE zapalają błędy blokujące eksport. Ten blok jest ich
+   * drugą połową: że schemat odrzuca je ZANIM staną się operacją do przyjęcia.
+   * Bez niego jedyną strażą byłby prompt, a prompt jest prośbą — cały ten plan
+   * stoi na założeniu, że model potrafi odpowiedzieć pewnie i błędnie.
+   */
+  const summarySource = `${VIDEO_EDIT_SUMMARY_OPENING} Zachowaj ten sam strój i twarz <Subject 1> we wszystkich ujęciach.`
+  const noteSource = 'twarz i płaszcz kobiety mają pozostać identyczne'
+  const sources = new Map([
+    ['retention:summary', summarySource],
+    ['retention:entry:ret1', noteSource],
+  ])
+  const parse = (id: string, english: string) =>
+    translateAllSchemaFor(sources).safeParse({ fields: [{ id, english }] })
+
+  it('przepisane zdanie otwierające jest odrzucone', () => {
+    const result = parse(
+      'retention:summary',
+      'The final video is an edit of <Video 1>. Keep the face of <Subject 1> unchanged.',
+    )
+    if (result.success) throw new Error('oczekiwano odrzucenia')
+    expect(result.error.issues[0]?.path).toEqual(['fields', 0, 'english'])
+  })
+
+  it('zdanie otwierające przeniesione co do znaku jest przyjęte', () => {
+    expect(parse('retention:summary', GOOD_SUMMARY_ENGLISH).success).toBe(true)
+  })
+
+  it('pole, którego źródło NIE zaczyna się od narzuconego zdania, nie jest nim ograniczone', () => {
+    const plain = new Map([['style', 'Realistyczne ujęcia.']])
+    const result = translateAllSchemaFor(plain).safeParse({
+      fields: [{ id: 'style', english: 'Realistic footage.' }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('notatka retencji, do której model dopisał (S1), jest odrzucona', () => {
+    const result = parse('retention:entry:ret1', 'the face and coat of the woman (S1) must remain identical')
+    if (result.success) throw new Error('oczekiwano odrzucenia')
+    expect(result.error.issues[0]?.path).toEqual(['fields', 0, 'english'])
+  })
+
+  it('notatka bez dopisanego identyfikatora jest przyjęta', () => {
+    expect(parse('retention:entry:ret1', "the woman's face and coat must remain identical").success).toBe(true)
+  })
+
+  // Gdyby identyfikator STAŁ już w źródle, to nie model go dopisał — reguła
+  // walidatora i tak go zgłosi, ale odrzucanie tłumaczenia za wierność wobec
+  // wejścia zapętliłoby naprawę na czymś, czego model nie może naprawić.
+  it('identyfikator obecny już w źródle nie jest powodem odrzucenia', () => {
+    const withId = new Map([['retention:entry:ret1', 'twarz kobiety (S1) ma pozostać identyczna']])
+    const result = translateAllSchemaFor(withId).safeParse({
+      fields: [{ id: 'retention:entry:ret1', english: "the woman's (S1) face must remain identical" }],
+    })
+    expect(result.success).toBe(true)
+  })
+})
+
 describe('translateAllSchemaFor — tokeny etykiet przenoszone dosłownie (recenzja końcowa, punkt 2)', () => {
   const sources = new Map([[
     'retention:summary',

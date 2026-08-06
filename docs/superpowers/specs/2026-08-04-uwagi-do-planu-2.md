@@ -441,3 +441,25 @@ dwóch identyfikatorów **nie** dostają: żaden przycisk osi czasu nie pisze pr
 do pól audio, więc reguły treści są tam nieosiągalne, a wpisanie ich tylko
 rozluźniłoby asercję bez powodu — dokładnie tak samo, jak `FL2VA_PREFER_SINGLE_SHOT`
 świadomie nie stoi na liście w `trackCreation.test.tsx`.
+
+## 23. `REF_NO_NEW_LABELS_IN_SUMMARY` nie odróżnia etykiety `standalone`
+
+Zmierzone przy Planie 5, zadanie 15: token `<Subject 2>` wstawiony do
+`ref.summaryText` **nie** zapala tej reguły, a `<Subject 3>` — zapala. Powód:
+`definedLabelTexts` w `shared/src/validate/rules/ref.ts` buduje zbiór znanych
+etykiet z całego `project.labels`, nie filtrując po `standalone`. Tymczasem
+`renderSubjectDefinitions` w `emitRef.ts` renderuje do sekcji
+`subject_definitions` **wyłącznie** etykiety `standalone`.
+
+Skutek: summary wolno powołać się na etykietę, której skompilowany prompt nigdzie
+nie definiuje. Czytelnik reguły — i model, któremu tę regułę tłumaczymy w
+prompcie — rozsądnie oczekuje, że obie etykiety zachowają się tak samo.
+
+**Rozstrzygnięcie:** nie blokuje niczego i nie zmienialiśmy tego w Planie 5, bo
+reguła jest starsza niż ten plan, a zaostrzenie jej zmieniłoby werdykt na
+projektach, które dziś przechodzą. Domknięcie to jedna linia — ten sam filtr
+`standalone`, którego używa emiter — plus test na obu wariantach.
+
+Test `translateAll.test.ts` używa dziś `<Subject 3>` właśnie z tego powodu i
+mówi o tym w komentarzu; gdyby regułę zaostrzono, `<Subject 2>` też by zadziałał
+i komentarz można będzie usunąć.

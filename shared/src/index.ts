@@ -38,6 +38,7 @@ export { WORDS_PER_SECOND, FIT_TOLERANCE } from './validate/rules/speech.js'
 // zwykła odpowiedź modelu („<d>Wait for me</d>") zapala BŁĄD na projekcie,
 // który go nie miał, i blokuje eksport.
 export { containsDialogueMarkup } from './validate/rules/speech.js'
+export { containsSpeakerId } from './validate/rules/ref.js'
 // Jw. dla pierwszej połowy `SOUNDSCAPE_NO_DIALOGUE`
 // (`validate/rules/audio.ts`) i wspólnej straży pól audio
 // (`server/src/llm/tasks/audioFieldText.ts`).

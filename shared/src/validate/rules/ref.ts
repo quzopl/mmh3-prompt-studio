@@ -94,6 +94,22 @@ const refMarkerVocab = defineRule({
   },
 })
 
+/**
+ * Czy tekst niesie identyfikator mówcy w postaci `(S1)` albo `(S1,S2)`.
+ *
+ * Podniesione z ciała reguły `REF_NO_SPEAKER_IN_RETENTION` tym samym ruchem,
+ * co `containsDialogueMarkup` przy regule `DIALOGUE_D_TAG_PURE`: pyta nim
+ * także schemat odpowiedzi modelu w zadaniu tłumaczącym cały projekt, bo
+ * `retention.note` idzie tam do przekładu, a model potrafi dopisać `(S1)`
+ * z sąsiedniego zdania. Reguła ma severity `error`, a błąd blokuje eksport —
+ * więc odpowiedź, która go zapala, musi zostać odrzucona ZANIM stanie się
+ * operacją do przyjęcia. Dwie kopie tego wyrażenia rozjechałyby się tak samo,
+ * jak ostrzegają komentarze przy pozostałych podniesionych predykatach.
+ */
+export function containsSpeakerId(text: string): boolean {
+  return /\(S\d+(,S\d+)*\)/.test(text)
+}
+
 const refNoSpeakerInRetention = defineRule({
   id: 'REF_NO_SPEAKER_IN_RETENTION',
   severity: 'error',
@@ -101,7 +117,7 @@ const refNoSpeakerInRetention = defineRule({
   run: ({ project }) => {
     if (!isRef(project)) return []
     return project.ref.retention
-      .filter(entry => /\(S\d+(,S\d+)*\)/.test(`${entry.scope} ${entry.note}`))
+      .filter(entry => containsSpeakerId(`${entry.scope} ${entry.note}`))
       .map(entry => makeDiagnostic(
         refNoSpeakerInRetention,
         { kind: 'retention', id: entry.id },

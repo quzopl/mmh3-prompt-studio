@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { labelTokensIn, VIDEO_EDIT_SUMMARY_OPENING, type Project, type ProjectPatch } from '@mmh3/shared'
+import {
+  containsSpeakerId, labelTokensIn, VIDEO_EDIT_SUMMARY_OPENING,
+  type Project, type ProjectPatch,
+} from '@mmh3/shared'
 import type { ChatMessage, Provider } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
 import { runTask } from '../run.js'
@@ -131,6 +134,33 @@ function labelTokenProblem(source: string, english: string): string | null {
  *    porównane i przechodzi tę straż — i tak odpadnie w
  *    `translateAllToPatch`, które zna pełną listę oferowanych celów.
  */
+/**
+ * Narzucone zdanie otwierające summary zadania montażowego. `REF_VIDEO_EDIT_OPENING`
+ * jest BŁĘDEM, a błąd blokuje eksport — więc tłumaczenie, które przepisze to
+ * zdanie na własne, zabiera projektowi możliwość eksportu. Zdanie jest po
+ * angielsku także w polskim summary, więc dla tłumaczącego modelu wygląda jak
+ * fragment do poprawienia; sam prompt to za mało.
+ */
+function openingProblem(source: string, english: string): string | null {
+  if (!source.trimStart().startsWith(VIDEO_EDIT_SUMMARY_OPENING)) return null
+  if (english.trimStart().startsWith(VIDEO_EDIT_SUMMARY_OPENING)) return null
+  return `The summary must still begin with the exact sentence "${VIDEO_EDIT_SUMMARY_OPENING}". `
+    + 'Reproduce it verbatim as the first sentence and translate only what follows it.'
+}
+
+/**
+ * `REF_NO_SPEAKER_IN_RETENTION` też jest BŁĘDEM. Notatka retencji idzie do
+ * tłumaczenia, a model potrafi wciągnąć do niej `(S1)` z sąsiedniego zdania
+ * albo z kontekstu ujęcia. Pytamy predykatem podniesionym z samej reguły, żeby
+ * schemat i walidator nie mogły się rozjechać.
+ */
+function speakerIdProblem(source: string, english: string): string | null {
+  if (containsSpeakerId(source)) return null
+  if (!containsSpeakerId(english)) return null
+  return 'Retention notes must not contain speaker identifiers such as "(S1)". '
+    + 'Translate the wording without adding any speaker id that is not in the input field.'
+}
+
 export function translateAllSchemaFor(sources: ReadonlyMap<string, string>): z.ZodType<TranslateAllResult> {
   return TranslateAllShapeSchema.superRefine((value, ctx) => {
     value.fields.forEach((field, index) => {
@@ -147,9 +177,14 @@ export function translateAllSchemaFor(sources: ReadonlyMap<string, string>): z.Z
 
       const source = sources.get(field.id)
       if (source === undefined) return
-      const problem = labelTokenProblem(source, field.english)
-      if (problem !== null) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: problem })
+      for (const problem of [
+        labelTokenProblem(source, field.english),
+        openingProblem(source, field.english),
+        speakerIdProblem(source, field.english),
+      ]) {
+        if (problem !== null) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: problem })
+        }
       }
     })
   })
