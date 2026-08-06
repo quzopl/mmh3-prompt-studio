@@ -25,10 +25,19 @@ export interface LlmSettingsInput {
   managed: { serverBinary: string; modelPath: string; gpuLayers: number; contextSize: number }
 }
 
+export interface GpuInfo {
+  name: string
+  usedMb: number
+  totalMb: number
+}
+
 export interface ManagedState {
   status: 'stopped' | 'starting' | 'ready' | 'failed'
   logs: string[]
   port: number
+  /** `null`, gdy karty nie da się odczytać — lustrzane odbicie `readGpu`
+   *  (`server/src/llm/gpu.ts`). Panel wtedy nie pokazuje linijki VRAM. */
+  gpu: GpuInfo | null
 }
 
 /** Lustrzane odbicie `UnloadCapability`/`UnloadResult` z `server/src/llm/unload.ts`

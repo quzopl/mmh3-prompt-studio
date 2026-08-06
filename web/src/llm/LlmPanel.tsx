@@ -123,6 +123,8 @@ const EMPTY_DRAFT: Draft = {
   serverBinary: '', modelPath: '', gpuLayers: '0', contextSize: '8192',
 }
 
+const GPU_POLL_MS = 5_000
+
 export function LlmPanel() {
   const t = useT()
   const slug = useProject(state => state.slug)
@@ -189,12 +191,6 @@ export function LlmPanel() {
         if (cancelled) return
         setLoadError(error instanceof Error ? error.message : String(error))
       })
-    settingsApi.getManagedState()
-      .then(state => { if (!cancelled) setManaged(state) })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        setManagedStateError(error instanceof Error ? error.message : String(error))
-      })
     // Wykrywanie możliwości zwolnienia pamięci to operacja pomocnicza — sieć
     // niedostępna zostawia przycisk po prostu nieaktywnym (`null`), bez
     // osobnego komunikatu błędu; nikt nie traci przez to reszty panelu.
@@ -202,6 +198,41 @@ export function LlmPanel() {
       .then(res => { if (!cancelled) setUnloadCapability(res.capability) })
       .catch(() => { if (!cancelled) setUnloadCapability(null) })
     return () => { cancelled = true }
+  }, [])
+
+  /**
+   * Stan serwera odpytujemy CYKLICZNIE, bo linijka VRAM ma pokazywać ZMIANĘ:
+   * wzrost po starcie modelu i spadek po kliknięciu „Zwolnij pamięć karty".
+   * Wcześniej stan pobierał się dokładnie raz, przy montowaniu — dla samego
+   * statusu to wystarczało, dla pomiaru nie.
+   *
+   * Gdy odczyt karty wróci `null`, przestajemy odpytywać: maszyna bez NVIDII
+   * nie ma powodu uruchamiać nieistniejącego polecenia co pięć sekund do końca
+   * życia panelu. Łańcuch `setTimeout`, nie `setInterval` — kolejne pytanie
+   * wychodzi dopiero po odpowiedzi na poprzednie, więc wolna odpowiedź nie
+   * zwija się w kolejkę żądań.
+   */
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const tick = (): void => {
+      settingsApi.getManagedState()
+        .then(state => {
+          if (cancelled) return
+          setManaged(state)
+          if (state.gpu !== null) timer = setTimeout(tick, GPU_POLL_MS)
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return
+          setManagedStateError(error instanceof Error ? error.message : String(error))
+        })
+    }
+    tick()
+    return () => {
+      cancelled = true
+      if (timer !== null) clearTimeout(timer)
+    }
   }, [])
 
   /**
@@ -430,6 +461,22 @@ export function LlmPanel() {
             />
           ))}
         </div>
+
+        {/*
+          Linijka VRAM stoi przy WYBORZE DOSTAWCY, nie przy zarządzanym
+          serwerze: pamięć karty zajmuje także model uruchomiony poza aplikacją
+          (Ollama, LM Studio), a decyzja „czy zwolnić przed ComfyUI" dotyczy
+          każdego trybu. Brak odczytu (`gpu === null`) nie renderuje NICZEGO —
+          zero udające pomiar jest gorsze niż brak pomiaru.
+        */}
+        {managed?.gpu != null && (
+          <p className="mb-2 text-[11px] text-neutral-400">
+            {managed.gpu.name} · {t('llm.gpuLine', {
+              used: (managed.gpu.usedMb / 1024).toFixed(1),
+              total: (managed.gpu.totalMb / 1024).toFixed(1),
+            })}
+          </p>
+        )}
 
         {/*
           Przycisk siedzi obok wyboru dostawcy, nie przy czterech zadaniach —
