@@ -600,6 +600,14 @@ export function LlmPanel() {
             />
           </Field>
           <ActionButton label={t('llm.taskStructure')} disabled={!canRunStructure} onClick={runStructure} />
+          {/*
+            Przygaszony przycisk bez powodu wygląda jak zepsuty. Ten warunek
+            (oba zdania pomysłu niepuste) jest jedynym DODATKOWYM warunkiem
+            ponad konfigurację dostawcy, więc tylko on wymaga wyjaśnienia.
+          */}
+          {tasksEnabled && !canRunStructure && (
+            <span className="text-[11px] text-neutral-500">{t('llm.structureNeedsIdea')}</span>
+          )}
         </div>
 
         <div className="flex flex-col gap-1">

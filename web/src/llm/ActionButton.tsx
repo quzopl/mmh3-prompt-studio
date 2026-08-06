@@ -25,8 +25,18 @@ export function ActionButton({
         event.stopPropagation()
         activate()
       }}
-      className={`rounded border px-2 py-1 text-xs ${
-        pressed ? 'border-sky-600 bg-sky-950 text-sky-100' : 'border-neutral-700 hover:border-neutral-500'
+      /*
+        Tło JAŚNIEJSZE niż pola formularza (`inputClass` niżej ma
+        `bg-neutral-900`). Uruchomienie na serwerze pokazało, po co: przy pełnej
+        szerokości panelu przycisk z samą ramką wyglądał identycznie jak pole
+        tekstowe nad nim, więc użytkownik wpisał pomysł i nie znalazł, czym go
+        wysłać. Kształt kontrolki ma mówić, co ona robi, zanim ktokolwiek
+        przeczyta napis.
+      */
+      className={`rounded border px-2 py-1 text-center text-xs font-medium ${
+        pressed
+          ? 'border-sky-600 bg-sky-900 text-sky-50'
+          : 'border-neutral-600 bg-neutral-700 text-neutral-100 hover:bg-neutral-600'
       } ${disabled ? 'pointer-events-none opacity-40' : 'cursor-pointer'}`}
     >
       {label}
