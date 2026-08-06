@@ -4,7 +4,8 @@ import { buildPrompt, ProjectSchema } from '@mmh3/shared'
 import {
   createProject, deleteProject, listProjects, projectExists, readProject, writeProject,
 } from '../storage/projectStore.js'
-import { SlugParams, parseParamsOrReply } from './params.js'
+import { ChatParams, SlugParams, parseParamsOrReply } from './params.js'
+import { clearThread, readChats } from '../llm/chatStore.js'
 
 const CreateBody = z.object({
   name: z.string().trim().min(1),
@@ -74,6 +75,41 @@ export function registerProjectRoutes(app: FastifyInstance): void {
     await writeProject(app.dataRoot, slug, project)
     const result = buildPrompt(project)
     return { prompt: result.text, tokens: result.tokens, diagnostics: result.diagnostics }
+  })
+
+  /**
+   * Wątki rozmów o polach tego projektu (zadanie 5). Mieszkają w `chats.json`
+   * obok `project.json`, nie w samym projekcie — dlatego czyta je osobna trasa,
+   * a nie `GET /api/projects/:slug`, który zwraca projekt razem ze
+   * skompilowanym promptem i diagnostykami. Rozmowa jest wygodą edycji, nie
+   * treścią promptu, i nie ma po co obciążać nią każdego odczytu projektu.
+   */
+  app.get('/api/projects/:slug/chats', async (request, reply) => {
+    const params = parseParamsOrReply(SlugParams, request.params, reply)
+    if (!params) return
+    const { slug } = params
+    // Istnienie projektu sprawdzamy jawnie: `readChats` na nieistniejącym
+    // projekcie zwróciłby pustą listę — nieodróżnialną od projektu, w którym
+    // nikt jeszcze nie rozmawiał. Klient ma prawo wiedzieć, że pomylił slug.
+    if (!await projectExists(app.dataRoot, slug)) {
+      return reply.status(404).send({ error: `Projekt "${slug}" nie istnieje` })
+    }
+    return { threads: await readChats(app.dataRoot, slug) }
+  })
+
+  app.delete('/api/projects/:slug/chats/:key', async (request, reply) => {
+    const params = parseParamsOrReply(ChatParams, request.params, reply)
+    if (!params) return
+    const { slug, key } = params
+    if (!await projectExists(app.dataRoot, slug)) {
+      return reply.status(404).send({ error: `Projekt "${slug}" nie istnieje` })
+    }
+    // Czyszczenie wątku, którego nie ma, też kończy się 204: stan końcowy jest
+    // dokładnie ten, o który prosił klient. 404 zmuszałoby interfejs do
+    // odróżniania „nie było o czym rozmawiać" od „nie udało się wyczyścić",
+    // a ta różnica nie zmienia niczego, co interfejs mógłby zrobić.
+    await clearThread(app.dataRoot, slug, key)
+    return reply.status(204).send()
   })
 
   app.delete('/api/projects/:slug', async (request, reply) => {
