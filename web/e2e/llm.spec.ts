@@ -78,6 +78,18 @@ test('zadanie LLM: od kliknięcia przez strumień HTTP do zmienionego projektu, 
       chunkCount: 10,
     })
 
+    // Ustawienia dostawcy to plik NA MASZYNĘ, nie na projekt — inny test w tym
+    // pakiecie mógł zostawić skonfigurowanego dostawcę, a ten scenariusz
+    // zaczyna się od sprawdzenia stanu „model nie jest skonfigurowany".
+    // Zerujemy je jawnie, zamiast liczyć na kolejność uruchamiania plików.
+    await page.request.put('/api/llm/settings', {
+      data: {
+        mode: 'off',
+        endpoint: { baseUrl: '', apiKey: null, model: '' },
+        managed: { serverBinary: '', modelPath: '', gpuLayers: 0, contextSize: 8192 },
+      },
+    })
+
     const name = await createProject(page, 'T2VA')
 
     const llmPanel = page.getByRole('region', { name: /^model językowy$/i })

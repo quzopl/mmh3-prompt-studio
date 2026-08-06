@@ -46,7 +46,7 @@ Writing that by hand in a text box means keeping a dozen rules in your head and 
 - **43 validator rules** drawn from the two official prompt-writing guides, each citing its source section.
 - **Five prompt modes** with the format differences handled for you.
 - **Frame-accurate editing** at 24 fps, with cut times snapped to the frame grid.
-- **Local model assistance** — optional, and the app is fully usable without it.
+- **Local model assistance** — optional, and the app is fully usable without it. It finds a running Ollama or LM Studio for you, or downloads an engine and a model if you have neither.
 - **A conversation per field** — ask for a rewrite, then refine it with one word; each field remembers its own thread across restarts.
 - **ComfyUI export** — pick a node and a field once, and the app writes your prompt into a copy of your workflow.
 - **Bilingual interface**, Polish and English — including everything the model writes back to you. The prompt itself is always English.
@@ -148,7 +148,17 @@ Entirely optional. Without a model configured the panel is greyed out with an ex
 
 ![The language-model panel with no provider configured](docs/screenshots/05-llm-off.png)
 
-Two ways to connect one:
+**Find local servers** scans `127.0.0.1` for Ollama, LM Studio and a bare `llama-server`. If one is running, a single click fills in the settings — no address to remember. Only the loopback interface is scanned: probing other machines from the app's server would be a port scanner, not a convenience, and this app is sometimes exposed on `0.0.0.0`.
+
+**Download a model** appears when you have nothing configured. It fetches the llama.cpp engine (~200 MB) and the model you pick, then configures both for you.
+
+![The provider panel with nothing configured: server discovery and the three models offered for download](docs/screenshots/08-install.png)
+
+Three models are offered, with the real download size next to each — 4.7, 9.0 and 19.9 GB. Nothing starts until you click; a few gigabytes should never move without you knowing. If the download is interrupted, the next click resumes from where it stopped rather than starting over. On Windows the engine is the CPU build: the CUDA variants need a second download, and without a Windows machine to test on, promising acceleration nobody verified would be a guess.
+
+If your GPU can be read, the panel shows a line like `NVIDIA RTX PRO 6000 · VRAM 10.4 / 95.6 GB`, refreshed every few seconds — so you can see memory fill when a model loads and drop when you free it. When the reading is unavailable the line is simply absent; a zero pretending to be a measurement is worse than no measurement.
+
+Two ways to connect one manually:
 
 **Endpoint** — point the app at any OpenAI-compatible server. Works with LM Studio (`http://localhost:1234/v1`), Ollama (`http://localhost:11434/v1`), vLLM, or a `llama-server` you started yourself. The API key is optional; local servers do not need one.
 
@@ -249,6 +259,9 @@ Shortcuts never fire while you are typing in a field.
         assets/           images, video and audio you uploaded
         exports/          generated files
     llm-settings.json     provider settings, machine-wide
+~/mmh3-studio/runtime/
+    engine/               llama.cpp release the app downloaded
+    models/               .gguf files the app downloaded
 ```
 
 Projects are plain JSON. You can read them, diff them, and put them in version control. The provider settings sit **outside** any project folder so an API key never travels with a project you send to someone.
