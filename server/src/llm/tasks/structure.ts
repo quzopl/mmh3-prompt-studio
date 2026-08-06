@@ -117,6 +117,18 @@ const SYSTEM_PROMPT = [
     + 'emotions, atmosphere, or intent directly — show them through action.',
   'One shot is one thought. Do not pack more than a single beat of action into '
     + 'a shot; split into another shot instead.',
+  // Zmierzone na prawdziwym modelu: bez tego zdania Qwen pisze kompozycję
+  // każdego ujęcia jako samodzielne zdanie z wielkiej litery, a kompilator
+  // stawia ją zaraz po frazie cięcia — wychodzi „the camera cuts to The woman
+  // walking away". Złote przykłady dostawcy (`shared/test/golden/expected/`)
+  // prowadzą to jako jedno zdanie: „the camera cuts to a close-up of steam
+  // rising…". Pierwsze ujęcie nie ma przed sobą frazy cięcia, więc jego
+  // kompozycja zaczyna się normalnie.
+  'The first shot opens the prompt, so its "composition" starts a sentence '
+    + 'normally. Every later shot is introduced by a cut phrase such as "the '
+    + 'camera cuts to", and its "composition" continues that same sentence: '
+    + 'begin it with a lower-case noun phrase, for example "a close-up of the '
+    + 'wet platform", never a capitalised standalone sentence.',
   'Only reference a speaker from the "Existing speakers" list below, and only '
     + 'by their exact code (e.g. "S1"). Never invent a speaker or a code that is '
     + 'not in the list. If no speaker fits, leave "speaker" and "line" out.',
@@ -280,6 +292,17 @@ function sentenceJoin(segments: Segment[]): Segment[] {
     }
     body.push(segment)
   })
+
+  // Ostatni segment styka się z nagłówkiem NASTĘPNEGO ujęcia, a `renderCameraMove`
+  // celowo nie kończy frazy kropką (w złotych przykładach fraza kamery bywa
+  // środkiem zdania, łączonym spójnikiem "as"). Bez domknięcia wychodzi
+  // „The camera holds a static shot [Shot 2]" — zmierzone na prawdziwym modelu.
+  // Przykład dostawcy kończy ujęcie domknięciem (`</d>`) przed następnym
+  // znacznikiem, więc dokładamy je tam, gdzie go zabraknie.
+  const last = body[body.length - 1]
+  if (last !== undefined && last.kind === 'camera') {
+    body.push({ kind: 'text', text: '.' })
+  }
   return body
 }
 

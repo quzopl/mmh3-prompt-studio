@@ -300,7 +300,16 @@ describe('structureToPatch — proza skompilowana czytelnie', () => {
     expect(textSegment?.kind === 'text' && textSegment.text.endsWith('.')).toBe(true)
   })
 
-  it('ruch kamery jako ostatni segment (bez dialogu) nie zostawia sierocej kropki ani spacji na końcu', () => {
+  /**
+   * Test pilnował wcześniej, że OSTATNIM segmentem jest kamera — czyli kształtu
+   * ciała, nie prozy. Uruchomienie na prawdziwym modelu pokazało, czego ten
+   * kształt nie chronił: fraza kamery nie kończy się kropką (celowo, bo w
+   * złotych przykładach bywa środkiem zdania), więc stykała się z nagłówkiem
+   * następnego ujęcia — „The camera holds a static shot [Shot 2]". Asercja
+   * przeniesiona na skompilowany tekst, bo to jego czyta model wideo.
+   * Pierwotna troska — brak wiszącej spacji i podwójnej kropki — została.
+   */
+  it('ruch kamery na końcu ujęcia domyka zdanie, bez wiszącej spacji i bez podwójnej kropki', () => {
     const result: StructureResult = {
       shots: [{
         startSeconds: 0,
@@ -312,8 +321,11 @@ describe('structureToPatch — proza skompilowana czytelnie', () => {
     const patch = structureToPatch(result, newProject())
     const op = patch.ops[0]
     if (op === undefined || op.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
-    const lastSegment = op.shots[0]?.body.at(-1)
-    expect(lastSegment?.kind).toBe('camera')
+    const text = buildPrompt({ ...newProject(), shots: op.shots, style: 'Live-action' }).text
+    expect(text).toMatch(/static shot\./)
+    expect(text).not.toMatch(/\.\./)
+    const last = op.shots[0]?.body.at(-1)
+    expect(last?.kind === 'text' && last.text.trim() === '').toBe(false)
   })
 })
 
@@ -661,5 +673,33 @@ describe('proza ujęcia domyka zdania między częściami', () => {
     const first = op.shots[0]?.body[0]
     if (first?.kind !== 'text') throw new Error('oczekiwano segmentu tekstowego')
     expect(first.text).toBe('Who is she? Nobody answers!')
+  })
+})
+
+describe('ujęcie domyka się przed nagłówkiem następnego', () => {
+  /**
+   * `renderCameraMove` celowo nie kończy frazy kropką, bo w złotych przykładach
+   * bywa ona środkiem zdania. Gdy jednak ruch kamery jest OSTATNIM segmentem,
+   * styka się z nagłówkiem następnego ujęcia — zmierzone na prawdziwym modelu
+   * dało „The camera holds a static shot [Shot 2]".
+   */
+  it('ruch kamery na końcu ujęcia dostaje kropkę', () => {
+    const patch = structureToPatch({ shots: [
+      { startSeconds: 0, composition: 'A wide shot.', action: 'Rain falls.', cameraMove: 'static' },
+      { startSeconds: 4, composition: 'a close-up', action: 'Water drips.' },
+    ] }, newProject())
+    const op = patch.ops[0]
+    if (op?.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
+    const text = buildPrompt({ ...newProject(), shots: op.shots, style: 'Live-action' }).text
+    expect(text).not.toMatch(/shot \[Shot 2\]/)
+    expect(text).toMatch(/\.\s*\[Shot 2\]/)
+  })
+
+  it('prompt systemowy każe kontynuować frazę cięcia małą literą', () => {
+    const messages = structureTask.buildMessages({
+      ideaA: 'a', ideaB: 'b', mode: 'T2VA', durationSeconds: 8, speakers: [],
+    })
+    const system = messages.find(m => m.role === 'system')
+    expect(system?.content).toMatch(/lower-case noun phrase/i)
   })
 })
