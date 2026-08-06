@@ -168,6 +168,39 @@ describe('chatStore', () => {
     expect(() => JSON.parse(raw)).not.toThrow()
   })
 
+  it('wiadomości z samych znaków nowej linii nie przebijają MAX_BYTES po eskejpowaniu', async () => {
+    // `MAX_MESSAGE_CHARS` liczy ZNAKI, nie bajty — `JSON.stringify` eskejpuje
+    // `\n` do DWÓCH bajtów, więc wątek złożony z samych znaków nowej linii
+    // waży dwa razy więcej, niż sugerowałaby sama liczba znaków. Próbka
+    // musi być z realnie eskejpowanych znaków, nie z bezpiecznego ASCII typu
+    // 'q' — inaczej test nie mógłby złapać różnicy między liczbą znaków a
+    // liczbą bajtów, którą faktycznie pilnuje `MAX_BYTES`.
+    const project = newProject()
+    await writeProject(root, slug, project)
+    const long = '\n'.repeat(MAX_MESSAGE_CHARS)
+    for (let t = 0; t < 10; t += 1) {
+      await appendTurn(root, slug, project, style, long, long, undefined)
+    }
+    const raw = await readFile(join(root, slug, 'chats.json'), 'utf8')
+    expect(Buffer.byteLength(raw, 'utf8')).toBeLessThanOrEqual(MAX_BYTES)
+    expect(() => JSON.parse(raw)).not.toThrow()
+  })
+
+  it('znaki kontrolne eskejpowane do sześciu bajtów (najgorszy przypadek) nie przebijają MAX_BYTES', async () => {
+    // `\u0001` nie ma krótkiego escape'u (jak `\n` → `\\n`) — `JSON.stringify`
+    // zapisuje go jako `\u0001`, czyli SZEŚĆ bajtów na JEDEN znak wejściowy.
+    // To górna granica amplifikacji, jaką może wywołać pojedynczy znak.
+    const project = newProject()
+    await writeProject(root, slug, project)
+    const long = '\u0001'.repeat(MAX_MESSAGE_CHARS)
+    for (let t = 0; t < 10; t += 1) {
+      await appendTurn(root, slug, project, style, long, long, undefined)
+    }
+    const raw = await readFile(join(root, slug, 'chats.json'), 'utf8')
+    expect(Buffer.byteLength(raw, 'utf8')).toBeLessThanOrEqual(MAX_BYTES)
+    expect(() => JSON.parse(raw)).not.toThrow()
+  })
+
   it('uszkodzona składnia JSON w chats.json to pusta lista, nie wyjątek', async () => {
     await writeProject(root, slug, newProject())
     await writeFile(join(root, slug, 'chats.json'), '{ this is not valid json ][', 'utf8')

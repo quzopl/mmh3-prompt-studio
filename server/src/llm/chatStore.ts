@@ -9,14 +9,19 @@ export const MAX_MESSAGES = 20
 /** Sufit całego pliku. Bez niego `chats.json` rośnie bez końca — nic go nie sprząta. */
 export const MAX_BYTES = 256 * 1024
 /**
- * Sufit długości POJEDYNCZEJ wiadomości. Polecenie użytkownika w realnym
- * użyciu nigdy nie jest tak długie, a odpowiedź modelu ma z góry ograniczoną
- * długość przez `maxTokens: 900` w zadaniu czatu (ok. 3600 znaków) — 8000 to
- * zapas ponad obie strony. Dzięki temu jeden wątek to najwyżej
- * `20 × 8000 ≈ 160 000` znaków, czyli zawsze mniej niż `MAX_BYTES`, więc
- * warunek `kept.length > 1` w pętli limitu bajtów NIGDY nie musi ustąpić
- * przed pojedynczym, przewymiarowanym wątkiem — niezmiennik „plik ≤
- * MAX_BYTES" trzyma się zawsze, nie tylko zwykle.
+ * Sufit długości POJEDYNCZEJ wiadomości, liczony w ZNAKACH. Polecenie
+ * użytkownika w realnym użyciu nigdy nie jest tak długie, a odpowiedź modelu
+ * ma z góry ograniczoną długość przez `maxTokens: 900` w zadaniu czatu (ok.
+ * 3600 znaków) — 8000 to zapas ponad obie strony.
+ *
+ * To jest tylko TANI WSTĘPNY BEZPIECZNIK, nie gwarancja rozmiaru pliku:
+ * liczba znaków to nie liczba bajtów zserializowanego JSON-a.
+ * `JSON.stringify` eskejpuje np. `\n` do dwóch bajtów, a znaki kontrolne w
+ * stylu `U+0000` do sześciu — wątek złożony z samych znaków nowej linii
+ * zajmuje więc grubo ponad `20 × 8000` bajtów, mimo że mieści się w tym
+ * limicie znaków. Faktyczny niezmiennik „plik ≤ MAX_BYTES" pilnuje
+ * `enforceByteLimit` niżej, mierząc PRAWDZIWY rozmiar zserializowanego
+ * wyniku (`Buffer.byteLength(serialize(...), 'utf8')`), a nie licząc znaki.
  */
 export const MAX_MESSAGE_CHARS = 8000
 
@@ -140,28 +145,98 @@ async function writeThreads(
     messages: t.messages.slice(-MAX_MESSAGES).map(truncateMessage),
   }))
 
-  // Limit bajtów zdejmuje CAŁE najstarsze wątki (od początku tablicy, czyli od
-  // najdawniej założonych), nie tnie tekstu w połowie — obcięty JSON nie dałby
-  // się odczytać, a obcięta wiadomość kłamałaby o tym, co użytkownik napisał.
-  // Warunek `kept.length > 1` sam w sobie NIE gwarantowałby zejścia pod
-  // `MAX_BYTES`, gdyby pojedynczy wątek mógł być dowolnie duży — dlatego
-  // każda wiadomość jest już wcześniej przycięta do `MAX_MESSAGE_CHARS`
-  // (patrz `truncateMessage`), co ogranicza jeden wątek do ok. 160 000
-  // znaków i czyni ten warunek wystarczającym w każdym przypadku.
-  let kept = trimmed
-  while (kept.length > 1 && serialize(kept).length > MAX_BYTES) {
-    kept = kept.slice(1)
-  }
-  await writeRaw(root, slug, kept)
+  await writeRaw(root, slug, enforceByteLimit(trimmed))
 }
 
-/** Przycina `text` i `english` do `MAX_MESSAGE_CHARS` — patrz komentarz przy stałej. */
+/** Przycina `text` i `english` do `MAX_MESSAGE_CHARS` — tani wstępny bezpiecznik, patrz komentarz przy stałej. */
 function truncateMessage(message: ChatMessageRecord): ChatMessageRecord {
   const text = message.text.slice(0, MAX_MESSAGE_CHARS)
   return message.english === undefined
     ? { role: message.role, text }
     : { role: message.role, text, english: message.english.slice(0, MAX_MESSAGE_CHARS) }
 }
+
+/**
+ * Wymusza `Buffer.byteLength(serialize(...), 'utf8') <= MAX_BYTES` na
+ * PRAWDZIWYM rozmiarze zserializowanego wyniku, nie na liczbie znaków —
+ * `MAX_MESSAGE_CHARS` to tylko tani wstępny bezpiecznik, ten kod jest
+ * jedynym miejscem, które faktycznie GWARANTUJE niezmiennik. Trzy kroki, w
+ * kolejności od najmniej do najbardziej dotkliwego:
+ *
+ *  1. zdejmij CAŁE najstarsze wątki, dopóki zostaje więcej niż jeden —
+ *     wątek to naturalna jednostka „czego nie potrzebuję" (zamknięta
+ *     rozmowa o innym polu), więc znika w całości, nie fragmentami;
+ *  2. gdy został jeden wątek i wciąż za duży — zdejmij jego najstarsze
+ *     wiadomości, z tego samego powodu co wyżej, tylko o jeden poziom niżej
+ *     (wiadomość, nie wątek, jest tu najmniejszą sensowną jednostką);
+ *  3. gdy została jedna wiadomość i wciąż za duża — PRZYTNIJ jej `text`
+ *     (i `english`, jeśli jest). To świadomy kompromis: „nigdy nie tnij
+ *     tekstu w połowie" i „plik zawsze ≤ MAX_BYTES" nie dają się dotrzymać
+ *     jednocześnie, gdy JEDNA wiadomość sama przekracza cały limit (np.
+ *     tysiące znaków nowej linii, które `JSON.stringify` eskejpuje do dwóch
+ *     bajtów każdy). Wygrywa twardy limit rozmiaru — to on chroni dysk
+ *     użytkownika przed plikiem bez górnej granicy, a obcięta wiadomość w
+ *     najgorszym razie traci fragment treści, nie wywraca aplikacji.
+ */
+function enforceByteLimit(threads: ChatThread[]): ChatThread[] {
+  let kept = threads
+  while (kept.length > 1 && byteLength(kept) > MAX_BYTES) {
+    kept = kept.slice(1)
+  }
+
+  const solo = kept[0]
+  if (kept.length === 1 && solo !== undefined && byteLength(kept) > MAX_BYTES) {
+    let messages = solo.messages
+    while (messages.length > 1 && byteLength([{ ...solo, messages }]) > MAX_BYTES) {
+      messages = messages.slice(1)
+    }
+    kept = [{ ...solo, messages }]
+  }
+
+  const only = kept[0]
+  const lastMessage = only?.messages[0]
+  if (kept.length === 1 && only !== undefined && lastMessage !== undefined
+    && byteLength(kept) > MAX_BYTES) {
+    kept = [{ ...only, messages: [shrinkToFit(only, lastMessage)] }]
+  }
+
+  return kept
+}
+
+/**
+ * Szuka BINARNIE największej długości `text`/`english` (tej samej dla obu
+ * pól — to wystarczy, żeby zmieścić się w limicie, a nie trzeba osobno
+ * ważyć, które pole bardziej „kosztuje" po eskejpowaniu), przy której
+ * wątek z tą jedną wiadomością mieści się w `MAX_BYTES`. Binarnie, nie znak
+ * po znaku: wiadomość może mieć miliony znaków, a każde sprawdzenie
+ * wymaga pełnej serializacji — liniowe cięcie byłoby zbyt wolne.
+ */
+function shrinkToFit(thread: ChatThread, message: ChatMessageRecord): ChatMessageRecord {
+  const maxLen = Math.max(message.text.length, message.english?.length ?? 0)
+  let lo = 0
+  let hi = maxLen
+  let best: ChatMessageRecord = sliceMessage(message, 0)
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2)
+    const candidate = sliceMessage(message, mid)
+    if (byteLength([{ ...thread, messages: [candidate] }]) <= MAX_BYTES) {
+      best = candidate
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  return best
+}
+
+const sliceMessage = (message: ChatMessageRecord, length: number): ChatMessageRecord => {
+  const text = message.text.slice(0, length)
+  return message.english === undefined
+    ? { role: message.role, text }
+    : { role: message.role, text, english: message.english.slice(0, length) }
+}
+
+const byteLength = (threads: ChatThread[]): number => Buffer.byteLength(serialize(threads), 'utf8')
 
 async function writeRaw(root: string, slug: string, threads: ChatThread[]): Promise<void> {
   const target = chatsFile(root, slug)
