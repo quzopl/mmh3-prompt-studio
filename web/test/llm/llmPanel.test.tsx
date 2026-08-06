@@ -330,7 +330,9 @@ describe('LlmPanel — uruchamianie zadań: kliknięcie woła trasę z właściw
   it('"Krytyk" woła trasę z task=critic', async () => {
     const { user, calls } = await renderReady()
     await user.click(screen.getByRole('button', { name: 'Krytyk' }))
-    expect(calls).toEqual([{ task: 'critic', projectSlug: 'test-projekt' }])
+    // `replyLanguage` niesie wybór z przełącznika PL/EN — `web/test/setup.ts`
+    // ustawia polski, więc to on ma dojechać do żądania.
+    expect(calls).toEqual([{ task: 'critic', projectSlug: 'test-projekt', replyLanguage: 'pl' }])
   })
 
   it('"Tłumaczenie całego projektu" woła trasę z task=translateAll', async () => {
@@ -364,6 +366,7 @@ describe('LlmPanel — uruchamianie zadań: kliknięcie woła trasę z właściw
       task: 'fieldChat', projectSlug: 'test-projekt',
       target: { kind: 'speaker', speakerId: 'sp-1', field: 'fullDescriptor' },
       message: 'cieplejszy głos',
+      replyLanguage: 'pl',
     }])
   })
 
@@ -606,7 +609,9 @@ describe('LlmPanel — klawiatura nie wypływa do skrótów osi czasu', () => {
     await userEvent.keyboard('{Enter}')
 
     expect(usePlayhead.getState().playing).toBe(false)
-    expect(calls).toEqual([{ task: 'critic', projectSlug: 'test-projekt' }])
+    // `replyLanguage` niesie wybór z przełącznika PL/EN — `web/test/setup.ts`
+    // ustawia polski, więc to on ma dojechać do żądania.
+    expect(calls).toEqual([{ task: 'critic', projectSlug: 'test-projekt', replyLanguage: 'pl' }])
   })
 })
 

@@ -2,6 +2,9 @@ import { z } from 'zod'
 import type { ObjectRef, ObjectRefKind, Project } from '@mmh3/shared'
 import type { ChatMessage } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
+import {
+  DEFAULT_REPLY_LANGUAGE, replyLanguageRule, ReplyLanguageSchema, type ReplyLanguage,
+} from './replyLanguage.js'
 
 /**
  * Zadanie 4 z czterech, i inne w rodzaju niż pozostałe trzy: model widzi
@@ -82,14 +85,16 @@ const criticJsonSchema = {
 export interface CriticInput {
   promptText: string
   allowedRefs: ObjectRef[]
+  replyLanguage?: ReplyLanguage
 }
 
 export const CriticInputSchema = z.object({
   promptText: z.string().min(1),
   allowedRefs: z.array(ObjectRefSchema),
+  replyLanguage: ReplyLanguageSchema.default(DEFAULT_REPLY_LANGUAGE),
 })
 
-const SYSTEM_PROMPT = [
+const systemPrompt = (replyLanguage: ReplyLanguage): string => [
   'You are a critic reviewing a fully compiled video-generation prompt. You '
     + 'look for things a deterministic rule-checker would miss: unclear '
     + 'staging, redundant or contradictory description, pacing problems, '
@@ -107,6 +112,9 @@ const SYSTEM_PROMPT = [
     + 'output, "hint" for a minor stylistic suggestion.',
   'If you have nothing worth flagging, return an empty notes list — do not '
     + 'invent a note just to have one.',
+  // Krytyk nie miał o języku ANI SŁOWA i odpowiadał, jak mu wyszło — a jego
+  // uwagi czyta wyłącznie człowiek, więc język ma znaczenie.
+  replyLanguageRule(replyLanguage, 'message'),
 ].join('\n')
 
 function refLine(ref: ObjectRef): string {
@@ -135,7 +143,7 @@ export const criticTask: TaskDefinition<CriticResult> = {
   buildMessages: (input: unknown): ChatMessage[] => {
     const parsed = CriticInputSchema.parse(input)
     return [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt(parsed.replyLanguage) },
       { role: 'user', content: buildUserMessage(parsed) },
     ]
   },

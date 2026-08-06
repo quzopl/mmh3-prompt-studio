@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useProject } from '../store/projectStore.js'
 import { useCritic } from '../store/criticStore.js'
-import { useT, type Translate } from '../i18n/useT.js'
+import { useLang, useT, type Translate } from '../i18n/useT.js'
 import {
   settingsApi, type LlmMode, type LlmSettings, type ManagedState, type UnloadCapability,
 } from './settingsApi.js'
@@ -126,6 +126,8 @@ const EMPTY_DRAFT: Draft = {
 export function LlmPanel() {
   const t = useT()
   const slug = useProject(state => state.slug)
+  // Uwagi krytyka czyta wyłącznie człowiek — mają być w języku interfejsu.
+  const lang = useLang(state => state.lang)
   const project = useProject(state => state.project)
   const run = useLlmRun()
 
@@ -394,7 +396,8 @@ export function LlmPanel() {
   }
 
   const runAudio = (): void => startRun({ task: 'audio', projectSlug: slug ?? '' })
-  const runCritic = (): void => startRun({ task: 'critic', projectSlug: slug ?? '' })
+  const runCritic = (): void =>
+    startRun({ task: 'critic', projectSlug: slug ?? '', replyLanguage: lang })
   const runTranslateAll = (): void => startRun({ task: 'translateAll', projectSlug: slug ?? '' })
 
   const canRunStructure = tasksEnabled && ideaA.trim() !== '' && ideaB.trim() !== ''

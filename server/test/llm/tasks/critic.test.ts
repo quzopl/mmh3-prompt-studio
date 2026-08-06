@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Project, Speaker } from '@mmh3/shared'
 import {
-  CriticNoteSchema, criticAllowedRefs, criticToNotes,
+  CriticNoteSchema, criticAllowedRefs, criticTask, criticToNotes,
   type CriticNote, type CriticResult,
 } from '../../../src/llm/tasks/critic.js'
 import { newProject } from '../../fixtures/newProject.js'
@@ -179,5 +179,21 @@ describe('criticToNotes — krytyk zwraca uwagi, nie łatkę', () => {
     // @ts-expect-error — `CriticNote[]` (zwykła tablica) nie ma pola `ops`.
     const opsField = notes.ops
     expect(opsField).toBeUndefined()
+  })
+})
+
+describe('criticTask — język uwag', () => {
+  const systemFor = (replyLanguage: 'pl' | 'en'): string =>
+    criticTask.buildMessages({
+      promptText: 'integrated_multimodal_description: [Shot 1] Live-action, a street.',
+      allowedRefs: [],
+      replyLanguage,
+    })[0]?.content ?? ''
+
+  it('uwagi mają być w języku interfejsu, podanym wprost', () => {
+    // Krytyk nie miał o języku ANI SŁOWA i odpowiadał, jak mu wyszło — a jego
+    // uwagi czyta wyłącznie człowiek.
+    expect(systemFor('pl')).toContain('Write every "message" value in Polish')
+    expect(systemFor('en')).toContain('Write every "message" value in English')
   })
 })

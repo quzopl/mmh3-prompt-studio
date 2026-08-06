@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ProjectPatch } from '@mmh3/shared'
-import { useT } from '../i18n/useT.js'
+import { useLang, useT } from '../i18n/useT.js'
 import { PatchReview } from './PatchReview.js'
 import { ActionButton, LabelledField, inputClass } from './ActionButton.js'
 import { useLlmRun } from './useLlmRun.js'
@@ -39,6 +39,9 @@ export function FieldChat({
 }: { slug: string; target: ChatTarget; onClose: () => void }) {
   const t = useT()
   const run = useLlmRun()
+  // Proza od modelu ma być w języku, który użytkownik wybrał przełącznikiem —
+  // nie w tym, który model sobie wywnioskuje z treści polecenia.
+  const lang = useLang(state => state.lang)
   const key = threadKeyFor(target)
 
   const [turns, setTurns] = useState<Turn[]>([])
@@ -79,7 +82,7 @@ export function FieldChat({
     if (message === '' || busy) return
     setTurns(current => [...current, { role: 'user', text: message }])
     setDraft('')
-    run.run({ task: 'fieldChat', projectSlug: slug, target, message })
+    run.run({ task: 'fieldChat', projectSlug: slug, target, message, replyLanguage: lang })
   }
 
   const clear = (): void => {

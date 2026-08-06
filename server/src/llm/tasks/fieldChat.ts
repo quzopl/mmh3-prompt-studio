@@ -3,6 +3,9 @@ import type { Project, ProjectPatch } from '@mmh3/shared'
 import type { ChatMessage } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
 import { fieldOp, fieldTextSchema, redactSourceText, type RedactTarget } from './fieldTarget.js'
+import {
+  DEFAULT_REPLY_LANGUAGE, replyLanguageRule, ReplyLanguageSchema, type ReplyLanguage,
+} from './replyLanguage.js'
 
 /**
  * Zadanie rozmowy o JEDNYM polu projektu. Różni się od redakcji (`redact.ts`)
@@ -33,6 +36,7 @@ const FieldChatInputSchema = z.object({
   current: z.string(),
   history: z.array(HistoryMessageSchema),
   message: z.string().min(1),
+  replyLanguage: ReplyLanguageSchema.default(DEFAULT_REPLY_LANGUAGE),
 })
 
 export type FieldChatInput = z.infer<typeof FieldChatInputSchema>
@@ -66,14 +70,15 @@ export function fieldLabelFor(target: RedactTarget): string {
  * podczas uruchomienia na serwerze 2026-08-05, gdzie „melancholic" było jedyną
  * pozostałą diagnostyką wygenerowanego promptu.
  */
-const SYSTEM_PROMPT = [
+const systemPrompt = (replyLanguage: ReplyLanguage): string => [
   'You help a director refine ONE text field of a video-generation prompt. '
     + 'The user writes instructions in Polish or English; the field itself is '
     + 'always written in English.',
-  'Answer in two parts. "reply" is a short note to the human, in the language '
-    + 'they wrote in, saying what you changed and why. "english" is the full '
-    + 'new field text. Omit "english" entirely when the user only asked a '
-    + 'question and nothing about the field should change.',
+  'Answer in two parts. "reply" is a short note to the human saying what you '
+    + 'changed and why. "english" is the full new field text. Omit "english" '
+    + 'entirely when the user only asked a question and nothing about the field '
+    + 'should change.',
+  replyLanguageRule(replyLanguage, 'reply'),
   'When the user asks for effects, reach for concrete, observable phenomena in '
     + 'four families: lighting (transitions, sources, direction, contrast); '
     + 'weather and atmosphere (rain, fog, dust, steam, sparks); material '
@@ -117,7 +122,7 @@ export function fieldChatTaskFor(target: RedactTarget): TaskDefinition<FieldChat
     buildMessages: (input: unknown): ChatMessage[] => {
       const parsed = FieldChatInputSchema.parse(input)
       return [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt(parsed.replyLanguage) },
         {
           role: 'user',
           content: `Field: ${parsed.fieldLabel}\nCurrent content:\n\n${parsed.current}`,

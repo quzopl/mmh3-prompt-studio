@@ -40,12 +40,13 @@ describe('fieldChatTaskFor — schemat odpowiedzi', () => {
 })
 
 describe('fieldChatTaskFor — wiadomości', () => {
-  const buildFor = (history: FieldChatInput['history']) =>
+  const buildFor = (history: FieldChatInput['history'], replyLanguage: 'pl' | 'en' = 'en') =>
     fieldChatTaskFor(style).buildMessages({
       fieldLabel: 'visual style',
       current: 'Live-action',
       history,
       message: 'mocniej',
+      replyLanguage,
     } satisfies FieldChatInput)
 
   it('historia trafia do promptu jako osobne tury, w kolejności i z rolami', () => {
@@ -82,9 +83,23 @@ describe('fieldChatTaskFor — wiadomości', () => {
     expect(first).toContain('Live-action')
   })
 
+  it('język prozy dla człowieka jest podany WPROST, nie zostawiony do wywnioskowania', () => {
+    // „in the language they wrote in" to instrukcja, którą model musi zgadnąć z
+    // treści polecenia — i na prawdziwym modelu zgadł źle: na polskie polecenie
+    // odpisał po angielsku. Jeden konkretny język to instrukcja, nie zagadka.
+    expect(buildFor([], 'pl')[0]?.content).toContain('Write every "reply" value in Polish')
+    expect(buildFor([], 'en')[0]?.content).toContain('Write every "reply" value in English')
+  })
+
+  it('wybór języka prozy NIE dotyka pola projektu — to zawsze angielski', () => {
+    const system = buildFor([], 'pl')[0]?.content ?? ''
+    expect(system).toContain('the field itself is always written in English')
+    expect(system).toContain('every other value you return is written in English')
+  })
+
   it('puste polecenie jest odrzucone przez schemat wejścia', () => {
     expect(() => fieldChatTaskFor(style).buildMessages({
-      fieldLabel: 'visual style', current: '', history: [], message: '',
+      fieldLabel: 'visual style', current: '', history: [], message: '', replyLanguage: 'en',
     })).toThrow()
   })
 })

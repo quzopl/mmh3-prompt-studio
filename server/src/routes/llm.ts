@@ -16,6 +16,7 @@ import {
   fieldChatTaskFor, fieldChatToPatch, fieldLabelFor, type FieldChatInput,
 } from '../llm/tasks/fieldChat.js'
 import { appendTurn, readChats, threadKey } from '../llm/chatStore.js'
+import { DEFAULT_REPLY_LANGUAGE, ReplyLanguageSchema } from '../llm/tasks/replyLanguage.js'
 import { audioTask, audioToPatch, audioInputFromProject } from '../llm/tasks/audio.js'
 import { criticTask, criticToNotes, criticAllowedRefs, type CriticInput } from '../llm/tasks/critic.js'
 import { runTranslateAll } from '../llm/tasks/translateAll.js'
@@ -62,6 +63,9 @@ const RunBody = z.discriminatedUnion('task', [
     projectSlug: SlugSchema,
     target: RedactTargetSchema,
     message: z.string().min(1),
+    // Język prozy dla człowieka bierze się z przełącznika PL/EN w interfejsie.
+    // Domyślnie angielski — tyle samo mówi domyślny język interfejsu.
+    replyLanguage: ReplyLanguageSchema.default(DEFAULT_REPLY_LANGUAGE),
   }),
   z.object({
     task: z.literal('audio'),
@@ -70,6 +74,7 @@ const RunBody = z.discriminatedUnion('task', [
   z.object({
     task: z.literal('critic'),
     projectSlug: SlugSchema,
+    replyLanguage: ReplyLanguageSchema.default(DEFAULT_REPLY_LANGUAGE),
   }),
   z.object({
     task: z.literal('translateAll'),
@@ -308,6 +313,7 @@ export function registerLlmRoutes(app: FastifyInstance): void {
           const target = parsed.data.target
           const message = parsed.data.message
           const slug = parsed.data.projectSlug
+          const replyLanguage = parsed.data.replyLanguage
           // W odróżnieniu od redakcji puste pole NIE jest błędem: „napisz mi
           // styl od zera" to normalny pierwszy ruch rozmowy. Model dostaje
           // pustą treść i wie z promptu, że ma ją zbudować. Redakcja odrzuca
@@ -320,6 +326,7 @@ export function registerLlmRoutes(app: FastifyInstance): void {
                 .find(thread => thread.key === threadKey(target))?.messages ?? []
               const input: FieldChatInput = {
                 fieldLabel: fieldLabelFor(target), current, history, message,
+                replyLanguage,
               }
               const result = await runTask(fwd, fieldChatTaskFor(target), input, signal, onRepairStart)
               // Zapis PO sukcesie, nigdy przed: tura przerwana albo zakończona
@@ -361,7 +368,11 @@ export function registerLlmRoutes(app: FastifyInstance): void {
           // klient (panel walidacji) nie mógł jej pomylić z operacjami do
           // przyjęcia/odrzucenia.
           const allowedRefs = criticAllowedRefs(project)
-          const input: CriticInput = { promptText: buildPrompt(project).text, allowedRefs }
+          const input: CriticInput = {
+            promptText: buildPrompt(project).text,
+            allowedRefs,
+            replyLanguage: parsed.data.replyLanguage,
+          }
           return {
             ok: true,
             run: async (fwd, signal, onRepairStart) => {

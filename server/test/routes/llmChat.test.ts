@@ -166,6 +166,44 @@ describe('POST /api/llm/run — fieldChat', () => {
     expect(redact.statusCode).toBe(400)
   })
 
+  it('język prozy z interfejsu dojeżdża do promptu systemowego', async () => {
+    // Sam schemat żądania niczego nie dowodzi: pole może zostać przyjęte i po
+    // cichu nigdzie nie trafić. Sprawdzamy TREŚĆ wysłaną do modelu.
+    const slug = await createProject('Projekt')
+    await enableProvider()
+    const sent: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: { body?: unknown }) => {
+      sent.push(typeof init?.body === 'string' ? init.body : '')
+      return chatResponse(chatJson)
+    }))
+
+    await app.inject({
+      method: 'POST', url: '/api/llm/run',
+      payload: { ...chatBody(slug), replyLanguage: 'pl' },
+    })
+    expect(sent[0]).toContain('Write every \\"reply\\" value in Polish')
+
+    await app.inject({
+      method: 'POST', url: '/api/llm/run',
+      payload: { ...chatBody(slug), replyLanguage: 'en' },
+    })
+    expect(sent[1]).toContain('Write every \\"reply\\" value in English')
+  })
+
+  it('brak pola języka to angielski, nie awaria żądania', async () => {
+    const slug = await createProject('Projekt')
+    await enableProvider()
+    const sent: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: { body?: unknown }) => {
+      sent.push(typeof init?.body === 'string' ? init.body : '')
+      return chatResponse(chatJson)
+    }))
+
+    const res = await app.inject({ method: 'POST', url: '/api/llm/run', payload: chatBody(slug) })
+    expect(res.statusCode).toBe(200)
+    expect(sent[0]).toContain('Write every \\"reply\\" value in English')
+  })
+
   it('pusta wiadomość jest odrzucona przez schemat żądania', async () => {
     const slug = await createProject('Projekt')
     await enableProvider()
