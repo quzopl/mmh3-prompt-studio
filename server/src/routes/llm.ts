@@ -18,6 +18,7 @@ import {
 } from '../llm/tasks/fieldChat.js'
 import { appendTurn, readChats, threadKey } from '../llm/chatStore.js'
 import { discoverProviders } from '../llm/discover.js'
+import { engineAssetFor, MODELS } from '../llm/catalog.js'
 import { DEFAULT_REPLY_LANGUAGE, ReplyLanguageSchema } from '../llm/tasks/replyLanguage.js'
 import { audioTask, audioToPatch, audioInputFromProject } from '../llm/tasks/audio.js'
 import { criticTask, criticToNotes, criticAllowedRefs, type CriticInput } from '../llm/tasks/critic.js'
@@ -185,6 +186,14 @@ export function registerLlmRoutes(app: FastifyInstance): void {
   /** Skan pętli lokalnej — nigdy nie rzuca i nigdy nie zwraca błędu: „nic nie
    *  stoi" jest normalnym wynikiem, nie awarią. */
   app.get('/api/llm/discover', async () => ({ found: await discoverProviders() }))
+
+  /** Katalog jest STAŁY — nie pyta sieci. Dzięki temu ekran wyboru modelu
+   *  otwiera się natychmiast i działa bez internetu; dopiero kliknięcie
+   *  „Pobierz" wychodzi na zewnątrz. */
+  app.get('/api/llm/catalog', async () => ({
+    models: MODELS,
+    engine: engineAssetFor(process.platform, process.arch),
+  }))
 
   app.get('/api/llm/models', async (_request, reply) => {
     const provider = createProvider(await readSettings(app.dataRoot))

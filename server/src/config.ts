@@ -2,6 +2,8 @@ import { join } from 'node:path'
 
 export interface Config {
   dataRoot: string
+  /** Katalog na PLIKI POBRANE przez aplikację: silnik llama.cpp i modele. */
+  runtimeRoot: string
   port: number
   host: string
 }
@@ -24,6 +26,12 @@ const DEFAULT_HOST = '127.0.0.1'
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const home = env.HOME ?? ''
   const dataRoot = env.MMH3_DATA_ROOT ?? join(home, 'mmh3-studio', 'projects')
+  // Pobrane pliki stoją OBOK `projects/`, nie w środku: silnik i modele nie są
+  // danymi projektu, nie mają wędrować przy kopiowaniu katalogu projektu ani
+  // trafiać do kopii zapasowej razem z nim. Osobna zmienna z tego samego
+  // powodu co `MMH3_DATA_ROOT` — żeby testy mogły pracować na katalogu
+  // tymczasowym.
+  const runtimeRoot = env.MMH3_RUNTIME_ROOT ?? join(home, 'mmh3-studio', 'runtime')
 
   let port = DEFAULT_PORT
   if (env.MMH3_PORT !== undefined) {
@@ -34,5 +42,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port = parsed
   }
 
-  return { dataRoot, port, host: env.MMH3_HOST ?? DEFAULT_HOST }
+  return { dataRoot, runtimeRoot, port, host: env.MMH3_HOST ?? DEFAULT_HOST }
 }
