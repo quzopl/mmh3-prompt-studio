@@ -8,6 +8,8 @@ import {
 import { useLlmRun, type LlmRunRequest } from './useLlmRun.js'
 import { PatchReview } from './PatchReview.js'
 import { FieldChat } from './FieldChat.js'
+import { ProviderDiscovery } from './ProviderDiscovery.js'
+import { ModelInstall } from './ModelInstall.js'
 import { ActionButton, LabelledField as Field, inputClass } from './ActionButton.js'
 
 const MODES: LlmMode[] = ['off', 'endpoint', 'managed']
@@ -276,18 +278,25 @@ export function LlmPanel() {
   // reszta formularza ustawień. `null`/`'none'` znaczą „nie ma czego zawołać".
   const unloadDisabled = busy || unloadBusy || unloadCapability === null || unloadCapability === 'none'
 
-  const saveSettings = async (): Promise<void> => {
+  /**
+   * `overrides` istnieje dla wykrywania dostawcy: „Użyj" ma ustawić adres i
+   * ZAPISAĆ go jednym kliknięciem. Samo `setDraft` przed wywołaniem tej funkcji
+   * nie wystarcza — React nie aktualizuje stanu synchronicznie, więc zapis
+   * wysłałby jeszcze poprzednią wartość.
+   */
+  const saveSettings = async (overrides: Partial<typeof draft> = {}): Promise<void> => {
     setSaveError(null)
     setKeyCleared(false)
+    const values = { ...draft, ...overrides }
     try {
       const next = await settingsApi.putSettings({
-        mode: draft.mode,
-        endpoint: { baseUrl: draft.baseUrl, apiKey: draft.apiKey, model: draft.model },
+        mode: values.mode,
+        endpoint: { baseUrl: values.baseUrl, apiKey: values.apiKey, model: values.model },
         managed: {
-          serverBinary: draft.serverBinary,
-          modelPath: draft.modelPath,
-          gpuLayers: toInt(draft.gpuLayers, 0),
-          contextSize: toInt(draft.contextSize, 8192),
+          serverBinary: values.serverBinary,
+          modelPath: values.modelPath,
+          gpuLayers: toInt(values.gpuLayers, 0),
+          contextSize: toInt(values.contextSize, 8192),
         },
       })
       setDraft(draftFrom(next))
@@ -450,6 +459,18 @@ export function LlmPanel() {
         <span className="mb-2 block text-xs uppercase tracking-wide text-neutral-500">
           {t('llm.settingsTitle')}
         </span>
+        {/*
+          Wykrywanie stoi PRZED wyborem trybu, bo to najtańsza droga do
+          działającego modelu: jeśli użytkownik ma już Ollamę, nie musi ani
+          niczego pobierać, ani pamiętać adresu.
+        */}
+        <ProviderDiscovery
+          onPick={baseUrl => {
+            setDraft(current => ({ ...current, mode: 'endpoint', baseUrl }))
+            void saveSettings({ mode: 'endpoint', baseUrl })
+          }}
+        />
+
         <div role="group" aria-label={t('llm.settingsTitle')} className="mb-2 flex gap-1">
           {MODES.map(mode => (
             <ActionButton
@@ -461,6 +482,18 @@ export function LlmPanel() {
             />
           ))}
         </div>
+
+        {/*
+          Ekran pobierania widoczny WYŁĄCZNIE wtedy, gdy użytkownik nie ma
+          jeszcze nic: nie wskazał endpointu i nie ma ścieżki do binarki. Komuś,
+          kto już skonfigurował dostawcę, oferowanie 9 GB do pobrania byłoby
+          zawadą, nie pomocą.
+        */}
+        {saved !== null && saved.mode !== 'endpoint' && saved.managed.serverBinary === '' && (
+          <ModelInstall
+            freeVramMb={managed?.gpu == null ? null : managed.gpu.totalMb - managed.gpu.usedMb}
+          />
+        )}
 
         {/*
           Linijka VRAM stoi przy WYBORZE DOSTAWCY, nie przy zarządzanym

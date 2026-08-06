@@ -25,6 +25,43 @@ export interface LlmSettingsInput {
   managed: { serverBinary: string; modelPath: string; gpuLayers: number; contextSize: number }
 }
 
+/** Lustrzane odbicia typów serwera — granica pakietów nie pozwala importować
+ *  z `server/`, ten sam powód, dla którego leży tu już `LlmSettings`. */
+export type ProviderKind = 'ollama' | 'lmstudio' | 'openai'
+
+export interface FoundProvider {
+  kind: ProviderKind
+  baseUrl: string
+  models: string[]
+}
+
+export interface CatalogModel {
+  id: string
+  label: string
+  fileName: string
+  url: string
+  bytes: number
+  vramMb: number
+}
+
+export interface EngineAsset {
+  name: string
+  url: string
+  archive: 'tar' | 'zip'
+}
+
+export interface Catalog {
+  models: CatalogModel[]
+  /** `null`, gdy dla tego systemu nie mamy gotowego wydania. */
+  engine: EngineAsset | null
+}
+
+export interface InstallProgress {
+  stage: 'engine' | 'model'
+  received: number
+  total: number
+}
+
 export interface GpuInfo {
   name: string
   usedMb: number
@@ -80,6 +117,10 @@ export const settingsApi = {
     request<LlmSettings>('/api/llm/settings', { method: 'PUT', body: JSON.stringify(input) }),
 
   getManagedState: () => request<ManagedState>('/api/llm/managed/state'),
+
+  discover: () => request<{ found: FoundProvider[] }>('/api/llm/discover'),
+
+  catalog: () => request<Catalog>('/api/llm/catalog'),
 
   /** Odpowiedź przychodzi dopiero po rozstrzygnięciu sondowania zdrowia
    * (`ready`/`failed`) po stronie serwera — nie trzeba dopytywać stanu
