@@ -25,17 +25,35 @@ import type { Shot } from '../model/types.js'
  * `shared/src/compile/*.ts`) — dopisanie dla nich operacji tłumaczyłoby
  * tekst do promptu, którego nikt nie zobaczy.
  */
+/**
+ * Etykieta operacji jest KLUCZEM TŁUMACZENIA (`patchLabel.*`), nie gotowym
+ * zdaniem. Pierwsza wersja niosła tu polski tekst wpisany w kod zadania — i
+ * lądował on w interfejsie dosłownie, także gdy użytkownik wybrał angielski
+ * (zgłoszone z używania wdrożonej aplikacji: „Podpowiedź pejzażu dźwiękowego."
+ * w angielskim ekranie przeglądu łatki). Serwer nie wie, w jakim języku patrzy
+ * człowiek, i wiedzieć nie musi — tłumaczenie należy do warstwy, która ten
+ * język zna (`web/src/i18n/dict.ts`).
+ *
+ * `labelParams` istnieje wyłącznie dla etykiet z wstawką (dziś: lista pominiętych
+ * kwestii w strukturze ujęć). Pozostałe warianty mają własny klucz zamiast
+ * parametru — kilka kluczy więcej jest tańsze niż plumbing parametrów przez
+ * cały stos.
+ */
+export interface PatchOpLabel {
+  label: string
+  labelParams?: Record<string, string | number>
+}
+
 export type PatchOp =
-  | { kind: 'replaceShots'; id: string; label: string; shots: Shot[] }
-  | { kind: 'setShotText'; id: string; label: string; shotId: string; segmentIndex: number; text: string }
-  | { kind: 'setAudio'; id: string; label: string; field: 'overallSoundscape' | 'nonDiegeticMusic'; text: string }
-  | { kind: 'setStyle'; id: string; label: string; text: string }
-  | { kind: 'setSpeakerDescriptor'; id: string; label: string; speakerId: string; field: 'fullDescriptor' | 'shortDescriptor'; text: string }
-  | { kind: 'setLabelField'; id: string; label: string; labelId: string; field: 'definition' | 'role'; text: string }
-  | {
+  | ({ kind: 'replaceShots'; id: string; shots: Shot[] } & PatchOpLabel)
+  | ({ kind: 'setShotText'; id: string; shotId: string; segmentIndex: number; text: string } & PatchOpLabel)
+  | ({ kind: 'setAudio'; id: string; field: 'overallSoundscape' | 'nonDiegeticMusic'; text: string } & PatchOpLabel)
+  | ({ kind: 'setStyle'; id: string; text: string } & PatchOpLabel)
+  | ({ kind: 'setSpeakerDescriptor'; id: string; speakerId: string; field: 'fullDescriptor' | 'shortDescriptor'; text: string } & PatchOpLabel)
+  | ({ kind: 'setLabelField'; id: string; labelId: string; field: 'definition' | 'role'; text: string } & PatchOpLabel)
+  | ({
       kind: 'setRetentionText'
       id: string
-      label: string
       /**
        * `ref.summaryText` jest polem SINGLETONOWYM (jedno na projekt, jak
        * `style`) — `{ kind: 'summary' }` go adresuje bez identyfikatora.
@@ -47,7 +65,7 @@ export type PatchOp =
        */
       scope: { kind: 'summary' } | { kind: 'entry'; entryId: string }
       text: string
-    }
+    } & PatchOpLabel)
 
 export interface ProjectPatch {
   ops: PatchOp[]

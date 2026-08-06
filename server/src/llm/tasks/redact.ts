@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { Project, ProjectPatch } from '@mmh3/shared'
+import type { PatchLabelId, Project, ProjectPatch } from '@mmh3/shared'
 import type { ChatMessage } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
 import { fieldOp, fieldTextSchema, redactSourceText, type RedactTarget } from './fieldTarget.js'
@@ -158,11 +158,15 @@ export function redactToPatch(
 /** Etykiety BEZ ZMIAN wobec stanu sprzed refaktoru — pilnuje ich 38 asercji
  *  w `redact.test.ts`. Zwykły `switch` zamiast mapy po `kind`, bo tylko on
  *  zawęża `target` na tyle, żeby `target.field` się skompilowało. */
-function redactLabel(target: RedactTarget): string {
+function redactLabel(target: RedactTarget): PatchLabelId {
   switch (target.kind) {
-    case 'style': return 'Redakcja stylu wizualnego z polskiego na angielski.'
-    case 'audio': return `Redakcja pola ${target.field} z polskiego na angielski.`
-    case 'speaker': return `Redakcja opisu mówcy (${target.field}) z polskiego na angielski.`
-    case 'shotText': return 'Redakcja treści ujęcia z polskiego na angielski.'
+    case 'style': return 'patchLabel.redactStyle'
+    case 'audio': return target.field === 'overallSoundscape'
+      ? 'patchLabel.redactSoundscape'
+      : 'patchLabel.redactMusic'
+    case 'speaker': return target.field === 'fullDescriptor'
+      ? 'patchLabel.redactSpeakerFull'
+      : 'patchLabel.redactSpeakerShort'
+    case 'shotText': return 'patchLabel.redactShotText'
   }
 }

@@ -429,8 +429,11 @@ describe('structureToPatch — mówca kwestii', () => {
     expect(shot.dialogue).toEqual([])
     expect(shot.body.some(seg => seg.kind === 'dialogue')).toBe(false)
     expect(shot.body.some(seg => seg.kind === 'speaker')).toBe(false)
-    expect(op.label).toContain('S9')
-    expect(op.label).toContain('To zdanie nie powinno trafić do projektu.')
+    // Etykieta jest kluczem tłumaczenia, a pominięte kwestie jadą parametrem —
+    // patrz `PatchOpLabel` w `shared/src/patch/types.ts`.
+    expect(op.label).toBe('patchLabel.structureSkipped')
+    expect(String(op.labelParams?.notes)).toContain('S9')
+    expect(String(op.labelParams?.notes)).toContain('To zdanie nie powinno trafić do projektu.')
   })
 
   it('kwestia bez podanego mówcy w ogóle też zostaje pominięta, nie odrzucona z błędem', () => {
@@ -446,7 +449,8 @@ describe('structureToPatch — mówca kwestii', () => {
     const op = patch.ops[0]
     if (op === undefined || op.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
     expect(op.shots[0]?.dialogue).toEqual([])
-    expect(op.label).toContain('Kto tam jest?')
+    expect(op.label).toBe('patchLabel.structureSkipped')
+    expect(String(op.labelParams?.notes)).toContain('Kto tam jest?')
   })
 })
 

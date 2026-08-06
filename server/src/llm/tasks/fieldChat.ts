@@ -157,5 +157,5 @@ export function fieldChatToPatch(
   if (current === undefined) return { ops: [] }
   if (current.trim() === text) return { ops: [] }
 
-  return { ops: [fieldOp(target, text, 'Zmiana pola z rozmowy z modelem.')] }
+  return { ops: [fieldOp(target, text, 'patchLabel.chatField')] }
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import type { PatchOp, Project } from '@mmh3/shared'
+import type { PatchLabelId, PatchOp, Project } from '@mmh3/shared'
 import { audioFieldTextSchema, MUSIC_TEXT_RULE, SOUNDSCAPE_TEXT_RULE } from './audioFieldText.js'
 
 /**
@@ -87,7 +87,7 @@ export function fieldTextSchema(target: RedactTarget): z.ZodType<string> {
  * rozmowa jako zmianę z rozmowy — ta sama operacja, dwa różne uzasadnienia na
  * ekranie przeglądu.
  */
-export function fieldOp(target: RedactTarget, text: string, label: string): PatchOp {
+export function fieldOp(target: RedactTarget, text: string, label: PatchLabelId): PatchOp {
   const id = `op-${randomUUID()}`
   switch (target.kind) {
     case 'style':

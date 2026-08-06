@@ -19,6 +19,7 @@ export * from './validate/validate.js'
 export * from './validate/registry.js'
 export * from './api.js'
 export * from './patch/types.js'
+export * from './patch/labels.js'
 export * from './patch/apply.js'
 export * from './patch/describe.js'
 // Wybiórczy eksport z pliku reguły, nie `export *` całego `validate/rules/*`

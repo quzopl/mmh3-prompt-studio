@@ -3,23 +3,23 @@ import { fieldOp, fieldTextSchema } from '../../../src/llm/tasks/fieldTarget.js'
 
 describe('fieldOp — operacja dla wskazanego pola', () => {
   it('etykieta jest parametrem, nie wpisana na stałe', () => {
-    const op = fieldOp({ kind: 'style' }, 'Live-action', 'Etykieta z czatu.')
+    const op = fieldOp({ kind: 'style' }, 'Live-action', 'patchLabel.chatField')
     expect(op.kind).toBe('setStyle')
-    expect(op.label).toBe('Etykieta z czatu.')
+    expect(op.label).toBe('patchLabel.chatField')
     expect(op.kind === 'setStyle' && op.text).toBe('Live-action')
   })
 
   it('każdy z czterech celów daje operację swojego rodzaju', () => {
-    expect(fieldOp({ kind: 'audio', field: 'nonDiegeticMusic' }, 'x', 'l').kind).toBe('setAudio')
-    expect(fieldOp({ kind: 'speaker', speakerId: 's-1', field: 'shortDescriptor' }, 'x', 'l').kind)
+    expect(fieldOp({ kind: 'audio', field: 'nonDiegeticMusic' }, 'x', 'patchLabel.chatField').kind).toBe('setAudio')
+    expect(fieldOp({ kind: 'speaker', speakerId: 's-1', field: 'shortDescriptor' }, 'x', 'patchLabel.chatField').kind)
       .toBe('setSpeakerDescriptor')
-    expect(fieldOp({ kind: 'shotText', shotId: 'sh-1', segmentIndex: 0 }, 'x', 'l').kind)
+    expect(fieldOp({ kind: 'shotText', shotId: 'sh-1', segmentIndex: 0 }, 'x', 'patchLabel.chatField').kind)
       .toBe('setShotText')
   })
 
   it('identyfikatory operacji są różne dla dwóch wywołań', () => {
-    const a = fieldOp({ kind: 'style' }, 'x', 'l')
-    const b = fieldOp({ kind: 'style' }, 'x', 'l')
+    const a = fieldOp({ kind: 'style' }, 'x', 'patchLabel.chatField')
+    const b = fieldOp({ kind: 'style' }, 'x', 'patchLabel.chatField')
     expect(a.id).not.toBe(b.id)
   })
 })

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
+import { PATCH_LABEL_IDS } from '@mmh3/shared'
 import { DICT } from '../src/i18n/dict.js'
 import { useT, readInitialLang, useLang } from '../src/i18n/useT.js'
 
@@ -73,5 +74,25 @@ describe('domyślny język', () => {
   it('śmieć w pamięci przeglądarki nie wywraca startu — wraca domyślny', () => {
     localStorage.setItem('mmh3.lang', 'klingoński')
     expect(readInitialLang()).toBe('en')
+  })
+})
+
+describe('etykiety operacji łatki', () => {
+  it('każdy identyfikator z PATCH_LABEL_IDS ma tłumaczenie w OBU językach', () => {
+    // Ten test wiąże dwie strony granicy pakietów: listę, z której zadania
+    // serwera produkują etykiety operacji, i słownik, który zamienia je na
+    // zdania. Bez niego nowa etykieta bez wpisu pokazałaby użytkownikowi surowy
+    // klucz („patchLabel.chatField") — a `t()` zwraca właśnie klucz, gdy
+    // tłumaczenia nie ma, więc nic by nie krzyknęło.
+    for (const id of PATCH_LABEL_IDS) {
+      expect(Object.keys(DICT.pl)).toContain(id)
+      expect(Object.keys(DICT.en)).toContain(id)
+    }
+  })
+
+  it('słownik nie niesie etykiet spoza listy — martwe tłumaczenie też jest usterką', () => {
+    const known = new Set<string>(PATCH_LABEL_IDS)
+    const inDict = Object.keys(DICT.pl).filter(key => key.startsWith('patchLabel.'))
+    expect(inDict.filter(key => !known.has(key))).toEqual([])
   })
 })

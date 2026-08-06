@@ -111,8 +111,9 @@ describe('fieldChatToPatch', () => {
     const ops = fieldChatToPatch({ reply: 'ok', english: 'Live-action, rain' }, style, project).ops
     expect(ops).toHaveLength(1)
     expect(ops[0]?.kind).toBe('setStyle')
-    expect(ops[0]?.label).toContain('rozmowy')
-    expect(ops[0]?.label).not.toContain('Redakcja')
+    // Klucz, nie zdanie — i INNY klucz niż redakcja, bo uzasadnienie zmiany
+    // jest inne (użytkownik o nią poprosił w rozmowie).
+    expect(ops[0]?.label).toBe('patchLabel.chatField')
   })
 })
 

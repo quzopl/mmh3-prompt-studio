@@ -1,3 +1,4 @@
+import type { PatchLabelId } from '@mmh3/shared'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import {
@@ -442,11 +443,13 @@ export function structureToPatch(result: StructureResult, project: Project): Pro
     }
   })
 
-  const label = skippedNotes.length === 0
-    ? 'Struktura ujęć z pomysłu.'
-    : `Struktura ujęć z pomysłu. Pominięto kwestie bez pasującego mówcy: ${skippedNotes.join('; ')}.`
+  // Klucz tłumaczenia, nie zdanie — patrz `PatchOpLabel` w `shared/src/patch/types.ts`.
+  const labelled: { label: PatchLabelId; labelParams?: Record<string, string> } =
+    skippedNotes.length === 0
+      ? { label: 'patchLabel.structure' }
+      : { label: 'patchLabel.structureSkipped', labelParams: { notes: skippedNotes.join('; ') } }
 
   return {
-    ops: [{ kind: 'replaceShots', id: `op-${randomUUID()}`, label, shots }],
+    ops: [{ kind: 'replaceShots', id: `op-${randomUUID()}`, ...labelled, shots }],
   }
 }

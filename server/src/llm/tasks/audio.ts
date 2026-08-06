@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import type { Project, ProjectPatch, Segment, Shot } from '@mmh3/shared'
+import type { PatchLabelId, Project, ProjectPatch, Segment, Shot } from '@mmh3/shared'
 import type { ChatMessage } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
 import { audioFieldTextSchema, MUSIC_TEXT_RULE, SOUNDSCAPE_TEXT_RULE } from './audioFieldText.js'
@@ -137,7 +137,7 @@ export function audioToPatch(result: AudioResult, project: Project): ProjectPatc
     ops.push({
       kind: 'setAudio',
       id: `op-${randomUUID()}`,
-      label: 'Podpowiedź pejzażu dźwiękowego.',
+      label: 'patchLabel.audioSoundscape' satisfies PatchLabelId,
       field: 'overallSoundscape',
       text: soundscape,
     })
@@ -148,7 +148,7 @@ export function audioToPatch(result: AudioResult, project: Project): ProjectPatc
     ops.push({
       kind: 'setAudio',
       id: `op-${randomUUID()}`,
-      label: 'Podpowiedź muzyki spoza kadru.',
+      label: 'patchLabel.audioMusic' satisfies PatchLabelId,
       field: 'nonDiegeticMusic',
       text: music,
     })

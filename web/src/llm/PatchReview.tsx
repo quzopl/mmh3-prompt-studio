@@ -166,11 +166,16 @@ function OpRow({
   op, project, checked, onToggle, t,
 }: { op: PatchOp; project: Project; checked: boolean; onToggle: () => void; t: Translate }) {
   const described = describeOp(project, op)
+  // `op.label` jest KLUCZEM tłumaczenia, nie zdaniem (patrz `PatchOpLabel` w
+  // `shared/src/patch/types.ts`). Serwer nie wie, w jakim języku patrzy
+  // człowiek — wcześniej wysyłał polski tekst, który wyświetlał się dosłownie
+  // także w angielskim interfejsie.
+  const labelText = t(op.label as TKey, op.labelParams)
   return (
     <div className="flex items-start gap-2 border-b border-neutral-800 py-2 last:border-0">
-      <OpCheckbox label={op.label} checked={checked} onToggle={onToggle} />
+      <OpCheckbox label={labelText} checked={checked} onToggle={onToggle} />
       <div className="flex flex-col gap-0.5">
-        <span className="text-xs text-neutral-200">{op.label}</span>
+        <span className="text-xs text-neutral-200">{labelText}</span>
         {described.status === 'inapplicable' ? (
           // Jeden wiersz ostrzeżenia, NIE dwa identyczne wiersze „przed"/„po"
           // — fix round 1/5, punkt 7: powtórzone zdanie w obu kolumnach

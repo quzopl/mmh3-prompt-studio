@@ -1,3 +1,4 @@
+import type { PatchLabelId } from '@mmh3/shared'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import {
@@ -533,7 +534,9 @@ function labelFieldToPatch(
     ops: [{
       kind: 'setLabelField',
       id: `op-${randomUUID()}`,
-      label: `Redakcja pola ${target.field} etykiety z polskiego na angielski.`,
+      label: (target.field === 'definition'
+        ? 'patchLabel.translateLabelDefinition'
+        : 'patchLabel.translateLabelRole') satisfies PatchLabelId,
       labelId: target.labelId,
       field: target.field,
       text,
@@ -566,9 +569,9 @@ function retentionTextToPatch(
     ops: [{
       kind: 'setRetentionText',
       id: `op-${randomUUID()}`,
-      label: target.scope.kind === 'summary'
-        ? 'Redakcja podsumowania referencji z polskiego na angielski.'
-        : 'Redakcja notatki retencji z polskiego na angielski.',
+      label: (target.scope.kind === 'summary'
+        ? 'patchLabel.translateRefSummary'
+        : 'patchLabel.translateRetentionNote') satisfies PatchLabelId,
       scope: target.scope,
       text,
     }],
