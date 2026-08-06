@@ -392,3 +392,52 @@ commicie stanu, albo przeniesienie logiki zatwierdzenia do reduktora, który
 serializuje kolejne wywołania. Nie zrobione w tej rundzie, bo koszt (kolejna
 warstwa stanu w komponencie, który i tak ma już trzy) przewyższa realne
 ryzyko przy prawdziwych zdarzeniach przeglądarki.
+
+## 22. Lista przyjętych wyjątków musiała nazwać reguły TREŚCI
+
+Plan 5, recenzja końcowa gałęzi, punkt 5 — rozstrzygnięcie i lista mówiły co
+innego, więc czytelnik znajdował dwie odpowiedzi zamiast jednej.
+
+Zadanie 11 rozstrzygnęło, że schemat odpowiedzi modelu pilnuje **kształtu**, a
+nie **treści**: zła liczba zdań to kształt, który model po prostu pomylił i
+który da się odrzucić w rozmowie z nim, a słowo o nastroju w muzyce albo
+kwestia dialogowa powtórzona w pejzażu to **uczciwa informacja zwrotna** dla
+człowieka na ekranie przeglądu — walidator ma rację, a nie kod jest wadliwy.
+Rozstrzygnięcie jest słuszne i zostaje. Ale lista przyjętych wyjątków od reguły
+„żadna nowa diagnostyka" — noszona przez pięć plików testowych — nigdy tych
+identyfikatorów nie dostała, więc pierwsza prawdziwa odpowiedź modelu ze słowem
+o nastroju czerwieniłaby test, który tę odpowiedź ma uznawać za w porządku.
+
+**Rozstrzygnięcie:** lista zostaje rozszerzona o dwie reguły treści —
+`MUSIC_NO_MOOD_WORDS` i `SOUNDSCAPE_NO_DIALOGUE`. Pełna lista przyjętych
+wyjątków dla zadań językowych ma dziś sześć pozycji:
+
+- **kształt/czas, wynik uczciwy przy akcji, o którą użytkownik prosił** (punkt
+  18 wyżej): `SPEECH_FITS`, `SOUNDSCAPE_NA_ONLY_IF_SILENT`,
+  `SPEAKER_SILENT_NO_ID`, `FL2VA_PREFER_SINGLE_SHOT`;
+- **treść, którą model wymyślił, a walidator słusznie kwestionuje**:
+  `MUSIC_NO_MOOD_WORDS`, `SOUNDSCAPE_NO_DIALOGUE`.
+
+Dwie subtelności, bez których ta lista byłaby rozluźnieniem, a nie
+uporządkowaniem:
+
+1. `SOUNDSCAPE_NO_DIALOGUE` niesie pod jednym identyfikatorem **dwa** pytania:
+   o kształt (czy tekst zawiera blok `<d>`) i o treść (czy powtarza istniejącą
+   kwestię). Połowa kształtu jest od tej rundy pilnowana w schemacie
+   (`server/src/llm/tasks/audioFieldText.ts`, wspólnym dla trzech zadań
+   piszących do pól audio) i ma tam własne testy w każdych z trzech drzwi, więc
+   przyjęcie identyfikatora na liście nie zostawia jej bez dowodu.
+2. `DIEGETIC_IN_DESCRIPTION` — reguła tej samej klasy co
+   `MUSIC_NO_MOOD_WORDS` — **nie** została dopisana: rozstrzygnięcie zadania 11
+   wymienia słowa o nastroju i powtórzony dialog, a nie „wszystkie reguły
+   treści", a żadne zadanie nie zostało przyłapane na jej produkowaniu. Gdyby
+   kiedyś zapaliła się na przyjętej łatce, właściwą odpowiedzią jest dopisanie
+   jej tutaj i do pięciu list — nie zdejmowanie asercji.
+
+Lista żyje fizycznie w pięciu plikach testowych (`server/test/llm/tasks/`
+×4 i `web/test/llm/patchReview.test.tsx`), bo każdy z nich liczy różnicę
+diagnostyk samodzielnie. Listy w `web/test/timeline/` (akcje osi czasu) tych
+dwóch identyfikatorów **nie** dostają: żaden przycisk osi czasu nie pisze prozy
+do pól audio, więc reguły treści są tam nieosiągalne, a wpisanie ich tylko
+rozluźniłoby asercję bez powodu — dokładnie tak samo, jak `FL2VA_PREFER_SINGLE_SHOT`
+świadomie nie stoi na liście w `trackCreation.test.tsx`.

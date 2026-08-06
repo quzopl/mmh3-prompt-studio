@@ -18,8 +18,26 @@ import { baseProject, emptyShot } from '../timeline/fixtures.js'
  * przejście przez `parseProject`.
  */
 
+// Przyjęte wyjątki od reguły „żadna nowa diagnostyka" — ustalone w poprzednich
+// planach, wspólne dla wszystkich zadań językowych (patrz brief).
+//
+// Cztery pierwsze to reguły, których zapalenie jest UCZCIWYM skutkiem akcji, o
+// którą użytkownik prosił (punkt 18
+// `docs/superpowers/specs/2026-08-04-uwagi-do-planu-2.md`).
+//
+// Dwie ostatnie to reguły TREŚCI, dopisane w recenzji końcowej gałęzi (punkt
+// 5): rozstrzygnięcie zadania 11 mówi, że schemat odpowiedzi modelu pilnuje
+// KSZTAŁTU (liczba zdań, brak bloku `<d>`), a nie TREŚCI — więc słowo o
+// nastroju w muzyce i kwestia dialogowa powtórzona w pejzażu to uczciwa
+// informacja zwrotna na ekranie przeglądu, nie usterka kodu. Lista musiała je
+// nazwać, żeby napisana reguła i napisane rozstrzygnięcie mówiły to samo
+// (punkt 22 tego samego dokumentu). `SOUNDSCAPE_NO_DIALOGUE` niesie pod jednym
+// identyfikatorem TAKŻE pytanie o kształt (blok `<d>`) — ono jest pilnowane w
+// schemacie (`server/src/llm/tasks/audioFieldText.ts`) i ma tam własny test,
+// więc przyjęcie identyfikatora tutaj nie zostawia go bez dowodu.
 const ACCEPTED_NEW_DIAGNOSTICS = new Set([
   'SPEECH_FITS', 'SOUNDSCAPE_NA_ONLY_IF_SILENT', 'SPEAKER_SILENT_NO_ID', 'FL2VA_PREFER_SINGLE_SHOT',
+  'MUSIC_NO_MOOD_WORDS', 'SOUNDSCAPE_NO_DIALOGUE',
 ])
 
 /**

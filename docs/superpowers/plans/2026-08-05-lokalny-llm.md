@@ -16,7 +16,7 @@ Wynik każdego zadania to `ProjectPatch` — lista nazwanych operacji na modelu,
 - Komentarze w kodzie i komunikaty commitów po polsku; identyfikatory i typy po angielsku.
 - `strict` TypeScript z `noUncheckedIndexedAccess`, zero `any`, **zero asercji `!`** w `web/src` i `server/src`.
 - **LLM nigdy nie pisze tekstu wyjściowego bezpośrednio.** Zwraca łatkę; użytkownik ją przyjmuje.
-- **Akcja interfejsu nie ma prawa wyprodukować diagnostyki walidatora w projekcie, ktory jej nie miał.** Przyjęte wyjątki: `SPEECH_FITS`, `SOUNDSCAPE_NA_ONLY_IF_SILENT`, `SPEAKER_SILENT_NO_ID`, `FL2VA_PREFER_SINGLE_SHOT`. Zastosowanie łatki jest taką akcją.
+- **Akcja interfejsu nie ma prawa wyprodukować diagnostyki walidatora w projekcie, ktory jej nie miał.** Przyjęte wyjątki: `SPEECH_FITS`, `SOUNDSCAPE_NA_ONLY_IF_SILENT`, `SPEAKER_SILENT_NO_ID`, `FL2VA_PREFER_SINGLE_SHOT`. Zastosowanie łatki jest taką akcją. *(Recenzja końcowa gałęzi, punkt 5: dla zadań językowych doszły dwie reguły TREŚCI — `MUSIC_NO_MOOD_WORDS` i `SOUNDSCAPE_NO_DIALOGUE` — zgodnie z rozstrzygnięciem zadania 11, że schemat pilnuje kształtu, nie treści. Pełna, sześciopozycyjna lista z uzasadnieniem: punkt 22 `docs/superpowers/specs/2026-08-04-uwagi-do-planu-2.md`.)*
 - **Bez skonfigurowanego modelu aplikacja działa w pełni.** Panel LLM jest wtedy wyszarzony z wyjaśnieniem, a żadna inna funkcja nie może się o to potknąć.
 - Klucz do endpointu nie trafia do `project.json`, do eksportu ani do odpowiedzi API.
 - **Prompt jest po angielsku. Zawsze.** Użytkownik wolno pisze po polsku — od tego jest redakcja, która na końcu przekłada cały projekt na angielski. Żadne zadanie językowe nie produkuje polskiej treści do modelu wideo; polszczyzna żyje w interfejsie i w tym, co człowiek wpisuje, nie w tym, co wychodzi.

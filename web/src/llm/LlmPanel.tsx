@@ -172,6 +172,15 @@ export function LlmPanel() {
   const run = useLlmRun()
 
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
+  // Ustawienia ZAPISANE na serwerze — osobno od brudnopisu formularza
+  // (`draft`), bo tylko one mówią, czym serwer naprawdę dysponuje. Recenzja
+  // końcowa gałęzi, punkt 4: `configured` liczyło gałąź endpointu z
+  // NIEZAPISANEGO brudnopisu, a gałąź trybu zarządzanego ze stanu z serwera —
+  // jeden znak wpisany w adres odblokowywał pięć przycisków zadań i chował
+  // ostrzeżenie „Model nie jest skonfigurowany", choć serwer nie miał żadnych
+  // ustawień. Kliknięcie kończyło się wtedy odpowiedzią 409, więc nic się nie
+  // psuło — ale interfejs twierdził nieprawdę.
+  const [saved, setSaved] = useState<LlmSettings | null>(null)
   const [managed, setManaged] = useState<ManagedState | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -210,7 +219,11 @@ export function LlmPanel() {
     // zostaje przy trybie wyłączonym i pokazuje komunikat, zamiast wywracać
     // resztę aplikacji efektem ubocznym nieudanego zapytania.
     settingsApi.getSettings()
-      .then(settings => { if (!cancelled) setDraft(draftFrom(settings)) })
+      .then(settings => {
+        if (cancelled) return
+        setDraft(draftFrom(settings))
+        setSaved(settings)
+      })
       .catch((error: unknown) => {
         if (cancelled) return
         setLoadError(error instanceof Error ? error.message : String(error))
@@ -252,11 +265,17 @@ export function LlmPanel() {
 
   const busy = run.status === 'running'
 
-  const configured = draft.mode === 'endpoint'
-    ? draft.baseUrl.trim() !== ''
-    : draft.mode === 'managed'
-      ? managed?.status === 'ready'
-      : false
+  // Obie połowy tego wyrażenia czytają JEDNO źródło prawdy — ustawienia
+  // zapisane na serwerze (`saved`), nie brudnopis formularza. Póki `saved`
+  // jest `null` (odczyt trwa albo padł), dostawca jest nieskonfigurowany:
+  // serwer i tak odmówiłby uruchomienia zadania.
+  const configured = saved === null
+    ? false
+    : saved.mode === 'endpoint'
+      ? saved.endpoint.baseUrl.trim() !== ''
+      : saved.mode === 'managed'
+        ? managed?.status === 'ready'
+        : false
 
   const tasksEnabled = configured && slug !== null && !busy
 
@@ -280,6 +299,7 @@ export function LlmPanel() {
         },
       })
       setDraft(draftFrom(next))
+      setSaved(next)
       // Zapisany dostawca mógł się zmienić (tryb, adres) — możliwość
       // zwolnienia pamięci zależy od NIEGO, więc odświeżamy ją razem z
       // ustawieniami, inaczej podpowiedź przy przycisku kłamałaby o
@@ -383,6 +403,7 @@ export function LlmPanel() {
         },
       })
       setDraft(draftFrom(next))
+      setSaved(next)
       setKeyCleared(true)
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : String(error))

@@ -175,6 +175,46 @@ describe('LlmPanel — stan bez skonfigurowanego modelu', () => {
     expect(screen.getByRole('button', { name: 'Podpowiedź audio' })).toHaveAttribute('aria-disabled', 'true')
   })
 
+  /**
+   * Recenzja końcowa gałęzi, punkt 4: `configured` liczyło gałąź endpointu z
+   * NIEZAPISANEGO brudnopisu formularza, a gałąź trybu zarządzanego ze stanu
+   * przyniesionego z serwera — jedna litera wpisana w adres odblokowywała
+   * pięć przycisków zadań i chowała ostrzeżenie „Model nie jest
+   * skonfigurowany", choć serwer nie miał żadnych ustawień (kliknięcie
+   * kończyło się odpowiedzią 409 z polskim komunikatem, więc nic się nie
+   * psuło — ale interfejs twierdził nieprawdę).
+   */
+  it('wpisanie adresu endpointu BEZ zapisania nie odblokowuje zadań ani nie chowa ostrzeżenia — dopiero zapis to robi', async () => {
+    const handlers = {
+      ...baseHandlers(settingsOff),
+      'PUT /api/llm/settings': () => json(settingsEndpoint),
+    }
+    vi.stubGlobal('fetch', routedFetch(handlers))
+    render(<LlmPanel />)
+    const user = userEvent.setup()
+
+    await screen.findByText('Model nie jest skonfigurowany')
+    await user.click(screen.getByRole('button', { name: 'Endpoint' }))
+    await user.type(screen.getByLabelText('Adres endpointu'), 'http://localhost:1234/v1')
+
+    // Brudnopis niesie już pełny adres, a mimo to serwer wciąż nie ma
+    // ustawień — interfejs musi mówić dokładnie to.
+    expect(screen.getByLabelText('Adres endpointu')).toHaveValue('http://localhost:1234/v1')
+    expect(screen.getByText('Model nie jest skonfigurowany')).toBeInTheDocument()
+    for (const name of [
+      'Struktura z pomysłu', 'Redakcja PL→EN', 'Podpowiedź audio', 'Krytyk', 'Tłumaczenie całego projektu',
+    ]) {
+      expect(screen.getByRole('button', { name })).toHaveAttribute('aria-disabled', 'true')
+    }
+
+    await user.click(screen.getByRole('button', { name: 'Zapisz ustawienia' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Podpowiedź audio' })).toHaveAttribute('aria-disabled', 'false')
+    })
+    expect(screen.queryByText('Model nie jest skonfigurowany')).not.toBeInTheDocument()
+  })
+
   it('sieć niedostępna przy wczytywaniu ustawień pokazuje komunikat zamiast wisieć bez odpowiedzi nieobsłużonym odrzuceniem', async () => {
     // Dokładnie ten scenariusz psuł `npm test` dla całkiem innych testów
     // (`web/test/screens/editor.test.tsx`, który montuje `Editor` i przez to

@@ -62,9 +62,13 @@ const ACCEPTED_NEW_DIAGNOSTICS = new Set([
   // Czwarty przyjęty wyjątek — `FL2VA_PREFER_SINGLE_SHOT` (podział ujęcia w
   // trybie FL2VA) — celowo NIE stoi na tej liście: fikstury tego pliku są
   // T2VA, a te przyciski nie tworzą ujęć, więc ta reguła jest tu
-  // nieosiągalna i wpisanie jej tylko rozluźniłoby asercję bez powodu.
-  // Pełna lista czterech wyjątków żyje w `progress.md` i w punkcie 18
-  // `docs/superpowers/specs/2026-08-04-uwagi-do-planu-2.md`.
+  // nieosiągalna i wpisanie jej tylko rozluźniłoby asercję bez powodu. Z tego
+  // samego powodu nie ma tu dwóch wyjątków TREŚCI dopisanych w recenzji
+  // końcowej Planu 5 (`MUSIC_NO_MOOD_WORDS`, `SOUNDSCAPE_NO_DIALOGUE`) —
+  // dotyczą prozy pisanej przez model językowy do pól audio, a żaden przycisk
+  // osi czasu takiej prozy nie tworzy.
+  // Pełna, sześciopozycyjna lista i podział na wyjątki kształtu i treści żyją
+  // w punktach 18 i 22 `docs/superpowers/specs/2026-08-04-uwagi-do-planu-2.md`.
 ])
 
 /**
