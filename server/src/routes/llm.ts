@@ -5,6 +5,7 @@ import { LlmSettingsSchema, readSettings, redactSettings, writeSettings } from '
 import { createProvider } from '../llm/provider.js'
 import type { Provider } from '../llm/provider.js'
 import { startManaged, stopManaged, managedState } from '../llm/managed.js'
+import { readGpu } from '../llm/gpu.js'
 import { detectUnloadCapability, unloadModel } from '../llm/unload.js'
 import { runTask } from '../llm/run.js'
 import { structureTask, structureToPatch, type StructureInput } from '../llm/tasks/structure.js'
@@ -214,7 +215,9 @@ export function registerLlmRoutes(app: FastifyInstance): void {
     return managedState()
   })
 
-  app.get('/api/llm/managed/state', async () => managedState())
+  /** Odczyt karty robi TRASA, nie `managedState()` — patrz komentarz przy
+   *  `ManagedStateWithGpu` w `managed.ts`. */
+  app.get('/api/llm/managed/state', async () => ({ ...managedState(), gpu: await readGpu() }))
 
   // Wykrywanie i samo zwolnienie zawsze odpowiadają dwusetką — niepowodzenie
   // zwolnienia (dostawca bez takiej możliwości, błąd po jego stronie) to

@@ -2,11 +2,24 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { stat, access, constants as fsConstants } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import type { LlmSettings } from './settings.js'
+import type { GpuInfo } from './gpu.js'
 
+/** Stan samego PROCESU zarządzanego serwera — synchroniczny i o niczym innym. */
 export interface ManagedState {
   status: 'stopped' | 'starting' | 'ready' | 'failed'
   logs: string[]
   port: number
+}
+
+/**
+ * To, co trasa `GET /api/llm/managed/state` oddaje klientowi: stan procesu plus
+ * odczyt karty. Karta jest tu, a nie w `ManagedState`, bo jej pomiar jest
+ * asynchroniczny i ma sens TAKŻE w trybie `endpoint`, gdzie żaden zarządzany
+ * proces nie istnieje. Doklejenie jej do stanu procesu zmuszałoby każde miejsce
+ * budujące ten stan do udawania, że wie coś o GPU.
+ */
+export interface ManagedStateWithGpu extends ManagedState {
+  gpu: GpuInfo | null
 }
 
 type ManagedSettings = LlmSettings['managed']
