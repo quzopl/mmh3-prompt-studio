@@ -3,7 +3,18 @@ import { createOpenAiProvider } from './openai.js'
 import { managedState } from './managed.js'
 
 export interface ChatMessage {
-  role: 'system' | 'user'
+  /**
+   * `assistant` doszło razem z zadaniem rozmowy o polu (`tasks/fieldChat.ts`):
+   * historia wątku ma trafiać do modelu jako NAPRZEMIENNE tury, bo tylko wtedy
+   * „mocniej" albo „nie, mniej deszczu" ma się do czego odnieść. Zlepienie
+   * historii w jedną wiadomość użytkownika gubi, które zdania napisał model, a
+   * to jest dokładnie ta informacja, którą doprecyzowanie modyfikuje.
+   *
+   * Warstwa HTTP przepuszcza role bez tłumaczenia (`openai.ts` wysyła
+   * `messages: req.messages` wprost), a `assistant` jest rolą własną protokołu
+   * OpenAI — więc rozszerzenie tej unii nie wymaga niczego po tamtej stronie.
+   */
+  role: 'system' | 'user' | 'assistant'
   content: string
 }
 
