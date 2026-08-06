@@ -8,6 +8,8 @@ import {
 import { useLlmRun, type LlmRunRequest } from './useLlmRun.js'
 import { PatchReview } from './PatchReview.js'
 import { FieldChat } from './FieldChat.js'
+import { ProviderDiscovery } from './ProviderDiscovery.js'
+import { ModelInstall } from './ModelInstall.js'
 import { ActionButton, LabelledField as Field, inputClass } from './ActionButton.js'
 
 const MODES: LlmMode[] = ['off', 'endpoint', 'managed']
@@ -123,6 +125,8 @@ const EMPTY_DRAFT: Draft = {
   serverBinary: '', modelPath: '', gpuLayers: '0', contextSize: '8192',
 }
 
+const GPU_POLL_MS = 5_000
+
 export function LlmPanel() {
   const t = useT()
   const slug = useProject(state => state.slug)
@@ -189,12 +193,6 @@ export function LlmPanel() {
         if (cancelled) return
         setLoadError(error instanceof Error ? error.message : String(error))
       })
-    settingsApi.getManagedState()
-      .then(state => { if (!cancelled) setManaged(state) })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        setManagedStateError(error instanceof Error ? error.message : String(error))
-      })
     // Wykrywanie możliwości zwolnienia pamięci to operacja pomocnicza — sieć
     // niedostępna zostawia przycisk po prostu nieaktywnym (`null`), bez
     // osobnego komunikatu błędu; nikt nie traci przez to reszty panelu.
@@ -202,6 +200,41 @@ export function LlmPanel() {
       .then(res => { if (!cancelled) setUnloadCapability(res.capability) })
       .catch(() => { if (!cancelled) setUnloadCapability(null) })
     return () => { cancelled = true }
+  }, [])
+
+  /**
+   * Stan serwera odpytujemy CYKLICZNIE, bo linijka VRAM ma pokazywać ZMIANĘ:
+   * wzrost po starcie modelu i spadek po kliknięciu „Zwolnij pamięć karty".
+   * Wcześniej stan pobierał się dokładnie raz, przy montowaniu — dla samego
+   * statusu to wystarczało, dla pomiaru nie.
+   *
+   * Gdy odczyt karty wróci `null`, przestajemy odpytywać: maszyna bez NVIDII
+   * nie ma powodu uruchamiać nieistniejącego polecenia co pięć sekund do końca
+   * życia panelu. Łańcuch `setTimeout`, nie `setInterval` — kolejne pytanie
+   * wychodzi dopiero po odpowiedzi na poprzednie, więc wolna odpowiedź nie
+   * zwija się w kolejkę żądań.
+   */
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const tick = (): void => {
+      settingsApi.getManagedState()
+        .then(state => {
+          if (cancelled) return
+          setManaged(state)
+          if (state.gpu !== null) timer = setTimeout(tick, GPU_POLL_MS)
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return
+          setManagedStateError(error instanceof Error ? error.message : String(error))
+        })
+    }
+    tick()
+    return () => {
+      cancelled = true
+      if (timer !== null) clearTimeout(timer)
+    }
   }, [])
 
   /**
@@ -245,18 +278,25 @@ export function LlmPanel() {
   // reszta formularza ustawień. `null`/`'none'` znaczą „nie ma czego zawołać".
   const unloadDisabled = busy || unloadBusy || unloadCapability === null || unloadCapability === 'none'
 
-  const saveSettings = async (): Promise<void> => {
+  /**
+   * `overrides` istnieje dla wykrywania dostawcy: „Użyj" ma ustawić adres i
+   * ZAPISAĆ go jednym kliknięciem. Samo `setDraft` przed wywołaniem tej funkcji
+   * nie wystarcza — React nie aktualizuje stanu synchronicznie, więc zapis
+   * wysłałby jeszcze poprzednią wartość.
+   */
+  const saveSettings = async (overrides: Partial<typeof draft> = {}): Promise<void> => {
     setSaveError(null)
     setKeyCleared(false)
+    const values = { ...draft, ...overrides }
     try {
       const next = await settingsApi.putSettings({
-        mode: draft.mode,
-        endpoint: { baseUrl: draft.baseUrl, apiKey: draft.apiKey, model: draft.model },
+        mode: values.mode,
+        endpoint: { baseUrl: values.baseUrl, apiKey: values.apiKey, model: values.model },
         managed: {
-          serverBinary: draft.serverBinary,
-          modelPath: draft.modelPath,
-          gpuLayers: toInt(draft.gpuLayers, 0),
-          contextSize: toInt(draft.contextSize, 8192),
+          serverBinary: values.serverBinary,
+          modelPath: values.modelPath,
+          gpuLayers: toInt(values.gpuLayers, 0),
+          contextSize: toInt(values.contextSize, 8192),
         },
       })
       setDraft(draftFrom(next))
@@ -419,6 +459,18 @@ export function LlmPanel() {
         <span className="mb-2 block text-xs uppercase tracking-wide text-neutral-500">
           {t('llm.settingsTitle')}
         </span>
+        {/*
+          Wykrywanie stoi PRZED wyborem trybu, bo to najtańsza droga do
+          działającego modelu: jeśli użytkownik ma już Ollamę, nie musi ani
+          niczego pobierać, ani pamiętać adresu.
+        */}
+        <ProviderDiscovery
+          onPick={baseUrl => {
+            setDraft(current => ({ ...current, mode: 'endpoint', baseUrl }))
+            void saveSettings({ mode: 'endpoint', baseUrl })
+          }}
+        />
+
         <div role="group" aria-label={t('llm.settingsTitle')} className="mb-2 flex gap-1">
           {MODES.map(mode => (
             <ActionButton
@@ -430,6 +482,34 @@ export function LlmPanel() {
             />
           ))}
         </div>
+
+        {/*
+          Ekran pobierania widoczny WYŁĄCZNIE wtedy, gdy użytkownik nie ma
+          jeszcze nic: nie wskazał endpointu i nie ma ścieżki do binarki. Komuś,
+          kto już skonfigurował dostawcę, oferowanie 9 GB do pobrania byłoby
+          zawadą, nie pomocą.
+        */}
+        {saved !== null && saved.mode !== 'endpoint' && saved.managed.serverBinary === '' && (
+          <ModelInstall
+            freeVramMb={managed?.gpu == null ? null : managed.gpu.totalMb - managed.gpu.usedMb}
+          />
+        )}
+
+        {/*
+          Linijka VRAM stoi przy WYBORZE DOSTAWCY, nie przy zarządzanym
+          serwerze: pamięć karty zajmuje także model uruchomiony poza aplikacją
+          (Ollama, LM Studio), a decyzja „czy zwolnić przed ComfyUI" dotyczy
+          każdego trybu. Brak odczytu (`gpu === null`) nie renderuje NICZEGO —
+          zero udające pomiar jest gorsze niż brak pomiaru.
+        */}
+        {managed?.gpu != null && (
+          <p className="mb-2 text-[11px] text-neutral-400">
+            {managed.gpu.name} · {t('llm.gpuLine', {
+              used: (managed.gpu.usedMb / 1024).toFixed(1),
+              total: (managed.gpu.totalMb / 1024).toFixed(1),
+            })}
+          </p>
+        )}
 
         {/*
           Przycisk siedzi obok wyboru dostawcy, nie przy czterech zadaniach —

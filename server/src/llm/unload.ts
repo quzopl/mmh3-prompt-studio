@@ -1,5 +1,6 @@
 import type { LlmSettings } from './settings.js'
 import { stopManaged } from './managed.js'
+import { hostUrl, probeOk } from './probe.js'
 
 /**
  * Sposób zwolnienia pamięci karty zależy od dostawcy i żaden nie jest
@@ -16,11 +17,6 @@ export interface UnloadResult {
   reason?: string
 }
 
-/** Sondy nie mogą trzymać użytkownika klikającego przycisk aż do wyczerpania
- * systemowego limitu czasu przez dwa nieistniejące endpointy — dwie sekundy
- * wystarczają lokalnemu serwerowi na tej samej maszynie, żeby odpowiedzieć. */
-const PROBE_TIMEOUT_MS = 2_000
-
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -30,32 +26,6 @@ function authHeader(apiKey: string): Record<string, string> {
   // "Bearer " bywa odrzucany, więc nagłówka po prostu nie ma bez klucza,
   // tak samo jak w `openai.ts`.
   return apiKey === '' ? {} : { authorization: `Bearer ${apiKey}` }
-}
-
-/** Buduje adres w KORZENIU hosta z `baseUrl`, nie doklejając ścieżki do
- * istniejącego prefiksu (np. `/v1`) — Ollama wystawia `/api/tags`, a LM
- * Studio `/api/v0/models`/`/api/v1/...` w korzeniu, nie pod `/v1`. `URL`
- * zamiast konkatenacji stringów, tak jak `requestUrl` w `openai.ts` po
- * poprawce z zadania 2. */
-function hostUrl(baseUrl: string, path: string): string {
-  const url = new URL(baseUrl)
-  url.pathname = path
-  url.search = ''
-  url.hash = ''
-  return url.toString()
-}
-
-/** Sonda, która NIGDY nie rzuca — adres nieprawidłowy, serwer nieistniejący
- * albo odpowiedź spoza dwusetki wszystkie kończą się tym samym `false`.
- * Wykrywanie możliwości nie jest operacją krytyczną, więc żaden z tych
- * przypadków nie ma prawa wywrócić reszty. */
-async function probeOk(baseUrl: string, path: string): Promise<boolean> {
-  try {
-    const response = await fetch(hostUrl(baseUrl, path), { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
-    return response.ok
-  } catch {
-    return false
-  }
 }
 
 /**

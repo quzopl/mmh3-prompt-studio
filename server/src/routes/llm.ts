@@ -5,6 +5,7 @@ import { LlmSettingsSchema, readSettings, redactSettings, writeSettings } from '
 import { createProvider } from '../llm/provider.js'
 import type { Provider } from '../llm/provider.js'
 import { startManaged, stopManaged, managedState } from '../llm/managed.js'
+import { readGpu } from '../llm/gpu.js'
 import { detectUnloadCapability, unloadModel } from '../llm/unload.js'
 import { runTask } from '../llm/run.js'
 import { structureTask, structureToPatch, type StructureInput } from '../llm/tasks/structure.js'
@@ -16,6 +17,9 @@ import {
   fieldChatTaskFor, fieldChatToPatch, fieldLabelFor, type FieldChatInput,
 } from '../llm/tasks/fieldChat.js'
 import { appendTurn, readChats, threadKey } from '../llm/chatStore.js'
+import { discoverProviders } from '../llm/discover.js'
+import { engineAssetFor, MODELS } from '../llm/catalog.js'
+import { installEngineAndModel } from '../llm/install.js'
 import { DEFAULT_REPLY_LANGUAGE, ReplyLanguageSchema } from '../llm/tasks/replyLanguage.js'
 import { audioTask, audioToPatch, audioInputFromProject } from '../llm/tasks/audio.js'
 import { criticTask, criticToNotes, criticAllowedRefs, type CriticInput } from '../llm/tasks/critic.js'
@@ -180,6 +184,18 @@ export function registerLlmRoutes(app: FastifyInstance): void {
     return redactSettings(await readSettings(app.dataRoot))
   })
 
+  /** Skan pętli lokalnej — nigdy nie rzuca i nigdy nie zwraca błędu: „nic nie
+   *  stoi" jest normalnym wynikiem, nie awarią. */
+  app.get('/api/llm/discover', async () => ({ found: await discoverProviders() }))
+
+  /** Katalog jest STAŁY — nie pyta sieci. Dzięki temu ekran wyboru modelu
+   *  otwiera się natychmiast i działa bez internetu; dopiero kliknięcie
+   *  „Pobierz" wychodzi na zewnątrz. */
+  app.get('/api/llm/catalog', async () => ({
+    models: MODELS,
+    engine: engineAssetFor(process.platform, process.arch),
+  }))
+
   app.get('/api/llm/models', async (_request, reply) => {
     const provider = createProvider(await readSettings(app.dataRoot))
     if (provider === null) return reply.status(409).send({ error: 'Model nie jest skonfigurowany' })
@@ -209,7 +225,9 @@ export function registerLlmRoutes(app: FastifyInstance): void {
     return managedState()
   })
 
-  app.get('/api/llm/managed/state', async () => managedState())
+  /** Odczyt karty robi TRASA, nie `managedState()` — patrz komentarz przy
+   *  `ManagedStateWithGpu` w `managed.ts`. */
+  app.get('/api/llm/managed/state', async () => ({ ...managedState(), gpu: await readGpu() }))
 
   // Wykrywanie i samo zwolnienie zawsze odpowiadają dwusetką — niepowodzenie
   // zwolnienia (dostawca bez takiej możliwości, błąd po jego stronie) to
@@ -235,6 +253,49 @@ export function registerLlmRoutes(app: FastifyInstance): void {
     }
     const settings = await readSettings(app.dataRoot)
     return await unloadModel(settings, parsed.data.capability)
+  })
+
+  const InstallBody = z.object({ modelId: z.string().min(1) })
+
+  app.post('/api/llm/install', async (request, reply) => {
+    const parsed = InstallBody.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: 'Żądanie niezgodne ze schematem' })
+    if (!MODELS.some(model => model.id === parsed.data.modelId)) {
+      return reply.status(400).send({ error: `Nie znam modelu "${parsed.data.modelId}"` })
+    }
+
+    // Ten sam układ co `POST /api/llm/run`: sprawdzenia zwracające 4xx MUSZĄ
+    // rozstrzygnąć się PRZED `reply.hijack()`, bo po przejęciu odpowiedzi nie
+    // da się już ustawić ani kodu, ani nagłówków.
+    const { signal, release } = abortSignalFor(request)
+    reply.hijack()
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+    })
+    reply.raw.flushHeaders()
+
+    const send = (event: 'progress' | 'done' | 'error', data: unknown): void => {
+      if (signal.aborted) return
+      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    }
+
+    try {
+      const result = await installEngineAndModel({
+        runtimeRoot: app.runtimeRoot,
+        dataRoot: app.dataRoot,
+        modelId: parsed.data.modelId,
+        onProgress: progress => send('progress', progress),
+        signal,
+      })
+      send('done', result)
+    } catch (error) {
+      send('error', { error: error instanceof Error ? error.message : 'Instalacja nie powiodła się' })
+    } finally {
+      release()
+      reply.raw.end()
+    }
   })
 
   app.post('/api/llm/run', async (request, reply) => {

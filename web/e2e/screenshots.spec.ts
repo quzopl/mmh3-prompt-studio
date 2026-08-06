@@ -75,6 +75,18 @@ test('zrzuty panelu LLM', async ({ page }) => {
   await mkdir(SHOTS, { recursive: true })
   await page.setViewportSize({ width: 1680, height: 1180 })
   await page.goto('/')
+  // Czysty stan PRZED wejściem do edytora: ustawienia dostawcy to plik na
+  // maszynę, a zrzuty mają pokazywać panel człowieka, który jeszcze nic nie
+  // skonfigurował. Panel czyta ustawienia przy montowaniu, więc wystarczy
+  // zrobić to zanim projekt się otworzy — przeładowanie strony wyrzuciłoby
+  // z edytora z powrotem na listę projektów.
+  await page.request.put('/api/llm/settings', {
+    data: {
+      mode: 'off',
+      endpoint: { baseUrl: '', apiKey: null, model: '' },
+      managed: { serverBinary: '', modelPath: '', gpuLayers: 0, contextSize: 8192 },
+    },
+  })
   await page.getByRole('button', { name: 'EN', exact: true }).click()
 
   await page.getByRole('button', { name: /new project/i }).click()
@@ -86,6 +98,10 @@ test('zrzuty panelu LLM', async ({ page }) => {
 
   await expect(page.getByText(/model is not configured/i).first()).toBeVisible()
   await panel.screenshot({ path: join(SHOTS, '05-llm-off.png'), animations: 'disabled' })
+
+  // Ekran pobierania — to, co widzi ktoś, kto nie ma jeszcze nic: rozmiary
+  // przed kliknięciem i wykrywanie serwerów, gdyby już coś stało na maszynie.
+  await panel.screenshot({ path: join(SHOTS, '08-install.png'), animations: 'disabled' })
 
   // Ten sam panel po wskazaniu dostawcy: zadania stają się aktywne, a przycisk
   // zwolnienia pamięci karty mówi, co potrafi u TEGO dostawcy.
