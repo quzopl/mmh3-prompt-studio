@@ -27,6 +27,7 @@ export interface LlmRunRequest {
 interface DonePayload {
   patch?: unknown
   notes?: unknown
+  reply?: unknown
   promptTokens?: unknown
   completionTokens?: unknown
   repaired?: unknown
@@ -80,6 +81,12 @@ export interface UseLlmRunResult {
    * wyłącznie mechaniką sieci i nie zna znaczenia uwag, tak samo jak nie zna
    * znaczenia operacji w `patch`. */
   notes: CriticNote[] | null
+  /** Proza od modelu dla zadania „fieldChat" (rozmowa o polu) — komentarz, co
+   * zmienił i dlaczego. `null` dla wszystkich pozostałych zadań, które takiego
+   * pola w odpowiedzi nie niosą. Idzie OBOK `patch`, nie zamiast niego: proza
+   * jest do przeczytania, operacja do zastosowania, a tura bywa samym pytaniem
+   * i wtedy `patch.ops` jest puste, mimo że `reply` istnieje. */
+  reply: string | null
   /** Licznik postępu w trakcie strumieniowania — liczba przyjętych kawałków
    * BIEŻĄCEJ próby (przybliżenie liczby tokenów; lokalne serwery zgodne z
    * API OpenAI wysyłają zwykle jeden kawałek na jeden wygenerowany token).
@@ -272,6 +279,7 @@ export function useLlmRun(): UseLlmRunResult {
   const [retrying, setRetrying] = useState(false)
   const [patch, setPatch] = useState<ProjectPatch | null>(null)
   const [notes, setNotes] = useState<CriticNote[] | null>(null)
+  const [reply, setReply] = useState<string | null>(null)
   const [tokens, setTokens] = useState(0)
   const [promptTokens, setPromptTokens] = useState<number | null>(null)
   const [completionTokens, setCompletionTokens] = useState<number | null>(null)
@@ -335,6 +343,7 @@ export function useLlmRun(): UseLlmRunResult {
     setRetrying(false)
     setPatch(null)
     setNotes(null)
+    setReply(null)
     setTokens(0)
     setPromptTokens(null)
     setCompletionTokens(null)
@@ -368,6 +377,7 @@ export function useLlmRun(): UseLlmRunResult {
         finish()
         setPatch(isProjectPatch(payload.patch) ? payload.patch : null)
         setNotes(isCriticNoteArray(payload.notes) ? payload.notes : null)
+        setReply(typeof payload.reply === 'string' ? payload.reply : null)
         const finalCompletion = asTokenCount(payload.completionTokens)
         setPromptTokens(asTokenCount(payload.promptTokens))
         setCompletionTokens(finalCompletion)
@@ -391,5 +401,5 @@ export function useLlmRun(): UseLlmRunResult {
     })
   }, [finish, stopTicking])
 
-  return { status, text, retrying, patch, notes, tokens, promptTokens, completionTokens, elapsedMs, error, run, cancel }
+  return { status, text, retrying, patch, notes, reply, tokens, promptTokens, completionTokens, elapsedMs, error, run, cancel }
 }

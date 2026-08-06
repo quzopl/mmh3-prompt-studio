@@ -7,7 +7,8 @@ import {
 import type { ChatMessage, Provider } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
 import { runTask } from '../run.js'
-import { redactToPatch, type RedactTarget } from './redact.js'
+import { redactToPatch } from './redact.js'
+import type { RedactTarget } from './fieldTarget.js'
 import { audioFieldTextMessage, audioFieldTextOk, AUDIO_FIELD_RULE_BY_ID } from './audioFieldText.js'
 
 /**

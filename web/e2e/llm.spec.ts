@@ -61,7 +61,7 @@ function waitForAutosave(page: Page) {
 // (`tasksEnabled` w `LlmPanel.tsx`) — piąte, „Struktura z pomysłu", ma DODATKOWY
 // warunek (obie części pomysłu niepuste, `canRunStructure`), więc zostaje
 // nieaktywne nawet po skonfigurowaniu dostawcy i nie należy do tej listy.
-const CONFIG_GATED_TASKS = ['Redakcja PL→EN', 'Podpowiedź audio', 'Krytyk', 'Tłumaczenie całego projektu']
+const CONFIG_GATED_TASKS = ['Rozmawiaj o tym polu', 'Podpowiedź audio', 'Krytyk', 'Tłumaczenie całego projektu']
 
 const SOUNDSCAPE_TEXT = 'Rain taps steadily against the window and distant traffic hums beyond it.'
 const MUSIC_TEXT = 'A slow, sparse piano plays over softly sustained strings.'

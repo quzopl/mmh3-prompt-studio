@@ -1,0 +1,6 @@
+
+> @mmh3/server@0.1.0 start
+> tsx src/main.ts
+
+MMH3 Prompt Studio API słucha na http://127.0.0.1:8899
+Katalog danych: /home/ubuntu/mmh3-studio/projects

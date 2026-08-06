@@ -7,6 +7,8 @@ import {
 } from './settingsApi.js'
 import { useLlmRun, type LlmRunRequest } from './useLlmRun.js'
 import { PatchReview } from './PatchReview.js'
+import { FieldChat } from './FieldChat.js'
+import { ActionButton, LabelledField as Field, inputClass } from './ActionButton.js'
 
 const MODES: LlmMode[] = ['off', 'endpoint', 'managed']
 
@@ -82,50 +84,6 @@ function redactOptions(t: Translate, speakers: { id: string; code: string }[]): 
   return options
 }
 
-/**
- * Przycisk sterowalny klawiaturą bez natywnego `<button>`. Natywny przycisk
- * puszcza zdarzenie `keydown` spacji dalej do `window` — a tam
- * `useTimelineShortcuts` tą samą spacją przełącza odtwarzanie. Cztery zadania
- * poprzedniego planu wypuściły dokładnie ten błąd (patrz `ShotTrack.tsx` po
- * ten sam wzorzec). `preventDefault`/`stopPropagation` lecą na Enterze i
- * spacji, zanim decyzja o aktywacji w ogóle zapadnie.
- */
-function ActionButton({
-  label, onClick, disabled = false, pressed,
-}: { label: string; onClick: () => void; disabled?: boolean; pressed?: boolean }) {
-  const activate = (): void => { if (!disabled) onClick() }
-  return (
-    <div
-      role="button"
-      tabIndex={disabled ? -1 : 0}
-      aria-disabled={disabled}
-      aria-pressed={pressed}
-      onClick={activate}
-      onKeyDown={event => {
-        if (event.key !== 'Enter' && event.key !== ' ') return
-        event.preventDefault()
-        event.stopPropagation()
-        activate()
-      }}
-      className={`rounded border px-2 py-1 text-xs ${
-        pressed ? 'border-sky-600 bg-sky-950 text-sky-100' : 'border-neutral-700 hover:border-neutral-500'
-      } ${disabled ? 'pointer-events-none opacity-40' : 'cursor-pointer'}`}
-    >
-      {label}
-    </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="block text-xs">
-      <span className="mb-1 block text-neutral-500">{label}</span>
-      {children}
-    </label>
-  )
-}
-
-const inputClass = 'w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm'
 
 const toInt = (raw: string, previous: number): number => {
   const parsed = Number(raw)
@@ -210,6 +168,7 @@ export function LlmPanel() {
   const speakers = project?.speakers ?? []
   const redactChoices = redactOptions(t, speakers)
   const [redactValue, setRedactValue] = useState(redactChoices[0]?.value ?? 'style')
+  const [chatTarget, setChatTarget] = useState<RedactTarget | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -417,10 +376,21 @@ export function LlmPanel() {
 
   const runStructure = (): void => startRun({ task: 'structure', projectSlug: slug ?? '', ideaA, ideaB })
 
-  const runRedact = (): void => {
+  /**
+   * Rozmowa zastępuje jednostrzałową redakcję. Do pola prowadzą teraz jedne
+   * drzwi, a nie dwoje: w tym projekcie trzykrotnie wracała ta sama klasa
+   * usterki — strażnik postawiony w jednych drzwiach, gdy drzwi jest kilka
+   * (stąd `audioFieldText.ts`, gdy trzy zadania pisały do pól audio trzema
+   * drogami). Pierwsza tura rozmowy robi to, co robiła redakcja.
+   *
+   * Samo zadanie `redact` po stronie serwera ZOSTAJE: korzysta z niego
+   * tłumaczenie całego projektu (`translateAll.ts`), więc usunięcie go zabrałoby
+   * funkcję, której ta zmiana nie dotyczy.
+   */
+  const openChat = (): void => {
     const choice = redactChoices.find(option => option.value === redactValue) ?? redactChoices[0]
     if (!choice) return
-    startRun({ task: 'redact', projectSlug: slug ?? '', target: choice.target })
+    setChatTarget(choice.target)
   }
 
   const runAudio = (): void => startRun({ task: 'audio', projectSlug: slug ?? '' })
@@ -663,7 +633,7 @@ export function LlmPanel() {
               ))}
             </select>
           </Field>
-          <ActionButton label={t('llm.taskRedact')} disabled={!tasksEnabled} onClick={runRedact} />
+          <ActionButton label={t('llm.chatOpen')} disabled={!tasksEnabled} onClick={openChat} />
         </div>
 
         <ActionButton label={t('llm.taskAudio')} disabled={!tasksEnabled} onClick={runAudio} />
@@ -704,6 +674,10 @@ export function LlmPanel() {
         łatkę (nie „Krytyk" — tam `run.patch` zostaje `null`, patrz `useLlmRun.ts`).
       */}
       {run.status === 'done' && run.patch && <PatchReview patch={run.patch} />}
+
+      {chatTarget !== null && slug !== null && (
+        <FieldChat slug={slug} target={chatTarget} onClose={() => setChatTarget(null)} />
+      )}
     </section>
   )
 }

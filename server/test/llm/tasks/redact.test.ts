@@ -7,7 +7,8 @@ import {
   type Project,
   type Speaker,
 } from '@mmh3/shared'
-import { redactTaskFor, redactToPatch, type RedactResult, type RedactTarget } from '../../../src/llm/tasks/redact.js'
+import { redactTaskFor, redactToPatch, type RedactResult } from '../../../src/llm/tasks/redact.js'
+import type { RedactTarget } from '../../../src/llm/tasks/fieldTarget.js'
 import { newProject } from '../../fixtures/newProject.js'
 
 /**

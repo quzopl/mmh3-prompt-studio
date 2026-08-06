@@ -9,8 +9,13 @@ import { detectUnloadCapability, unloadModel } from '../llm/unload.js'
 import { runTask } from '../llm/run.js'
 import { structureTask, structureToPatch, type StructureInput } from '../llm/tasks/structure.js'
 import {
-  redactTaskFor, redactToPatch, redactSourceText, RedactTargetSchema, type RedactInput,
+  redactTaskFor, redactToPatch, type RedactInput,
 } from '../llm/tasks/redact.js'
+import { redactSourceText, RedactTargetSchema } from '../llm/tasks/fieldTarget.js'
+import {
+  fieldChatTaskFor, fieldChatToPatch, fieldLabelFor, type FieldChatInput,
+} from '../llm/tasks/fieldChat.js'
+import { appendTurn, readChats, threadKey } from '../llm/chatStore.js'
 import { audioTask, audioToPatch, audioInputFromProject } from '../llm/tasks/audio.js'
 import { criticTask, criticToNotes, criticAllowedRefs, type CriticInput } from '../llm/tasks/critic.js'
 import { runTranslateAll } from '../llm/tasks/translateAll.js'
@@ -51,6 +56,12 @@ const RunBody = z.discriminatedUnion('task', [
     task: z.literal('redact'),
     projectSlug: SlugSchema,
     target: RedactTargetSchema,
+  }),
+  z.object({
+    task: z.literal('fieldChat'),
+    projectSlug: SlugSchema,
+    target: RedactTargetSchema,
+    message: z.string().min(1),
   }),
   z.object({
     task: z.literal('audio'),
@@ -286,6 +297,42 @@ export function registerLlmRoutes(app: FastifyInstance): void {
               const result = await runTask(fwd, redactTaskFor(target), input, signal, onRepairStart)
               return {
                 patch: redactToPatch(result.value, target, project),
+                promptTokens: result.promptTokens,
+                completionTokens: result.completionTokens,
+                repaired: result.repaired,
+              }
+            },
+          }
+        }
+        case 'fieldChat': {
+          const target = parsed.data.target
+          const message = parsed.data.message
+          const slug = parsed.data.projectSlug
+          // W odróżnieniu od redakcji puste pole NIE jest błędem: „napisz mi
+          // styl od zera" to normalny pierwszy ruch rozmowy. Model dostaje
+          // pustą treść i wie z promptu, że ma ją zbudować. Redakcja odrzuca
+          // ten sam przypadek kodem 400, bo nie ma czego tłumaczyć.
+          const current = redactSourceText(project, target) ?? ''
+          return {
+            ok: true,
+            run: async (fwd, signal, onRepairStart) => {
+              const history = (await readChats(app.dataRoot, slug))
+                .find(thread => thread.key === threadKey(target))?.messages ?? []
+              const input: FieldChatInput = {
+                fieldLabel: fieldLabelFor(target), current, history, message,
+              }
+              const result = await runTask(fwd, fieldChatTaskFor(target), input, signal, onRepairStart)
+              // Zapis PO sukcesie, nigdy przed: tura przerwana albo zakończona
+              // błędem nie ma czego zapisać, a historia z połową wymiany
+              // myliłaby model przy następnym pytaniu — zobaczyłby pytanie bez
+              // odpowiedzi i uznał je za nieodebrane.
+              await appendTurn(
+                app.dataRoot, slug, project, target,
+                message, result.value.reply, result.value.english,
+              )
+              return {
+                patch: fieldChatToPatch(result.value, target, project),
+                reply: result.value.reply,
                 promptTokens: result.promptTokens,
                 completionTokens: result.completionTokens,
                 repaired: result.repaired,

@@ -362,6 +362,17 @@ dokładnie ten kształt, który trasa już przyjmuje i waliduje. Nic po stronie
 serwera nie wymaga zmiany; brakuje wyłącznie miejsca w interfejsie, z którego
 dałoby się to wywołać.
 
+**Stan po planie „okno dialogowe LLM" (2026-08-06):** punkt zostaje otwarty, ale
+zmienił się jego kształt. Zadanie `redact` przestało mieć własne wejście w
+panelu — zastąpiła je rozmowa o polu (`web/src/llm/FieldChat.tsx`), która
+przyjmuje ten sam `RedactTarget` i tę samą listę celów, więc `shotText` nadal
+nie ma skąd zostać wywołany. To, czego brakuje, jest teraz jednym przyciskiem:
+„Rozmawiaj o tym polu" przy polu tekstowym segmentu w `Inspector.tsx`,
+otwierający `FieldChat` z `target: { kind: 'shotText', shotId, segmentIndex }`.
+Cała reszta — trasa, wątek, historia, przegląd operacji — już działa i jest
+pokryta testami; brakuje wyłącznie miejsca, z którego użytkownik może w to
+kliknąć.
+
 ## 21. `replaceShots` może zastosować się dwukrotnie przy dwóch kliknięciach złapanych w jedną, niezatwierdzoną partię Reactu
 
 Plan 5, zadanie 11 (`web/src/llm/PatchReview.tsx`), fix round 2 — zgłoszone
@@ -503,3 +514,30 @@ pozycje z punktu 19 naraz.
 
 Decyzja właściciela projektu (6 sierpnia 2026): **nie teraz**. Zapisane, żeby
 wróciło z gotową analizą, a nie jako odkrycie od zera.
+
+## 25. Wariant `task: 'redact'` trasy uruchomienia stracił konsumenta w interfejsie
+
+Plan „okno dialogowe LLM" (2026-08-06), zadanie 7. Rozmowa o polu zastąpiła w
+panelu przycisk „Redakcja PL→EN", żeby do pola prowadziły jedne drzwi, a nie
+dwoje. Uzasadnienie zapisane wtedy w planie i w komunikacie commita brzmiało:
+„zadanie `redact` zostaje, bo korzysta z niego tłumaczenie całego projektu".
+
+**To uzasadnienie było w połowie nieprawdziwe** i wychodzi to dopiero z
+przeglądu całej gałęzi. `translateAll.ts` importuje `redactToPatch` — samą
+funkcję budującą operację — a NIE `redactTaskFor` ani trasy. Po podmianie
+kontrolki wariant `task: 'redact'` w `RunBody` (`server/src/routes/llm.ts:56`)
+oraz `redactTaskFor` wraz z własnym promptem systemowym nie są wołane przez nic
+w aplikacji. Trzyma je przy życiu wyłącznie 22 testy w `redact.test.ts`.
+
+Zostawione świadomie, nie przeoczone: to działająca, przetestowana zdolność
+dostępna po HTTP, a jednorazowe „przetłumacz to pole" bez pisania polecenia ma
+sens jako operacja sama w sobie. Ale koszt jest realny i trzeba go nazwać: to
+DRUGIE wejście do tych samych czterech pól, z osobnym promptem systemowym,
+który może się rozejść z promptem rozmowy — a rozjazd promptów jest
+niewidoczny dla typów i dla testów każdego z zadań osobno.
+
+**Dwa uczciwe wyjścia:** albo usunąć wariant trasy i `redactTaskFor` (zostawiając
+`redactToPatch` i `fieldTextSchema`, których używa tłumaczenie), albo dać
+redakcji z powrotem wejście w interfejsie — na przykład jako jedno kliknięcie
+wewnątrz okna rozmowy („przetłumacz to pole"), które wysyła turę bez pisania
+polecenia. Drugie wyjście zachowuje jedne drzwi i odzyskuje funkcję.

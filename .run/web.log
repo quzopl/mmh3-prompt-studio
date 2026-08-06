@@ -1,0 +1,13 @@
+
+  VITE v8.2.0  ready in 410 ms
+
+  ➜  Local:   http://localhost:9921/
+  ➜  Network: http://146.59.46.129:9921/  eno3
+  ➜  Network: http://172.18.0.1:9921/     br-323323b59057
+  ➜  Network: http://172.17.0.1:9921/     docker0
+  ➜  Network: http://172.19.0.1:9921/     br-410e02a896ec
+  ➜  Network: http://172.20.0.1:9921/     br-6d53b82b6e1c
+  ➜  Network: http://172.21.0.1:9921/     br-91f175de4743
+  ➜  Network: http://172.22.0.1:9921/     br-a6f43b306523
+  ➜  Network: http://172.24.0.1:9921/     br-30454595b7cf
+  ➜  Network: http://172.25.0.1:9921/     br-e93dc5fc2082
