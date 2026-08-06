@@ -16,6 +16,7 @@ import {
   fieldChatTaskFor, fieldChatToPatch, fieldLabelFor, type FieldChatInput,
 } from '../llm/tasks/fieldChat.js'
 import { appendTurn, readChats, threadKey } from '../llm/chatStore.js'
+import { discoverProviders } from '../llm/discover.js'
 import { DEFAULT_REPLY_LANGUAGE, ReplyLanguageSchema } from '../llm/tasks/replyLanguage.js'
 import { audioTask, audioToPatch, audioInputFromProject } from '../llm/tasks/audio.js'
 import { criticTask, criticToNotes, criticAllowedRefs, type CriticInput } from '../llm/tasks/critic.js'
@@ -179,6 +180,10 @@ export function registerLlmRoutes(app: FastifyInstance): void {
     })
     return redactSettings(await readSettings(app.dataRoot))
   })
+
+  /** Skan pętli lokalnej — nigdy nie rzuca i nigdy nie zwraca błędu: „nic nie
+   *  stoi" jest normalnym wynikiem, nie awarią. */
+  app.get('/api/llm/discover', async () => ({ found: await discoverProviders() }))
 
   app.get('/api/llm/models', async (_request, reply) => {
     const provider = createProvider(await readSettings(app.dataRoot))
