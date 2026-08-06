@@ -2,6 +2,9 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
+  // Generator zrzutów do README nie jest testem — zapisuje pliki i wymaga
+  // ręcznego uruchomienia (Error: http://127.0.0.1:8899/api/health is already used, make sure that nothing is running on the port/url or set reuseExistingServer:true in config.webServer.).
+  testIgnore: process.env.MMH3_SHOTS === '1' ? [] : ['**/screenshots.spec.ts'],
   globalSetup: './e2e/globalSetup.ts',
   timeout: 30_000,
   use: { baseURL: 'http://127.0.0.1:5173', headless: true },
