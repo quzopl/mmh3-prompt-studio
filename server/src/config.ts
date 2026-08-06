@@ -3,9 +3,19 @@ import { join } from 'node:path'
 export interface Config {
   dataRoot: string
   port: number
+  host: string
 }
 
 const DEFAULT_PORT = 8899
+
+/**
+ * Domyślnie tylko pętla zwrotna. API nie ma uwierzytelniania, a trasa
+ * `POST /api/llm/managed/start` uruchamia binarkę ze wskazanej ścieżki — na
+ * otwartym interfejsie jest to wykonanie dowolnego kodu przez każdego, kto
+ * dosięgnie hosta. Wystawienie na `0.0.0.0` musi być świadomą decyzją
+ * wyrażoną przez `MMH3_HOST`, a nie stanem domyślnym.
+ */
+const DEFAULT_HOST = '127.0.0.1'
 
 /**
  * Konfiguracja z zmiennych środowiskowych. `MMH3_DATA_ROOT` istnieje przede
@@ -24,5 +34,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port = parsed
   }
 
-  return { dataRoot, port }
+  return { dataRoot, port, host: env.MMH3_HOST ?? DEFAULT_HOST }
 }

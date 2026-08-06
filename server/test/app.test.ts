@@ -22,6 +22,17 @@ describe('loadConfig', () => {
   it('odrzuca nieliczbowy port zamiast po cichu wracać do domyślnego', () => {
     expect(() => loadConfig({ HOME: '/home/tester', MMH3_PORT: 'osiem' })).toThrow(/MMH3_PORT/)
   })
+
+  // API nie ma uwierzytelniania, a trasa zarządzanego serwera modelu uruchamia
+  // binarkę ze wskazanej ścieżki — wystawienie na otwarty interfejs musi być
+  // świadomą decyzją, nie stanem domyślnym, na który da się wejść przypadkiem.
+  it('domyślnie słucha wyłącznie na pętli zwrotnej', () => {
+    expect(loadConfig({ HOME: '/home/tester' }).host).toBe('127.0.0.1')
+  })
+
+  it('MMH3_HOST wystawia API na wskazany interfejs', () => {
+    expect(loadConfig({ HOME: '/home/tester', MMH3_HOST: '0.0.0.0' }).host).toBe('0.0.0.0')
+  })
 })
 
 describe('buildApp', () => {
