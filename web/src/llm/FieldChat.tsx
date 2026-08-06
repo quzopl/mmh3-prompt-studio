@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ProjectPatch } from '@mmh3/shared'
 import { useT } from '../i18n/useT.js'
 import { PatchReview } from './PatchReview.js'
+import { ActionButton, LabelledField, inputClass } from './ActionButton.js'
 import { useLlmRun } from './useLlmRun.js'
 import { clearChat, fetchChats, threadKeyFor, type ChatTarget } from './chatApi.js'
 
@@ -94,20 +95,8 @@ export function FieldChat({
       <div className="flex items-center justify-between">
         <h3 className="text-xs uppercase tracking-wide text-neutral-500">{t('llm.chatTitle')}</h3>
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={clear}
-            className="rounded border border-neutral-700 px-2 py-1 text-xs hover:border-neutral-500"
-          >
-            {t('llm.chatClear')}
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-neutral-700 px-2 py-1 text-xs hover:border-neutral-500"
-          >
-            {t('llm.chatClose')}
-          </button>
+          <ActionButton label={t('llm.chatClear')} onClick={clear} />
+          <ActionButton label={t('llm.chatClose')} onClick={onClose} />
         </div>
       </div>
 
@@ -130,35 +119,23 @@ export function FieldChat({
         ))}
       </div>
 
-      <label className="block text-xs">
-        <span className="mb-1 block text-neutral-500">{t('llm.chatMessage')}</span>
+      <LabelledField label={t('llm.chatMessage')}>
         <textarea
-          className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm"
+          className={inputClass}
           rows={2}
           value={draft}
           disabled={busy}
           onChange={event => setDraft(event.target.value)}
         />
-      </label>
+      </LabelledField>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
+        <ActionButton
+          label={t('llm.chatSend')}
           onClick={send}
           disabled={draft.trim() === '' || busy}
-          className="rounded border border-neutral-700 px-2 py-1 text-xs hover:border-neutral-500 disabled:opacity-40"
-        >
-          {t('llm.chatSend')}
-        </button>
-        {busy && (
-          <button
-            type="button"
-            onClick={run.cancel}
-            className="rounded border border-neutral-700 px-2 py-1 text-xs hover:border-neutral-500"
-          >
-            {t('common.cancel')}
-          </button>
-        )}
+        />
+        {busy && <ActionButton label={t('common.cancel')} onClick={run.cancel} />}
         {run.status === 'error' && run.error && (
           <span className="text-xs text-red-400">{run.error}</span>
         )}

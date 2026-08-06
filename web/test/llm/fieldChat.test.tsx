@@ -113,11 +113,13 @@ describe('FieldChat', () => {
     }))
     render(<FieldChat slug="p" target={target} onClose={() => {}} />)
 
+    // `ActionButton` nie jest natywnym `<button>` (spacja przeciekałaby do
+    // skrótu odtwarzania), więc stan „wyłączony" niesie `aria-disabled`.
     const send = await screen.findByRole('button', { name: /wyślij/i })
-    expect(send).toBeDisabled()
+    expect(send).toHaveAttribute('aria-disabled', 'true')
 
     await user.type(screen.getByLabelText(/twoje polecenie/i), 'dodaj deszcz')
-    expect(send).toBeEnabled()
+    expect(send).toHaveAttribute('aria-disabled', 'false')
   })
 
   it('odpowiedź z propozycją pokazuje przegląd operacji', async () => {

@@ -143,7 +143,7 @@ describe('LlmPanel — stan bez skonfigurowanego modelu', () => {
     await screen.findByText('Model nie jest skonfigurowany')
 
     for (const name of [
-      'Struktura z pomysłu', 'Redakcja PL→EN', 'Podpowiedź audio', 'Krytyk', 'Tłumaczenie całego projektu',
+      'Struktura z pomysłu', 'Rozmawiaj o tym polu', 'Podpowiedź audio', 'Krytyk', 'Tłumaczenie całego projektu',
     ]) {
       expect(screen.getByRole('button', { name })).toHaveAttribute('aria-disabled', 'true')
     }
@@ -153,7 +153,7 @@ describe('LlmPanel — stan bez skonfigurowanego modelu', () => {
     await renderReady()
 
     expect(screen.getByRole('button', { name: 'Krytyk' })).toHaveAttribute('aria-disabled', 'false')
-    expect(screen.getByRole('button', { name: 'Redakcja PL→EN' })).toHaveAttribute('aria-disabled', 'false')
+    expect(screen.getByRole('button', { name: 'Rozmawiaj o tym polu' })).toHaveAttribute('aria-disabled', 'false')
     expect(screen.getByRole('button', { name: 'Tłumaczenie całego projektu' })).toHaveAttribute('aria-disabled', 'false')
     expect(screen.queryByText('Model nie jest skonfigurowany')).not.toBeInTheDocument()
 
@@ -202,7 +202,7 @@ describe('LlmPanel — stan bez skonfigurowanego modelu', () => {
     expect(screen.getByLabelText('Adres endpointu')).toHaveValue('http://localhost:1234/v1')
     expect(screen.getByText('Model nie jest skonfigurowany')).toBeInTheDocument()
     for (const name of [
-      'Struktura z pomysłu', 'Redakcja PL→EN', 'Podpowiedź audio', 'Krytyk', 'Tłumaczenie całego projektu',
+      'Struktura z pomysłu', 'Rozmawiaj o tym polu', 'Podpowiedź audio', 'Krytyk', 'Tłumaczenie całego projektu',
     ]) {
       expect(screen.getByRole('button', { name })).toHaveAttribute('aria-disabled', 'true')
     }
@@ -339,19 +339,31 @@ describe('LlmPanel — uruchamianie zadań: kliknięcie woła trasę z właściw
     expect(calls).toEqual([{ task: 'translateAll', projectSlug: 'test-projekt' }])
   })
 
-  it('"Redakcja PL→EN" woła trasę z task=redact i domyślnym celem stylu', async () => {
+  /**
+   * Rozmowa zastąpiła jednostrzałową redakcję (zadanie 7), więc kliknięcie
+   * samo w sobie NIE woła już modelu — otwiera okno. Żądanie idzie dopiero po
+   * wysłaniu polecenia i musi nieść cel wybrany w liście: to jedyne miejsce,
+   * gdzie widać, że wybór z panelu naprawdę dojechał do okna.
+   */
+  it('otwarcie rozmowy nie woła jeszcze modelu', async () => {
     const { user, calls } = await renderReady()
-    await user.click(screen.getByRole('button', { name: 'Redakcja PL→EN' }))
-    expect(calls).toEqual([{ task: 'redact', projectSlug: 'test-projekt', target: { kind: 'style' } }])
+    await user.click(screen.getByRole('button', { name: 'Rozmawiaj o tym polu' }))
+    expect(await screen.findByRole('dialog', { name: /rozmowa o polu/i })).toBeInTheDocument()
+    expect(calls).toEqual([])
   })
 
-  it('zmiana celu redakcji na mówcę zmienia treść wysyłanego żądania', async () => {
+  it('wysłanie polecenia niesie cel wybrany w liście', async () => {
     const { user, calls } = await renderReady()
     await user.selectOptions(screen.getByLabelText('Cel redakcji'), 'speaker:sp-1:fullDescriptor')
-    await user.click(screen.getByRole('button', { name: 'Redakcja PL→EN' }))
+    await user.click(screen.getByRole('button', { name: 'Rozmawiaj o tym polu' }))
+
+    await user.type(await screen.findByLabelText('Twoje polecenie'), 'cieplejszy głos')
+    await user.click(screen.getByRole('button', { name: 'Wyślij' }))
+
     expect(calls).toEqual([{
-      task: 'redact', projectSlug: 'test-projekt',
+      task: 'fieldChat', projectSlug: 'test-projekt',
       target: { kind: 'speaker', speakerId: 'sp-1', field: 'fullDescriptor' },
+      message: 'cieplejszy głos',
     }])
   })
 
@@ -657,5 +669,38 @@ describe('LlmPanel — uwagi krytyka trafiają do store\'u panelu walidacji (zad
     })
     expect(useCritic.getState().notes).toEqual([])
     expect(useCritic.getState().capturedProject).toBeNull()
+  })
+})
+
+/**
+ * Zadanie 7: rozmowa zastępuje jednostrzałową redakcję. Do pola mają prowadzić
+ * jedne drzwi, nie dwoje — dlatego test pilnuje ZNIKNIĘCIA starego przycisku,
+ * nie tylko pojawienia się nowego. Bez pierwszej asercji zostałyby oba i nikt
+ * by tego nie zauważył.
+ */
+describe('LlmPanel — wejście do rozmowy o polu', () => {
+  it('przycisk redakcji ustąpił przyciskowi rozmowy', async () => {
+    vi.stubGlobal('fetch', routedFetch(baseHandlers(settingsEndpoint)))
+    render(<LlmPanel />)
+
+    expect(await screen.findByRole('button', { name: /rozmawiaj o tym polu/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^redakcja pl→en$/i })).not.toBeInTheDocument()
+  })
+
+  it('kliknięcie otwiera okno rozmowy dla celu wybranego w liście', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', routedFetch({
+      ...baseHandlers(settingsEndpoint),
+      'GET /api/projects/test-projekt/chats': () => json({ threads: [] }),
+    }))
+    render(<LlmPanel />)
+
+    await user.selectOptions(
+      await screen.findByLabelText(/cel redakcji/i),
+      'audio:overallSoundscape',
+    )
+    await user.click(screen.getByRole('button', { name: /rozmawiaj o tym polu/i }))
+
+    expect(await screen.findByRole('dialog', { name: /rozmowa o polu/i })).toBeInTheDocument()
   })
 })
