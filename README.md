@@ -150,13 +150,17 @@ Entirely optional. Without a model configured the panel is greyed out with an ex
 
 **Find local servers** scans `127.0.0.1` for Ollama, LM Studio and a bare `llama-server`. If one is running, a single click fills in the settings — no address to remember. Only the loopback interface is scanned: probing other machines from the app's server would be a port scanner, not a convenience, and this app is sometimes exposed on `0.0.0.0`.
 
-**Download a model** appears when you have nothing configured. It fetches the llama.cpp engine (~200 MB) and the model you pick, then configures both for you.
+**Download a model** appears when you have nothing configured. It fetches the llama.cpp engine (32 MB) and the model you pick, then configures both for you.
 
 ![The provider panel with nothing configured: server discovery and the three models offered for download](docs/screenshots/08-install.png)
 
 Three models are offered, with the real download size next to each — 4.7, 9.0 and 19.9 GB. Nothing starts until you click; a few gigabytes should never move without you knowing. If the download is interrupted, the next click resumes from where it stopped rather than starting over. On Windows the engine is the CPU build: the CUDA variants need a second download, and without a Windows machine to test on, promising acceleration nobody verified would be a guess.
 
-If your GPU can be read, the panel shows a line like `NVIDIA RTX PRO 6000 · VRAM 10.4 / 95.6 GB`, refreshed every few seconds — so you can see memory fill when a model loads and drop when you free it. When the reading is unavailable the line is simply absent; a zero pretending to be a measurement is worse than no measurement.
+If your GPU can be read, the panel shows a line with the card and its memory, refreshed every few seconds — so you can watch memory fill when a model loads and drop when you free it. When the reading is unavailable the line is simply absent; a zero pretending to be a measurement is worse than no measurement.
+
+![The provider panel on a machine with a GPU: the VRAM line, and the paths the download filled in](docs/screenshots/09-vram.png)
+
+The two paths in that screenshot were not typed by hand — the download wrote them. Once it finishes you only click **Start server**.
 
 Two ways to connect one manually:
 
