@@ -1,0 +1,120 @@
+import { readFile, rename, writeFile } from 'node:fs/promises'
+import { z } from 'zod'
+import type { Project } from '@mmh3/shared'
+import { chatsFile } from '../storage/paths.js'
+import { redactSourceText, RedactTargetSchema, type RedactTarget } from './tasks/fieldTarget.js'
+
+/** Wiadomości na wątek. Starsze odpadają przy zapisie. */
+export const MAX_MESSAGES = 20
+/** Sufit całego pliku. Bez niego `chats.json` rośnie bez końca — nic go nie sprząta. */
+export const MAX_BYTES = 256 * 1024
+
+const MessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  text: z.string(),
+  english: z.string().optional(),
+})
+
+const ThreadSchema = z.object({
+  key: z.string().min(1),
+  target: RedactTargetSchema,
+  messages: z.array(MessageSchema),
+})
+
+const FileSchema = z.object({ version: z.literal(1), threads: z.array(ThreadSchema) })
+
+export type ChatMessageRecord = z.infer<typeof MessageSchema>
+export type ChatThread = z.infer<typeof ThreadSchema>
+
+/**
+ * Tożsamość wątku wyprowadzona z celu, nie losowa: jedno pole to jeden wątek,
+ * więc ponowne otwarcie rozmowy o tym samym polu trafia w tę samą historię bez
+ * żadnego rejestru identyfikatorów.
+ */
+export function threadKey(target: RedactTarget): string {
+  switch (target.kind) {
+    case 'style': return 'style'
+    case 'audio': return `audio:${target.field}`
+    case 'speaker': return `speaker:${target.speakerId}:${target.field}`
+    case 'shotText': return `shot:${target.shotId}:${target.segmentIndex}`
+  }
+}
+
+export async function readChats(root: string, slug: string): Promise<ChatThread[]> {
+  let raw: string
+  try {
+    raw = await readFile(chatsFile(root, slug), 'utf8')
+  } catch {
+    // Brak pliku to normalny stan projektu, w którym nikt jeszcze nie rozmawiał.
+    return []
+  }
+  const parsed = FileSchema.safeParse(JSON.parse(raw))
+  // Plik uszkodzony albo z przyszłej wersji nie wywraca aplikacji — rozmowa jest
+  // wygodą, nie danymi projektu, więc gorszym wyjściem byłoby zablokować edytor.
+  return parsed.success ? parsed.data.threads : []
+}
+
+export async function appendTurn(
+  root: string,
+  slug: string,
+  project: Project,
+  target: RedactTarget,
+  userText: string,
+  assistantText: string,
+  english: string | undefined,
+): Promise<void> {
+  const key = threadKey(target)
+  const threads = await readChats(root, slug)
+  const existing = threads.find(t => t.key === key)
+  const assistant: ChatMessageRecord = english === undefined
+    ? { role: 'assistant', text: assistantText }
+    : { role: 'assistant', text: assistantText, english }
+  const turn: ChatMessageRecord[] = [{ role: 'user', text: userText }, assistant]
+
+  const updated: ChatThread[] = existing === undefined
+    ? [...threads, { key, target, messages: turn }]
+    : threads.map(t => (t.key === key ? { ...t, messages: [...t.messages, ...turn] } : t))
+
+  await writeThreads(root, slug, project, updated, key)
+}
+
+export async function clearThread(root: string, slug: string, key: string): Promise<void> {
+  const threads = await readChats(root, slug)
+  await writeRaw(root, slug, threads.filter(t => t.key !== key))
+}
+
+async function writeThreads(
+  root: string, slug: string, project: Project, threads: ChatThread[], protectedKey: string,
+): Promise<void> {
+  // Sieroty: ujęcie albo mówca mogli zniknąć z projektu, a ich wątek został.
+  // `redactSourceText` zwraca `undefined` dokładnie dla celu, którego nie da
+  // się już rozwiązać — ta sama funkcja, która decyduje, czy w ogóle jest co
+  // redagować, więc nie ma dwóch definicji „cel istnieje". Wątek właśnie
+  // zapisywanej tury (`protectedKey`) zostaje zawsze: to JEGO zapis wywołał tę
+  // funkcję, więc nie może sam siebie skasować w tym samym przebiegu — sprząta
+  // się dopiero przy KOLEJNYM zapisie gdziekolwiek indziej, gdy okaże się, że
+  // jego cel nadal nie istnieje.
+  const alive = threads.filter(t => t.key === protectedKey || redactSourceText(project, t.target) !== undefined)
+  const trimmed = alive.map(t => ({ ...t, messages: t.messages.slice(-MAX_MESSAGES) }))
+
+  // Limit bajtów zdejmuje CAŁE najstarsze wątki (od początku tablicy, czyli od
+  // najdawniej założonych), nie tnie tekstu w połowie — obcięty JSON nie dałby
+  // się odczytać, a obcięta wiadomość kłamałaby o tym, co użytkownik napisał.
+  let kept = trimmed
+  while (kept.length > 1 && serialize(kept).length > MAX_BYTES) {
+    kept = kept.slice(1)
+  }
+  await writeRaw(root, slug, kept)
+}
+
+async function writeRaw(root: string, slug: string, threads: ChatThread[]): Promise<void> {
+  const target = chatsFile(root, slug)
+  const temporary = `${target}.tmp`
+  // Ten sam powód co w `projectStore.ts`: `writeFile` najpierw obcina plik,
+  // więc przerwanie w trakcie zostawiłoby połowę. `rename` jest atomowe.
+  await writeFile(temporary, serialize(threads), 'utf8')
+  await rename(temporary, target)
+}
+
+const serialize = (threads: ChatThread[]): string =>
+  `${JSON.stringify({ version: 1, threads }, null, 2)}\n`

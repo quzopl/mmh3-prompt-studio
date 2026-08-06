@@ -50,6 +50,8 @@ export async function assertRealPathInside(root: string, candidate: string): Pro
 export const projectDir = (root: string, slug: string): string => join(root, slug)
 export const projectFile = (root: string, slug: string): string =>
   join(projectDir(root, slug), 'project.json')
+export const chatsFile = (root: string, slug: string): string =>
+  join(projectDir(root, slug), 'chats.json')
 export const assetsDir = (root: string, slug: string): string =>
   join(projectDir(root, slug), 'assets')
 export const exportsDir = (root: string, slug: string): string =>
