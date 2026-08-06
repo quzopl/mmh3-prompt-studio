@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { startFakeProvider, type FakeProviderHandle } from '../../server/test/llm/fakeProvider.js'
 
 /**
  * Nie jest to test — to generator zrzutów do README. Trzyma się jednak tych
@@ -95,11 +96,37 @@ test('zrzuty panelu LLM', async ({ page }) => {
   await expect(page.getByText(/model is not configured/i)).toHaveCount(0)
   await panel.screenshot({ path: join(SHOTS, '06-llm-endpoint.png'), animations: 'disabled' })
 
-  // Okno rozmowy o polu: ten sam panel, ale otwarte wejście do rozmowy. Zrzut
-  // robimy z pustym wątkiem, bo tak wygląda pierwsze spotkanie użytkownika z
-  // tą funkcją — z podpowiedzią, co w ogóle można napisać.
-  await page.getByRole('button', { name: /discuss this field/i }).click()
-  const chat = page.getByRole('dialog', { name: /field conversation/i })
-  await expect(chat).toBeVisible()
-  await chat.screenshot({ path: join(SHOTS, '07-field-chat.png'), animations: 'disabled' })
+  // Okno rozmowy o polu z PRAWDZIWĄ turą, nie pustym formularzem. Zrzut ma
+  // pokazać, po co ta funkcja jest: komentarz modelu do przeczytania i osobno
+  // propozycja zmiany pola, która czeka na zaznaczenie. Puste okno pokazywało
+  // tylko, że okno istnieje.
+  //
+  // Dostawcą jest atrapa z `server/test/llm/fakeProvider.ts` — ta sama, której
+  // używa `llm.spec.ts`. Zrzuty do README nie mogą zależeć od tego, czy na
+  // maszynie stoi prawdziwy model.
+  const fake = await startFakeProvider({
+    responseText: JSON.stringify({
+      reply: 'Added rain and cold light from the platform side, and kept the '
+        + 'shallow depth of field you already had.',
+      english: 'Live-action, cinematic realism, cold rain-lit platform, shallow depth of field',
+    }),
+    chunkDelayMs: 5,
+    chunkCount: 3,
+  })
+  try {
+    await page.getByLabel(/endpoint address/i).fill(fake.baseUrl)
+    await page.getByRole('button', { name: /save settings/i }).click()
+
+    await page.getByRole('button', { name: /discuss this field/i }).click()
+    const chat = page.getByRole('dialog', { name: /field conversation/i })
+    await expect(chat).toBeVisible()
+
+    await chat.getByLabel(/your instruction/i).fill('add rain and cold light from the platform side')
+    await chat.getByRole('button', { name: /^send$/i }).click()
+    await expect(chat.getByRole('button', { name: /^confirm$/i })).toBeVisible({ timeout: 20_000 })
+
+    await chat.screenshot({ path: join(SHOTS, '07-field-chat.png'), animations: 'disabled' })
+  } finally {
+    await fake.close()
+  }
 })

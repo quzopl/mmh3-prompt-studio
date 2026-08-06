@@ -22,6 +22,7 @@ Nothing leaves your machine. The app never talks to MiniMax, and video generatio
 - [The validator](#the-validator)
 - [Local model assistance](#local-model-assistance)
 - [Freeing GPU memory before ComfyUI](#freeing-gpu-memory-before-comfyui)
+- [Getting the prompt out](#getting-the-prompt-out)
 - [Export](#export)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Where your data lives](#where-your-data-lives)
@@ -46,8 +47,9 @@ Writing that by hand in a text box means keeping a dozen rules in your head and 
 - **Five prompt modes** with the format differences handled for you.
 - **Frame-accurate editing** at 24 fps, with cut times snapped to the frame grid.
 - **Local model assistance** — optional, and the app is fully usable without it.
+- **A conversation per field** — ask for a rewrite, then refine it with one word; each field remembers its own thread across restarts.
 - **ComfyUI export** — pick a node and a field once, and the app writes your prompt into a copy of your workflow.
-- **Bilingual interface**, Polish and English. The prompt itself is always English.
+- **Bilingual interface**, Polish and English — including everything the model writes back to you. The prompt itself is always English.
 - Autosave, full undo/redo, and projects stored as plain folders you can read and back up.
 
 ## Requirements
@@ -175,13 +177,15 @@ The API key is stored on the server, redacted from every response, and never wri
 
 Pick a field in the list — the visual style, either audio field, a shot's text, a speaker's descriptor — and open a conversation about it.
 
-![A conversation scoped to a single field](docs/screenshots/07-field-chat.png)
+![A field conversation: the instruction, the model's note, and the proposed change waiting unchecked in the patch review](docs/screenshots/07-field-chat.png)
 
 Write what you want in Polish or English: *add rain and cold light*, *make it shorter*, *more contrast on her face*. The reply comes in two parts. The note is for you to read. The proposed field text arrives as an operation in the same patch review as every other task, so nothing changes until you select it.
 
 Because the conversation remembers its earlier turns, a follow-up is one word: *stronger*, *less rain*, *keep it but drop the fog*. This is the whole reason it replaced the one-shot field redaction it grew out of — that version could translate a field, but every refinement meant writing the instruction again from scratch.
 
 **Asking for effects.** MiniMax-H3 has no separate field for effects; they live in the prose of the shot and in the camera phrase. The model is told to reach for four families of observable, physical detail — lighting transitions, weather and atmosphere, how materials behave, and speed of motion — and to never name a mood directly. *Melancholic* and *dramatic* are rejected by a validation rule anyway; *rain beading on cold glass as the light drops* is what the video model can actually draw.
+
+**The language of the reply follows the PL/EN switch**, not the language you happened to type in. The note the model writes back to you is the only text a human reads; everything else it returns — the field text itself — stays English for the video model. Critic notes work the same way. An earlier version asked the model to answer "in the language they wrote in" and left it to infer which one that was; on a real model it inferred wrong, so the interface now tells it outright.
 
 Each field keeps its own conversation, stored in `chats.json` next to `project.json`, so it survives closing the window and restarting the app. A thread holds its last 20 turns; **Clear conversation** empties one thread without touching the others.
 
@@ -203,6 +207,14 @@ There is no universal way to do this, so the button tells you what it can actual
 | **Plain OpenAI-compatible endpoint** | Nothing to call — the button is disabled with an explanation rather than pretending. |
 
 If the release fails it says so with a reason. It will never claim success it did not achieve, because the cost of that mistake is starting a video generation believing you have free VRAM when you do not.
+
+## Getting the prompt out
+
+**Copy prompt**, above the compiled prompt, puts the whole thing on your clipboard.
+
+You need that button, because dragging across the prompt with the mouse does not select text: every token in it is a control that selects the object it came from, so a drag lands on the controls. The app takes selection away from you on purpose — clicking a phrase to jump to the shot that produced it is worth more — so it has to hand copying back.
+
+The app is often served over plain HTTP on a machine on your network, where the browser's clipboard API refuses to run. There is a fallback for exactly that case, and if both routes fail the button says so instead of pretending it worked.
 
 ## Export
 
