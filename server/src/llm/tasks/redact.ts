@@ -1,9 +1,8 @@
-import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { Project, ProjectPatch } from '@mmh3/shared'
 import type { ChatMessage } from '../provider.js'
 import type { TaskDefinition } from '../run.js'
-import { audioFieldTextSchema, MUSIC_TEXT_RULE, SOUNDSCAPE_TEXT_RULE } from './audioFieldText.js'
+import { fieldOp, fieldTextSchema, redactSourceText, type RedactTarget } from './fieldTarget.js'
 
 /**
  * Zadanie 2 z czterech: jedno pole projektu, po polsku, staje się tym samym
@@ -81,33 +80,6 @@ function buildUserMessage(input: RedactInput): string {
 }
 
 /**
- * Cztery rodzaje celu redakcji — po jednym na operację, którą `redactToPatch`
- * umie wyprodukować. Zamknięta unia wyprowadzona z Zoda: `routes/llm.ts`
- * waliduje nią ciało żądania, a `redactToPatch` dostaje już zawężony,
- * bezpieczny typ. Brak piątego wariantu dla dialogu jest tu strukturalny, nie
- * umowny — patrz komentarz nad `RedactSchema`.
- */
-export const RedactTargetSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('style') }),
-  z.object({
-    kind: z.literal('shotText'),
-    shotId: z.string().min(1),
-    segmentIndex: z.number().int().min(0),
-  }),
-  z.object({
-    kind: z.literal('audio'),
-    field: z.enum(['overallSoundscape', 'nonDiegeticMusic']),
-  }),
-  z.object({
-    kind: z.literal('speaker'),
-    speakerId: z.string().min(1),
-    field: z.enum(['fullDescriptor', 'shortDescriptor']),
-  }),
-])
-
-export type RedactTarget = z.infer<typeof RedactTargetSchema>
-
-/**
  * Schemat odpowiedzi ZALEŻNY OD CELU — fix round 2/5, zadanie 11, punkt 2:
  * kiedy `target.kind === 'audio'`, treść „english" jest przeznaczona na
  * `overallSoundscape`/`nonDiegeticMusic` i podlega TEJ SAMEJ regule liczby
@@ -120,9 +92,7 @@ export type RedactTarget = z.infer<typeof RedactTargetSchema>
  * `speaker`) żadna reguła długości nie obowiązuje — zwykła proza.
  */
 function redactSchemaFor(target: RedactTarget): z.ZodType<RedactResult> {
-  if (target.kind !== 'audio') return RedactSchema
-  const rule = target.field === 'overallSoundscape' ? SOUNDSCAPE_TEXT_RULE : MUSIC_TEXT_RULE
-  return z.object({ english: audioFieldTextSchema(rule) })
+  return z.object({ english: fieldTextSchema(target) })
 }
 
 /**
@@ -145,39 +115,6 @@ export function redactTaskFor(target: RedactTarget): TaskDefinition<RedactResult
         { role: 'user', content: buildUserMessage(parsed) },
       ]
     },
-  }
-}
-
-/**
- * Bieżąca treść pola, na które wskazuje `target` — albo `undefined`, gdy cel
- * nie istnieje w ogóle (brak ujęcia/mówcy o tym id) LUB, dla `shotText`,
- * istnieje pod tym indeksem, ale nie jest segmentem tekstowym. Zwykłe
- * indeksowanie `shot.body[index]` już samo odrzuca indeksy ujemne i ułamkowe
- * (nie są prawidłowymi kluczami tablicy w JS) — nie potrzeba tu osobnej
- * straży, jaką ma `segmentAt` w `shared/src/patch/segment.ts` (moduł
- * wewnętrzny pakietu, nieeksportowany z `@mmh3/shared`).
- *
- * Eksportowana: `routes/llm.ts` używa jej wprost, żeby zbudować `RedactInput`
- * z AKTUALNEGO stanu projektu na dysku — ten sam odczyt, którego
- * `redactToPatch` użyje do porównania „czy wynik faktycznie coś zmienia",
- * więc obie strony patrzą na dokładnie tę samą wartość.
- */
-export function redactSourceText(project: Project, target: RedactTarget): string | undefined {
-  switch (target.kind) {
-    case 'style':
-      return project.style
-    case 'audio':
-      return project.audio[target.field]
-    case 'speaker': {
-      const speaker = project.speakers.find(s => s.id === target.speakerId)
-      return speaker?.[target.field]
-    }
-    case 'shotText': {
-      const shot = project.shots.find(s => s.id === target.shotId)
-      if (shot === undefined) return undefined
-      const segment = shot.body[target.segmentIndex]
-      return segment?.kind === 'text' ? segment.text : undefined
-    }
   }
 }
 
@@ -215,43 +152,17 @@ export function redactToPatch(
   if (current === undefined) return { ops: [] }
   if (current.trim() === text) return { ops: [] }
 
-  const id = `op-${randomUUID()}`
+  return { ops: [fieldOp(target, text, redactLabel(target))] }
+}
+
+/** Etykiety BEZ ZMIAN wobec stanu sprzed refaktoru — pilnuje ich 38 asercji
+ *  w `redact.test.ts`. Zwykły `switch` zamiast mapy po `kind`, bo tylko on
+ *  zawęża `target` na tyle, żeby `target.field` się skompilowało. */
+function redactLabel(target: RedactTarget): string {
   switch (target.kind) {
-    case 'style':
-      return {
-        ops: [{ kind: 'setStyle', id, label: 'Redakcja stylu wizualnego z polskiego na angielski.', text }],
-      }
-    case 'audio':
-      return {
-        ops: [{
-          kind: 'setAudio',
-          id,
-          label: `Redakcja pola ${target.field} z polskiego na angielski.`,
-          field: target.field,
-          text,
-        }],
-      }
-    case 'speaker':
-      return {
-        ops: [{
-          kind: 'setSpeakerDescriptor',
-          id,
-          label: `Redakcja opisu mówcy (${target.field}) z polskiego na angielski.`,
-          speakerId: target.speakerId,
-          field: target.field,
-          text,
-        }],
-      }
-    case 'shotText':
-      return {
-        ops: [{
-          kind: 'setShotText',
-          id,
-          label: 'Redakcja treści ujęcia z polskiego na angielski.',
-          shotId: target.shotId,
-          segmentIndex: target.segmentIndex,
-          text,
-        }],
-      }
+    case 'style': return 'Redakcja stylu wizualnego z polskiego na angielski.'
+    case 'audio': return `Redakcja pola ${target.field} z polskiego na angielski.`
+    case 'speaker': return `Redakcja opisu mówcy (${target.field}) z polskiego na angielski.`
+    case 'shotText': return 'Redakcja treści ujęcia z polskiego na angielski.'
   }
 }

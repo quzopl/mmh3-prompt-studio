@@ -9,8 +9,9 @@ import { detectUnloadCapability, unloadModel } from '../llm/unload.js'
 import { runTask } from '../llm/run.js'
 import { structureTask, structureToPatch, type StructureInput } from '../llm/tasks/structure.js'
 import {
-  redactTaskFor, redactToPatch, redactSourceText, RedactTargetSchema, type RedactInput,
+  redactTaskFor, redactToPatch, type RedactInput,
 } from '../llm/tasks/redact.js'
+import { redactSourceText, RedactTargetSchema } from '../llm/tasks/fieldTarget.js'
 import { audioTask, audioToPatch, audioInputFromProject } from '../llm/tasks/audio.js'
 import { criticTask, criticToNotes, criticAllowedRefs, type CriticInput } from '../llm/tasks/critic.js'
 import { runTranslateAll } from '../llm/tasks/translateAll.js'
