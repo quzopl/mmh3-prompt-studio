@@ -757,6 +757,49 @@ describe('translateAll — reguły TREŚCI są uczciwą informacją zwrotną, ni
  * tylko wraca do modelu jako runda naprawy (`runTask`). Schemat powstaje na
  * partię, ze źródeł tej partii — dlatego funkcja, nie stała.
  */
+describe('translateAllTaskFor — straże działają też między partiami (recenzja poprawek końcowych)', () => {
+  /**
+   * Trzy straże potrzebujące treści źródłowej brały ją dotąd z mapy zbudowanej
+   * z JEDNEJ partii. Model odpowiadający na partię N potrafi zwrócić wpis o
+   * `id` z partii M — wtedy `sources.get(id)` było `undefined` i wszystkie
+   * trzy się pomijały, a `translateAllToPatch` takiego pola nie odsiewa, bo
+   * filtruje po pełnej liście celów projektu, na której to `id` stoi.
+   */
+  const batchOne: TranslatableField[] = [
+    { id: 'style', target: { kind: 'style' }, text: 'Realistyczne ujęcia.' },
+  ]
+  const batchTwo: TranslatableField[] = [{
+    id: 'retention:summary',
+    target: { kind: 'retention', scope: { kind: 'summary' } },
+    text: `${VIDEO_EDIT_SUMMARY_OPENING} Zachowaj twarz <Subject 1>.`,
+  }]
+  const allFields = [...batchOne, ...batchTwo]
+
+  const parseInBatchOne = (english: string) =>
+    translateAllTaskFor(batchOne, allFields).schema.safeParse({
+      fields: [{ id: 'retention:summary', english }],
+    })
+
+  it('odpowiedź z identyfikatorem z INNEJ partii jest sprawdzana, nie pomijana', () => {
+    const result = parseInBatchOne(
+      'The final video is an edit of <Video 1>. Keep the face of <Subject 1>.',
+    )
+    if (result.success) throw new Error('oczekiwano odrzucenia — zdanie otwierające przepisane')
+    expect(result.error.issues[0]?.path).toEqual(['fields', 0, 'english'])
+  })
+
+  it('poprawna odpowiedź o polu z innej partii nadal przechodzi', () => {
+    expect(parseInBatchOne(`${VIDEO_EDIT_SUMMARY_OPENING} Keep the face of <Subject 1>.`).success).toBe(true)
+  })
+
+  it('identyfikator spoza CAŁEGO projektu nadal przechodzi schemat — odsiewa go translateAllToPatch', () => {
+    const result = translateAllTaskFor(batchOne, allFields).schema.safeParse({
+      fields: [{ id: 'nie-ma-takiego-pola', english: 'anything at all' }],
+    })
+    expect(result.success).toBe(true)
+  })
+})
+
 describe('translateAllSchemaFor — zdanie otwierające i identyfikator mówcy (recenzja końcowa, runda 2)', () => {
   /**
    * Blok wyżej („pięć odpowiedzi psujących pola REF") dowodzi, że te

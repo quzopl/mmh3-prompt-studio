@@ -126,13 +126,26 @@ function labelTokenProblem(source: string, english: string): string | null {
  *    nadawanym przez `collectTranslatableFields`, nigdy przez model), więc
  *    `AUDIO_FIELD_RULE_BY_ID` (`audioFieldText.ts`) wystarczy bez dostępu do
  *    projektu.
- * 2. Tokeny etykiet przeniesione dosłownie (`labelTokenProblem` wyżej) — ta
- *    straż POTRZEBUJE treści źródłowej, więc schemat nie może być stałą, jak
- *    był do recenzji końcowej: powstaje per-partia, tak jak
- *    `redactTaskFor(target)` powstaje per-cel (zadanie 7). Pole, którego nie
- *    ma w źródłach partii (model zgadł identyfikator), nie ma z czym być
- *    porównane i przechodzi tę straż — i tak odpadnie w
- *    `translateAllToPatch`, które zna pełną listę oferowanych celów.
+ * 2. Trzy straże potrzebujące TREŚCI ŹRÓDŁOWEJ: tokeny etykiet przeniesione
+ *    dosłownie, narzucone zdanie otwierające summary i brak dopisanego
+ *    identyfikatora mówcy. Dlatego schemat nie może być stałą, jak był do
+ *    recenzji końcowej: powstaje per-wywołanie, tak jak `redactTaskFor(target)`
+ *    powstaje per-cel (zadanie 7).
+ *
+ * Mapa źródeł obejmuje CAŁY projekt, nie tylko partię wysłaną w tym zapytaniu.
+ * Recenzja poprawek końcowych zmierzyła, dlaczego: przy projekcie dzielonym na
+ * partie model odpowiadający na partię N potrafi zwrócić wpis o `id` z partii
+ * M, a wtedy `sources.get(id)` było `undefined` i WSZYSTKIE TRZY straże się
+ * pomijały. Wcześniejszy komentarz twierdził tu, że takie pole „i tak odpadnie
+ * w `translateAllToPatch`" — to była nieprawda: `translateAllToPatch` filtruje
+ * po pełnej liście celów projektu, na której to `id` stoi. Odtworzone na
+ * projekcie REF przekraczającym budżet partii: przepisane zdanie otwierające
+ * przechodziło i zapalało `REF_VIDEO_EDIT_OPENING` (BŁĄD) na projekcie, który
+ * go nie miał.
+ *
+ * Identyfikator zmyślony — spoza całego projektu — nadal przechodzi tę straż,
+ * bo nie ma z czym go porównać, i tam poprzednie zdanie było prawdziwe:
+ * odsiewa go `translateAllToPatch`.
  */
 /**
  * Narzucone zdanie otwierające summary zadania montażowego. `REF_VIDEO_EDIT_OPENING`
@@ -287,10 +300,13 @@ function buildUserMessage(input: TranslateAllInput): string {
  * zadaniu 7: wszystko poza schematem (`name`, `jsonSchema`, `maxTokens`,
  * `buildMessages`) od partii nie zależy.
  */
-export function translateAllTaskFor(fields: TranslatableField[]): TaskDefinition<TranslateAllResult> {
+export function translateAllTaskFor(
+  fields: TranslatableField[],
+  allFields: TranslatableField[] = fields,
+): TaskDefinition<TranslateAllResult> {
   return {
     name: 'redakcja całego projektu PL→EN',
-    schema: translateAllSchemaFor(new Map(fields.map(field => [field.id, field.text]))),
+    schema: translateAllSchemaFor(new Map(allFields.map(field => [field.id, field.text]))),
     jsonSchema: translateAllJsonSchema,
     // Więcej niż `redactTask` (600) — jedna partia niesie do kilkudziesięciu
     // pól naraz, zob. `chunkFields`/`DEFAULT_TRANSLATE_ALL_BATCH_CHAR_BUDGET`
@@ -631,7 +647,8 @@ export async function runTranslateAll(
   onRepairStart: () => void,
   charBudget: number = DEFAULT_TRANSLATE_ALL_BATCH_CHAR_BUDGET,
 ): Promise<TranslateAllRunResult> {
-  const batches = chunkFields(collectTranslatableFields(project), charBudget)
+  const allFields = collectTranslatableFields(project)
+  const batches = chunkFields(allFields, charBudget)
   if (batches.length === 0) {
     return { patch: { ops: [] }, promptTokens: 0, completionTokens: 0, repaired: false }
   }
@@ -643,7 +660,9 @@ export async function runTranslateAll(
 
   for (const batch of batches) {
     const input: TranslateAllInput = { fields: batch.map(field => ({ id: field.id, text: field.text })) }
-    const result = await runTask(provider, translateAllTaskFor(batch), input, signal, onRepairStart)
+    const result = await runTask(
+      provider, translateAllTaskFor(batch, allFields), input, signal, onRepairStart,
+    )
     collected.push(...result.value.fields)
     promptTokens = sumTokens(promptTokens, result.promptTokens)
     completionTokens = sumTokens(completionTokens, result.completionTokens)
