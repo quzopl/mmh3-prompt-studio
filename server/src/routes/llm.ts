@@ -19,6 +19,7 @@ import {
 import { appendTurn, readChats, threadKey } from '../llm/chatStore.js'
 import { discoverProviders } from '../llm/discover.js'
 import { engineAssetFor, MODELS } from '../llm/catalog.js'
+import { installEngineAndModel } from '../llm/install.js'
 import { DEFAULT_REPLY_LANGUAGE, ReplyLanguageSchema } from '../llm/tasks/replyLanguage.js'
 import { audioTask, audioToPatch, audioInputFromProject } from '../llm/tasks/audio.js'
 import { criticTask, criticToNotes, criticAllowedRefs, type CriticInput } from '../llm/tasks/critic.js'
@@ -252,6 +253,49 @@ export function registerLlmRoutes(app: FastifyInstance): void {
     }
     const settings = await readSettings(app.dataRoot)
     return await unloadModel(settings, parsed.data.capability)
+  })
+
+  const InstallBody = z.object({ modelId: z.string().min(1) })
+
+  app.post('/api/llm/install', async (request, reply) => {
+    const parsed = InstallBody.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: 'Żądanie niezgodne ze schematem' })
+    if (!MODELS.some(model => model.id === parsed.data.modelId)) {
+      return reply.status(400).send({ error: `Nie znam modelu "${parsed.data.modelId}"` })
+    }
+
+    // Ten sam układ co `POST /api/llm/run`: sprawdzenia zwracające 4xx MUSZĄ
+    // rozstrzygnąć się PRZED `reply.hijack()`, bo po przejęciu odpowiedzi nie
+    // da się już ustawić ani kodu, ani nagłówków.
+    const { signal, release } = abortSignalFor(request)
+    reply.hijack()
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+    })
+    reply.raw.flushHeaders()
+
+    const send = (event: 'progress' | 'done' | 'error', data: unknown): void => {
+      if (signal.aborted) return
+      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    }
+
+    try {
+      const result = await installEngineAndModel({
+        runtimeRoot: app.runtimeRoot,
+        dataRoot: app.dataRoot,
+        modelId: parsed.data.modelId,
+        onProgress: progress => send('progress', progress),
+        signal,
+      })
+      send('done', result)
+    } catch (error) {
+      send('error', { error: error instanceof Error ? error.message : 'Instalacja nie powiodła się' })
+    } finally {
+      release()
+      reply.raw.end()
+    }
   })
 
   app.post('/api/llm/run', async (request, reply) => {

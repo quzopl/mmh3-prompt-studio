@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { mkdir, readdir, rename, rm, stat, statfs } from 'node:fs/promises'
+import { chmod, mkdir, readdir, rename, rm, stat, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { engineAssetFor, MODELS } from './catalog.js'
+import { readSettings, writeSettings } from './settings.js'
 
 export interface InstallProgress {
   stage: 'engine' | 'model'
@@ -145,4 +147,85 @@ export async function extractArchive(archive: string, into: string): Promise<voi
     })
   })
   await rm(archive, { force: true })
+}
+
+/** Nazwa binarki zależy od systemu — na Windows wydanie niesie `.exe`. */
+const ENGINE_BINARY = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
+
+const exists = async (path: string): Promise<boolean> => {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Kolejność jest celowa: NAJPIERW silnik, potem model. Silnik waży ~200 MB, a
+ * model do 19 GB — jeśli coś ma nie wyjść (nieobsługiwana platforma, binarka,
+ * która się nie uruchamia na tej maszynie), lepiej, żeby wyszło po dwustu
+ * megabajtach niż po dziewiętnastu gigabajtach.
+ *
+ * Oba kroki są POMIJANE, gdy plik już jest. Ponowne kliknięcie po nieudanej
+ * instalacji nie pobiera od nowa tego, co się udało.
+ */
+export async function installEngineAndModel(opts: {
+  runtimeRoot: string
+  dataRoot: string
+  modelId: string
+  onProgress: (progress: InstallProgress) => void
+  signal: AbortSignal
+}): Promise<{ serverBinary: string; modelPath: string }> {
+  const model = MODELS.find(candidate => candidate.id === opts.modelId)
+  if (model === undefined) throw new Error(`Nie znam modelu "${opts.modelId}"`)
+
+  const asset = engineAssetFor(process.platform, process.arch)
+  if (asset === null) {
+    throw new Error(
+      `Brak gotowego silnika dla ${process.platform}/${process.arch}. `
+      + 'Pobierz llama.cpp ręcznie i wskaż binarkę w ustawieniach.',
+    )
+  }
+
+  const engineDir = join(opts.runtimeRoot, 'engine')
+  const modelsDir = join(opts.runtimeRoot, 'models')
+
+  let serverBinary = await findExecutable(engineDir, ENGINE_BINARY)
+  if (serverBinary === null) {
+    await ensureFreeSpace(engineDir, 400_000_000)
+    const archive = join(engineDir, asset.name)
+    await downloadWithResume(asset.url, archive, (received, total) => {
+      opts.onProgress({ stage: 'engine', received, total })
+    }, opts.signal)
+    await extractArchive(archive, engineDir)
+    serverBinary = await findExecutable(engineDir, ENGINE_BINARY)
+    if (serverBinary === null) throw new Error('W pobranym wydaniu nie ma llama-server')
+    await chmod(serverBinary, 0o755)
+  }
+
+  if (!await verifyEngine(serverBinary)) {
+    throw new Error('Pobrany llama-server nie uruchamia się na tej maszynie')
+  }
+
+  const modelPath = join(modelsDir, model.fileName)
+  if (!await exists(modelPath)) {
+    await ensureFreeSpace(modelsDir, model.bytes)
+    await downloadWithResume(model.url, modelPath, (received, total) => {
+      opts.onProgress({ stage: 'model', received, total })
+    }, opts.signal)
+  }
+
+  // Ustawienia zapisujemy DOPIERO tutaj — po weryfikacji silnika i po
+  // kompletnym pobraniu modelu. Zapis wcześniej zostawiłby konfigurację
+  // wskazującą na pliki, których nie ma albo które nie działają, a użytkownik
+  // zobaczyłby „skonfigurowane" i błąd dopiero przy starcie serwera.
+  const settings = await readSettings(opts.dataRoot)
+  await writeSettings(opts.dataRoot, {
+    ...settings,
+    mode: 'managed',
+    managed: { ...settings.managed, serverBinary, modelPath, gpuLayers: 99, contextSize: 8192 },
+  })
+
+  return { serverBinary, modelPath }
 }
