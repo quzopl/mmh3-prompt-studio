@@ -315,6 +315,12 @@ Zebrane po pięciu planach, bo przestało być przypadkiem:
 - `Label.role` — wykryte przy Planie 5, zadanie 15: żaden emiter ani żadna reguła
   go nie czyta. `emitRef` renderuje wyłącznie `definition`, i to tylko dla etykiet
   `standalone`.
+- `video.aspect` i `video.resolution` — wykryte przy przeglądzie skilli MiniMaxa.
+  Nie docierają do promptu, nie czyta ich żadna reguła i **nie mają nawet
+  kontrolki w interfejsie**: `newProject` ustawia `16:9` i `768p`, i tak zostaje.
+  Klucz słownikowy `project.aspect` istnieje w obu językach i nie ma czytelnika.
+  To najczystszy przypadek z tej listy — pole nie tylko nikogo nie obchodzi, ale
+  nawet nie da się go zmienić.
 
 **Rozstrzygnięcie:** nie blokuje niczego, ale trzeba to nazwać, zamiast odkrywać
 za każdym razem od nowa. Każde z tych pól da się edytować w interfejsie, więc
@@ -463,3 +469,37 @@ projektach, które dziś przechodzą. Domknięcie to jedna linia — ten sam fil
 Test `translateAll.test.ts` używa dziś `<Subject 3>` właśnie z tego powodu i
 mówi o tym w komentarzu; gdyby regułę zaostrzono, `<Subject 2>` też by zadziałał
 i komentarz można będzie usunąć.
+
+
+## 24. Proporcje kadru: brakujące 3:4 i jedyne sensowne miejsce, gdzie mogłyby działać
+
+Przy przeglądzie katalogu `skills` w repozytorium MiniMax-H3 wyszło, że osiem
+skilli produkcyjnych oferuje użytkownikowi **16:9, 9:16, 1:1, 4:3 i 3:4**, a nasz
+typ `Aspect` zna cztery pierwsze bez `3:4`. Pionowe zdjęcie z iPhone'a ma
+dokładnie 3:4, a w trybach obrazowych (I2VA, FL2VA, L2VA) to właśnie wgrany kadr
+ustala proporcję — więc brak tej wartości jest realną luką wobec tego, co
+MiniMax proponuje własnym użytkownikom.
+
+Same przewodniki nie wymieniają żadnych proporcji, więc **to nie jest złamanie
+reguły promptu**, tylko rozjazd z resztą narzędzi dostawcy.
+
+**Rozstrzygnięcie:** samo dopisanie `3:4` do typu i schematu byłoby gorsze niż
+nic — powiększyłoby punkt 19 zamiast go spłacać, bo powstałaby kolejna wartość,
+której nikt nie może wybrać i która nigdzie nie dociera.
+
+Sensowne domknięcie jest jedno i mieści się w zasadzie „tylko eksport, bez
+połączeń sieciowych", na której stoi cała integracja z ComfyUI:
+**wstrzykiwanie wymiarów do workflow**. `injectPrompt`
+(`server/src/export/comfyWorkflow.ts`, 37 linii) jest już generyczne — wstawia
+dowolną wartość we wskazany węzeł i pole. Wystarczyłoby drugie mapowanie obok
+mapowania promptu: węzeł wymiarów plus pola szerokości i wysokości, liczone z
+proporcji i rozdzielczości projektu i zaokrąglone do wielokrotności wymaganej
+przez ComfyUI. Dopiero wtedy wybór proporcji miałby widoczny skutek:
+wygenerowane wideo ma kadr, dla którego pisało się prompt.
+
+Ta sama zmiana automatycznie uzasadniłaby kontrolkę proporcji w inspektorze i
+uczyniłaby `video.resolution` polem, które też coś robi — czyli spłaciłaby dwie
+pozycje z punktu 19 naraz.
+
+Decyzja właściciela projektu (6 sierpnia 2026): **nie teraz**. Zapisane, żeby
+wróciło z gotową analizą, a nie jako odkrycie od zera.
