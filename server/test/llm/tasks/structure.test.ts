@@ -327,6 +327,39 @@ describe('structureToPatch — proza skompilowana czytelnie', () => {
     const last = op.shots[0]?.body.at(-1)
     expect(last?.kind === 'text' && last.text.trim() === '').toBe(false)
   })
+
+  /**
+   * Trzecie znalezisko z uruchomienia na prawdziwym modelu: model pisze pole
+   * `action` małą literą, więc za kompozycją wychodziło „…an empty platform.
+   * the woman exits the train". Wielka litera należy się jednak WYŁĄCZNIE
+   * akcji, która zaczyna nowe zdanie — bez kompozycji doczepia się ona do
+   * frazy cięcia albo do stylu, a te kończą się przecinkiem lub przyimkiem.
+   * Stąd oba przypadki w jednym teście: reguła jest o granicy zdania, nie o
+   * polu `action`.
+   */
+  it('akcja idzie wielką literą za kompozycją, a małą gdy kompozycji nie ma', () => {
+    const compile = (shots: StructureResult['shots']): string => {
+      const patch = structureToPatch({ shots }, newProject())
+      const op = patch.ops[0]
+      if (op === undefined || op.kind !== 'replaceShots') throw new Error('oczekiwano replaceShots')
+      return buildPrompt({ ...newProject(), shots: op.shots, style: 'Live-action' }).text
+    }
+
+    expect(compile([{
+      startSeconds: 0,
+      composition: 'a wide shot of an empty platform',
+      action: 'the woman exits the train',
+      cameraMove: 'static',
+    }])).toMatch(/empty platform\. The woman exits the train\./)
+
+    // Bez kompozycji akcja stoi tuż za stylem („Live-action, ") — mała litera.
+    expect(compile([{
+      startSeconds: 0,
+      composition: '',
+      action: 'the woman exits the train',
+      cameraMove: 'static',
+    }])).toMatch(/Live-action, the woman exits the train\./)
+  })
 })
 
 describe('structureToPatch — mówca kwestii', () => {

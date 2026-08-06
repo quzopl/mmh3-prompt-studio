@@ -254,11 +254,23 @@ const endSentence = (text: string): string =>
  * wcześniej.
  */
 function composeBodyText(composition: string, action: string): string {
-  const parts = [composition.trim(), action.trim()]
+  const trimmedComposition = composition.trim()
+  const trimmedAction = action.trim()
+  // Akcja zaczyna NOWE zdanie tylko wtedy, gdy stoi za kompozycją — wtedy musi
+  // iść wielką literą. Gdy kompozycji nie ma, akcja dokleja się do tego, co
+  // kompilator postawił przed ciałem ujęcia: frazy cięcia ("the camera cuts
+  // to …") albo stylu ("Live-action, cinematic, …"). Oba kończą się na
+  // przecinku lub przyimku, więc tam wielka litera rozcięłaby zdanie w pół —
+  // przykład dostawcy prowadzi je małą ("…cinematic, a medium-wide shot frames").
+  const action2 = trimmedComposition === '' ? trimmedAction : capitalizeFirst(trimmedAction)
+  const parts = [trimmedComposition, action2]
     .filter(part => part !== '')
     .map(endSentence)
   return parts.join(' ')
 }
+
+const capitalizeFirst = (text: string): string =>
+  text === '' ? text : text[0]!.toUpperCase() + text.slice(1)
 
 /**
  * Łączy sąsiednie segmenty `body` tak, żeby skompilowana proza czytała się
