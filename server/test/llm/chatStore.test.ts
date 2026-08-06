@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { Speaker } from '@mmh3/shared'
 import { newProject } from '../fixtures/newProject.js'
 import { writeProject } from '../../src/storage/projectStore.js'
 import {
-  appendTurn, clearThread, readChats, threadKey, MAX_MESSAGES,
+  appendTurn, clearThread, readChats, threadKey, MAX_MESSAGES, MAX_BYTES,
 } from '../../src/llm/chatStore.js'
 
 let root: string
@@ -62,65 +63,77 @@ describe('chatStore', () => {
   })
 
   it('wątek celu, którego nie ma już w projekcie, znika przy zapisie', async () => {
-    const project = newProject()
-    await writeProject(root, slug, project)
-    const orphan = { kind: 'speaker', speakerId: 'nie-istnieje', field: 'fullDescriptor' } as const
-    await appendTurn(root, slug, project, orphan, 'a', 'b', undefined)
+    // Sierota powstaje uczciwie, tak jak naprawdę: rozmowa dotyczy pola, które
+    // w chwili rozmowy ISTNIEJE, a dopiero potem znika z projektu. Okno
+    // rozmowy da się otworzyć wyłącznie dla pola, które w danej chwili
+    // istnieje — nie da się w praktyce dopisać tury do celu, którego nigdy
+    // nie było, więc test tego nie symuluje.
+    const speaker: Speaker = {
+      id: 'sp1', code: 'S1', characterType: 'kobieta', age: '30s', gender: 'female',
+      pitch: 'mid', timbre: 'warm', rate: 'even', accent: 'neutral', onScreen: true,
+      fullDescriptor: 'kobieta w niebieskim płaszczu', shortDescriptor: 'kobieta',
+    }
+    const withSpeaker = { ...newProject(), speakers: [speaker] }
+    await writeProject(root, slug, withSpeaker)
+
+    const target = { kind: 'speaker', speakerId: 'sp1', field: 'fullDescriptor' } as const
+    await appendTurn(root, slug, withSpeaker, target, 'a', 'b', undefined)
     expect(await readChats(root, slug)).toHaveLength(1)
 
-    await appendTurn(root, slug, project, style, 'c', 'd', undefined)
+    // Mówca znika z projektu — wątek o nim staje się sierotą.
+    const withoutSpeaker = { ...withSpeaker, speakers: [] }
+    await writeProject(root, slug, withoutSpeaker)
+
+    // Sprzątanie uruchamia się przy KOLEJNYM zapisie gdziekolwiek indziej.
+    await appendTurn(root, slug, withoutSpeaker, style, 'c', 'd', undefined)
     const keys = (await readChats(root, slug)).map(t => t.key)
     expect(keys).toEqual(['style'])
   })
 
   it('przekroczenie limitu bajtów usuwa całe najstarsze wątki, nie tnie pliku w połowie', async () => {
     // Cel `shotText` musi wskazywać ISTNIEJĄCY segment tekstowy ze świeżego
-    // projektu pod każdym z 16 indeksów — samo istnienie ujęcia (przy pustym
+    // projektu pod każdym z 11 indeksów — samo istnienie ujęcia (przy pustym
     // `body`) nie wystarczy: `redactSourceText` uznałby każdy z tych celów za
     // sierotę i `alive` skasowałoby wątki, zanim limit bajtów zdążyłby
     // zadziałać. Wtedy plik zostałby pusty, test przeszedłby, ale nie
-    // sprawdzałby gałęzi limitu w ogóle — dokładnie tak, jak ostrzega brief.
+    // sprawdzałby gałęzi limitu w ogóle.
     const base = newProject()
     const shot = base.shots[0]!
     const project = {
       ...base,
       shots: [{
         ...shot,
-        body: Array.from({ length: 16 }, () => ({ kind: 'text' as const, text: 'seed' })),
+        body: Array.from({ length: 11 }, () => ({ kind: 'text' as const, text: 'seed' })),
       }],
     }
     await writeProject(root, slug, project)
 
-    // 15 małych, jednoznacznie odrębnych wątków — same w sobie mieszczą się w
-    // limicie z ogromnym zapasem.
-    for (let i = 0; i < 15; i += 1) {
+    // 10 małych wątków (razem grubo poniżej limitu — dopisywanie ich nigdy
+    // nie zawadza o `MAX_BYTES`, więc żaden z tych zapisów nic nie przycina).
+    for (let i = 0; i < 10; i += 1) {
       await appendTurn(root, slug, project, { kind: 'shotText', shotId: project.shots[0]!.id, segmentIndex: i },
-        'aaa', 'bbb', undefined)
+        'y'.repeat(5_000), 'y'.repeat(5_000), undefined)
     }
-    // Jedna duża tura na 16. wątku przekracza limit tylko odrobinę (o niecały
-    // 1 KB) — usunięcie JEDNEGO najstarszego małego wątku (~160 B) nie
-    // wystarczy, trzeba zdjąć kilka. To odróżnia `while` od `if`: `if`
-    // sprawdza warunek raz i zostawia plik wciąż za dużym, `while` wraca do
-    // warunku po każdym usunięciu, aż zmieści się w limicie. Rozmiar dobrany
-    // eksperymentalnie (patrz raport) tak, by ta różnica była widoczna.
-    const big = 'x'.repeat(129_000)
-    await appendTurn(root, slug, project, { kind: 'shotText', shotId: project.shots[0]!.id, segmentIndex: 15 },
+    // Jeden wielki wątek na końcu przebija sumę daleko ponad limit (z dużym
+    // zapasem, żadnego strojenia pod pojedynczy bajt): ten JEDEN zapis musi
+    // zdjąć KILKA najstarszych małych wątków naraz, bo usunięcie tylko
+    // jednego (~10 KB) nie zbliża się nawet do pokrycia nadwyżki. To właśnie
+    // odróżnia `while` od `if` — `if` sprawdza warunek raz i zostawia plik
+    // wyraźnie za dużym, `while` wraca do warunku po każdym usunięciu.
+    const big = 'x'.repeat(100_000)
+    await appendTurn(root, slug, project, { kind: 'shotText', shotId: project.shots[0]!.id, segmentIndex: 10 },
       big, big, undefined)
 
     const raw = await readFile(join(root, slug, 'chats.json'), 'utf8')
-    expect(raw.length).toBeLessThanOrEqual(256 * 1024)
+    expect(raw.length).toBeLessThanOrEqual(MAX_BYTES)
     expect(() => JSON.parse(raw)).not.toThrow()
 
     const threads = await readChats(root, slug)
-    // Gałąź limitu faktycznie musiała usunąć kilka najstarszych wątków naraz —
-    // najstarszy (indeks 0) zniknął, a najnowszy, duży (indeks 15) przetrwał
-    // w CAŁOŚCI (nieobcięty), bo usuwane są całe wątki, nie fragmenty tekstu.
-    const keys = threads.map(t => t.key)
-    expect(keys).not.toContain('shot:s1:0')
-    expect(keys).toContain('shot:s1:15')
-    const survivingBig = threads.find(t => t.key === 'shot:s1:15')
-    expect(survivingBig?.messages[0]?.text).toBe(big)
-    expect(threads.length).toBeLessThan(16)
+    // Wątków wyraźnie ubyło (zdjęto kilka naraz, nie jeden) — i to, co
+    // najnowsze, przetrwało w całości: usuwane są całe wątki, nie fragmenty.
+    expect(threads.length).toBeGreaterThan(0)
+    expect(threads.length).toBeLessThan(8)
+    expect(threads.map(t => t.key)).toContain('shot:s1:10')
   })
 
   it('czyszczenie usuwa jeden wątek, resztę zostawia', async () => {

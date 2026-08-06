@@ -75,7 +75,7 @@ export async function appendTurn(
     ? [...threads, { key, target, messages: turn }]
     : threads.map(t => (t.key === key ? { ...t, messages: [...t.messages, ...turn] } : t))
 
-  await writeThreads(root, slug, project, updated, key)
+  await writeThreads(root, slug, project, updated)
 }
 
 export async function clearThread(root: string, slug: string, key: string): Promise<void> {
@@ -84,17 +84,17 @@ export async function clearThread(root: string, slug: string, key: string): Prom
 }
 
 async function writeThreads(
-  root: string, slug: string, project: Project, threads: ChatThread[], protectedKey: string,
+  root: string, slug: string, project: Project, threads: ChatThread[],
 ): Promise<void> {
   // Sieroty: ujęcie albo mówca mogli zniknąć z projektu, a ich wątek został.
   // `redactSourceText` zwraca `undefined` dokładnie dla celu, którego nie da
   // się już rozwiązać — ta sama funkcja, która decyduje, czy w ogóle jest co
-  // redagować, więc nie ma dwóch definicji „cel istnieje". Wątek właśnie
-  // zapisywanej tury (`protectedKey`) zostaje zawsze: to JEGO zapis wywołał tę
-  // funkcję, więc nie może sam siebie skasować w tym samym przebiegu — sprząta
-  // się dopiero przy KOLEJNYM zapisie gdziekolwiek indziej, gdy okaże się, że
-  // jego cel nadal nie istnieje.
-  const alive = threads.filter(t => t.key === protectedKey || redactSourceText(project, t.target) !== undefined)
+  // redagować, więc nie ma dwóch definicji „cel istnieje". Filtr działa na
+  // KAŻDYM zapisie, łącznie z tym, który właśnie dopisuje nową turę — w
+  // praktyce nie ma to znaczenia, bo okno rozmowy otwiera się tylko dla pola,
+  // które w danej chwili istnieje w projekcie, więc świeżo dopisywany cel
+  // zawsze jest żywy w momencie zapisu.
+  const alive = threads.filter(t => redactSourceText(project, t.target) !== undefined)
   const trimmed = alive.map(t => ({ ...t, messages: t.messages.slice(-MAX_MESSAGES) }))
 
   // Limit bajtów zdejmuje CAŁE najstarsze wątki (od początku tablicy, czyli od
