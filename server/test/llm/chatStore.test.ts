@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Speaker } from '@mmh3/shared'
 import { newProject } from '../fixtures/newProject.js'
 import { writeProject } from '../../src/storage/projectStore.js'
 import {
-  appendTurn, clearThread, readChats, threadKey, MAX_MESSAGES, MAX_BYTES,
+  appendTurn, clearThread, readChats, threadKey, MAX_MESSAGES, MAX_BYTES, MAX_MESSAGE_CHARS,
 } from '../../src/llm/chatStore.js'
 
 let root: string
@@ -92,7 +92,7 @@ describe('chatStore', () => {
 
   it('przekroczenie limitu bajtów usuwa całe najstarsze wątki, nie tnie pliku w połowie', async () => {
     // Cel `shotText` musi wskazywać ISTNIEJĄCY segment tekstowy ze świeżego
-    // projektu pod każdym z 11 indeksów — samo istnienie ujęcia (przy pustym
+    // projektu pod każdym z 26 indeksów — samo istnienie ujęcia (przy pustym
     // `body`) nie wystarczy: `redactSourceText` uznałby każdy z tych celów za
     // sierotę i `alive` skasowałoby wątki, zanim limit bajtów zdążyłby
     // zadziałać. Wtedy plik zostałby pusty, test przeszedłby, ale nie
@@ -103,37 +103,89 @@ describe('chatStore', () => {
       ...base,
       shots: [{
         ...shot,
-        body: Array.from({ length: 11 }, () => ({ kind: 'text' as const, text: 'seed' })),
+        body: Array.from({ length: 26 }, () => ({ kind: 'text' as const, text: 'seed' })),
       }],
     }
     await writeProject(root, slug, project)
 
-    // 10 małych wątków (razem grubo poniżej limitu — dopisywanie ich nigdy
-    // nie zawadza o `MAX_BYTES`, więc żaden z tych zapisów nic nie przycina).
-    for (let i = 0; i < 10; i += 1) {
+    // 25 małych, jednoznacznie odrębnych wątków — razem tuż poniżej limitu
+    // (poszczególne wiadomości są dużo krótsze niż `MAX_MESSAGE_CHARS`, więc
+    // przycinanie długości nic tu nie zmienia).
+    for (let i = 0; i < 25; i += 1) {
       await appendTurn(root, slug, project, { kind: 'shotText', shotId: project.shots[0]!.id, segmentIndex: i },
-        'y'.repeat(5_000), 'y'.repeat(5_000), undefined)
+        'x'.repeat(4_900), 'x'.repeat(4_900), undefined)
     }
-    // Jeden wielki wątek na końcu przebija sumę daleko ponad limit (z dużym
-    // zapasem, żadnego strojenia pod pojedynczy bajt): ten JEDEN zapis musi
-    // zdjąć KILKA najstarszych małych wątków naraz, bo usunięcie tylko
-    // jednego (~10 KB) nie zbliża się nawet do pokrycia nadwyżki. To właśnie
-    // odróżnia `while` od `if` — `if` sprawdza warunek raz i zostawia plik
-    // wyraźnie za dużym, `while` wraca do warunku po każdym usunięciu.
-    const big = 'x'.repeat(100_000)
-    await appendTurn(root, slug, project, { kind: 'shotText', shotId: project.shots[0]!.id, segmentIndex: 10 },
-      big, big, undefined)
+    // Jeden wątek dobity do granicy przez 10 kolejnych tur (MAX_MESSAGES = 20
+    // wiadomości, każda przy suficie `MAX_MESSAGE_CHARS`) przebija sumę
+    // daleko ponad limit — z ogromnym zapasem, żadnego strojenia pod
+    // pojedynczy bajt. Usunięcie JEDNEGO najstarszego małego wątku (~10 KB)
+    // nie zbliża się nawet do pokrycia nadwyżki (ponad 150 KB) — trzeba zdjąć
+    // kilkanaście naraz. To właśnie odróżnia `while` od `if`: `if` sprawdza
+    // warunek raz i zostawia plik wyraźnie za dużym, `while` wraca do
+    // warunku po każdym usunięciu, aż zmieści się w limicie.
+    const bigTarget = { kind: 'shotText', shotId: project.shots[0]!.id, segmentIndex: 25 } as const
+    for (let t = 0; t < 10; t += 1) {
+      await appendTurn(root, slug, project, bigTarget, 'a'.repeat(MAX_MESSAGE_CHARS), 'b'.repeat(MAX_MESSAGE_CHARS), undefined)
+    }
 
     const raw = await readFile(join(root, slug, 'chats.json'), 'utf8')
     expect(raw.length).toBeLessThanOrEqual(MAX_BYTES)
     expect(() => JSON.parse(raw)).not.toThrow()
 
     const threads = await readChats(root, slug)
-    // Wątków wyraźnie ubyło (zdjęto kilka naraz, nie jeden) — i to, co
+    // Wątków wyraźnie ubyło (zdjęto kilkanaście naraz, nie jeden) — i to, co
     // najnowsze, przetrwało w całości: usuwane są całe wątki, nie fragmenty.
     expect(threads.length).toBeGreaterThan(0)
-    expect(threads.length).toBeLessThan(8)
-    expect(threads.map(t => t.key)).toContain('shot:s1:10')
+    expect(threads.length).toBeLessThan(20)
+    expect(threads.map(t => t.key)).toContain('shot:s1:25')
+  })
+
+  it('pojedyncza wiadomość dłuższa niż MAX_MESSAGE_CHARS zapisuje się przycięta', async () => {
+    const project = newProject()
+    await writeProject(root, slug, project)
+    const tooLong = 'p'.repeat(MAX_MESSAGE_CHARS + 500)
+    await appendTurn(root, slug, project, style, tooLong, tooLong, tooLong)
+
+    const threads = await readChats(root, slug)
+    const message = threads[0]?.messages[0]
+    expect(message?.text).toHaveLength(MAX_MESSAGE_CHARS)
+    const assistant = threads[0]?.messages[1]
+    expect(assistant?.text).toHaveLength(MAX_MESSAGE_CHARS)
+    expect(assistant?.english).toHaveLength(MAX_MESSAGE_CHARS)
+  })
+
+  it('wątek z jedną bardzo długą wiadomością i tak mieści się w MAX_BYTES', async () => {
+    // Bez przycinania długości wiadomości pojedynczy wątek mógłby sam w sobie
+    // przekroczyć `MAX_BYTES` — wtedy `kept.length > 1` w pętli limitu nie
+    // pomogłoby (nie ma czego więcej usunąć), a plik i tak zostałby za duży.
+    const project = newProject()
+    await writeProject(root, slug, project)
+    const huge = 'q'.repeat(1_000_000)
+    await appendTurn(root, slug, project, style, huge, huge, huge)
+
+    const raw = await readFile(join(root, slug, 'chats.json'), 'utf8')
+    expect(raw.length).toBeLessThanOrEqual(MAX_BYTES)
+    expect(() => JSON.parse(raw)).not.toThrow()
+  })
+
+  it('uszkodzona składnia JSON w chats.json to pusta lista, nie wyjątek', async () => {
+    await writeProject(root, slug, newProject())
+    await writeFile(join(root, slug, 'chats.json'), '{ this is not valid json ][', 'utf8')
+    await expect(readChats(root, slug)).resolves.toEqual([])
+  })
+
+  it('dwa równoległe appendTurn dla różnych celów tego samego projektu nie gubią tury', async () => {
+    const project = newProject()
+    await writeProject(root, slug, project)
+    const other = { kind: 'audio', field: 'overallSoundscape' } as const
+
+    await Promise.all([
+      appendTurn(root, slug, project, style, 'a', 'b', undefined),
+      appendTurn(root, slug, project, other, 'c', 'd', undefined),
+    ])
+
+    const keys = (await readChats(root, slug)).map(t => t.key).sort()
+    expect(keys).toEqual(['audio:overallSoundscape', 'style'])
   })
 
   it('czyszczenie usuwa jeden wątek, resztę zostawia', async () => {
